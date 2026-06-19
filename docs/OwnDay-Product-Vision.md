@@ -190,7 +190,11 @@ Moving toward meaningful outcomes is.
 
 Missed commitments are not moral failures.
 
-They are signals that help improve future decisions.
+They are signals that must be captured as close as possible to the moment of failure.
+
+The most valuable information about a failure exists when the failure occurs, not hours later during retrospective reflection.
+
+OwnDay therefore encourages immediate reflection and recovery.
 
 ---
 

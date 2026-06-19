@@ -1,0 +1,37 @@
+services:
+  ownday-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ownday-app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__Default: Host=postgres;Port=5432;Database=ownday;Username=ownday;Password=ownday
+      Telegram__BotToken: ${TELEGRAM_BOT_TOKEN:-CHANGE_ME}
+      Telegram__WebhookSecret: ${TELEGRAM_WEBHOOK_SECRET:-CHANGE_ME}
+      Llm__Enabled: false
+    ports:
+      - "8080:8080"
+
+  postgres:
+    image: postgres:18-alpine
+    container_name: ownday-postgres
+    environment:
+      POSTGRES_DB: ownday
+      POSTGRES_USER: ownday
+      POSTGRES_PASSWORD: ownday
+    ports:
+      - "5432:5432"
+    volumes:
+      - ownday-postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ownday -d ownday"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  ownday-postgres-data:

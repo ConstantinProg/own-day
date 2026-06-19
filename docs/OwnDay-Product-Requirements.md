@@ -378,18 +378,23 @@ Response is persisted.
 
 ---
 
-## FR-10 Failure Classification
+## FR-10A Immediate Reflection
 
-The system shall collect failure reasons.
+The system shall capture failure context at the moment of failure.
+Failure reflection begins immediately after:
+- Not Done
+- Can't Start
+- No Response (when user later reviews the failure)
 
-### Acceptance Criteria
+Failure reflection must occur before recovery action selection.
+Acceptance Criteria
 
-Available reasons:
+The system asks:
 
-* Low Energy
-* Distraction
-* Avoidance
-* External Factors
+1. Why did the task fail?
+2. What was the primary obstacle?
+
+Responses are stored and linked to the execution record.
 
 ---
 
@@ -439,17 +444,16 @@ Response includes:
 
 ## FR-14 Evening Reflection
 
-The system shall perform reflection before planning.
+The system shall provide a lightweight end-of-day review.
 
-### Acceptance Criteria
+Acceptance Criteria
 
-System asks:
+The system asks:
 
-1. What worked today?
-2. What failed today?
-3. What matters most tomorrow?
-4. Are you ready to commit?
+1. What matters most tomorrow?
+2. Are you ready to commit?
 
+Failure analysis is not repeated because it is collected during execution.
 Responses are stored.
 
 ---
@@ -518,6 +522,12 @@ Summary includes:
 * Completion rate
 * Reliability score
 * Execution streak
+* Progress
+
+####  Progress example
+
+Health: 2 actions completed
+Career: 1 action completed
 
 ---
 
