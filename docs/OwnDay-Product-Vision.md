@@ -2,326 +2,424 @@
 
 ## Product Mission
 
-OwnDay helps people transform life vision into daily commitments and consistently act on them even when motivation disappears.
+OwnDay helps a person turn chosen goals into actual results.
 
-The product exists to reduce the gap between the future people want and the actions they take every day.
+The product maintains a continuous model of what the user intends to achieve, what they planned, what they actually did, what happened as a result, and what should change next.
 
-Its purpose is not to help users create more plans.
+Its purpose is not to maximize activity or create more plans.
 
-Its purpose is to help users live according to the plans they have already decided matter.
-
----
-
-# Core Insight
-
-People rarely fail because they lack ambition.
-
-Most people already know what they want:
-
-* become healthier
-* master a profession
-* build a business
-* create meaningful work
-* improve relationships
-* live a more fulfilling life
-
-The problem is not desire.
-
-The problem is the growing distance between long-term aspirations and daily behavior.
-
-People often struggle to:
-
-* define a clear direction
-* translate goals into concrete actions
-* maintain consistent execution over time
-* recognize meaningful progress
-
-As a result, they slowly drift away from the future they genuinely want.
+Its purpose is to improve the user's ability to execute their own intentions under real-world constraints.
 
 ---
 
-# Problem Statement
+## Core Insight
 
-OwnDay is built around four connected gaps.
+A plan is created using incomplete information.
 
-## Vision Gap
+During execution, reality changes or new information appears:
 
-Many people have desires but lack a clear vision of the life they want to build.
+* work takes longer than expected;
+* hidden complexity is discovered;
+* interruptions occur;
+* priorities change;
+* dependencies block progress;
+* the original approach proves incorrect.
 
-Without direction, daily actions lose meaning.
+Therefore, reliable execution requires a feedback loop rather than a fixed plan.
 
----
+OwnDay uses the following cycle:
 
-## Planning Gap
-
-Even when direction exists, people often struggle to identify concrete next steps.
-
-Large goals remain abstract, intimidating, and difficult to act upon.
-
----
-
-## Execution Gap
-
-Even with a clear plan, people regularly choose short-term comfort over long-term benefit.
-
-They know what to do.
-
-They decide what to do.
-
-But they do not do it.
-
-This is the most important and least solved gap.
+**Intent → Plan → Commit → Execute → Observe → Evaluate → Reflect → Adapt → Learn**
 
 ---
 
-## Progress Gap
+## Product Thesis
 
-Even when progress exists, people frequently fail to see it.
+OwnDay treats the user as an agent operating in a dynamic environment with limited time, attention, and information.
 
-The brain compares today's reality to a distant goal and concludes:
+The user determines goals and priorities.
 
-> Nothing is changing.
+OwnDay helps maintain an accurate model of execution and uses AI to:
 
-As a result, motivation fades and commitment weakens.
+* interpret natural-language input;
+* connect actions to goals and commitments;
+* evaluate outcomes;
+* detect deviations from the plan;
+* identify uncertainty and blockers;
+* find recurring execution patterns;
+* improve estimates and planning;
+* recommend when the current plan should be changed.
 
----
+AI manages the execution model.
 
-# Product Thesis
-
-OwnDay is based on a simple belief:
-
-> People are more likely to achieve meaningful goals when they can clearly connect today's actions to their desired future and consistently execute those actions over time.
-
-The product therefore creates a continuous loop:
-
-Vision → Goals → Daily Commitments → Execution → Reflection → Adaptation
-
-Each layer reinforces the next.
+The user retains control over goals, priorities, commitments, and changes of direction.
 
 ---
 
-# What OwnDay Is
+## What OwnDay Is
 
-OwnDay is a personal execution system.
+OwnDay is an **adaptive personal execution system**.
 
-It combines:
+It connects four levels of work:
 
-* life direction
-* daily planning
-* accountability
-* execution support
-* progress awareness
+**Direction**
+What outcomes matter?
 
-into a single continuous process.
+**Planning**
+What should be attempted given current priorities, constraints, and capacity?
 
-Unlike task managers, OwnDay does not stop at planning.
+**Execution**
+What is happening now?
 
-Unlike habit trackers, OwnDay does not simply record behavior.
+**Learning**
+What does actual execution tell us about future decisions?
 
-Unlike AI planners, OwnDay does not assume that creating a good plan is enough.
-
-The product is designed to help users execute meaningful actions consistently.
+OwnDay maintains this connection continuously rather than treating planning, time tracking, and reflection as separate activities.
 
 ---
 
-# Core Value Proposition
+## Execution Model
 
-OwnDay helps users answer three questions every day:
+OwnDay distinguishes between:
 
-### Where am I going?
+**Goal** — a desired future state.
 
-By connecting daily actions to long-term goals and personal vision.
+**Project** — an ongoing body of work contributing to one or more goals.
 
-### What should I do today?
+**Task** — a possible action.
 
-By transforming strategy into concrete commitments.
+**Commitment** — an outcome the user has explicitly decided to pursue.
 
-### Am I actually moving forward?
+**Time Block** — time allocated to a commitment.
 
-By showing how completed actions contribute to meaningful progress.
+**Focus Session** — a period of intentional execution.
 
----
+**Activity** — what the user actually did.
 
-# Product Principles
+**Outcome** — what actually resulted from the work.
 
-## Vision Before Tasks
+**Reflection** — analysis of a meaningful difference between intention and reality.
 
-Tasks only matter when they contribute to a future the user genuinely wants.
+A large backlog is acceptable.
 
----
-
-## Commitments Over Intentions
-
-Intentions are wishes.
-
-Commitments are promises to oneself.
-
-OwnDay treats these differently.
+Active commitments should remain deliberately limited.
 
 ---
 
-## Execution Over Motivation
+## Planning Horizons
 
-Motivation fluctuates.
+OwnDay reduces the number of competing priorities at each horizon.
 
-Execution creates progress.
+A default model is:
 
-The product is designed to function even when motivation is low.
+**Month → 3 outcomes**
+
+**Week → 3 outcomes**
+
+**Day → 3 commitments**
+
+**Now → 1 active commitment**
+
+The exact numbers are not the objective.
+
+The objective is to limit work in progress and preserve the connection between current action and larger goals.
 
 ---
 
-## Reality Over Optimism
+## Closed-Loop Execution
 
-The system evaluates actions, not aspirations.
+Traditional planning is largely open-loop:
 
-It trusts behavior more than plans.
+**Plan → Work → Review later**
+
+OwnDay uses closed-loop execution:
+
+**Plan → Execute → Observe → Correct → Continue**
+
+Observations may come from:
+
+* natural-language check-ins;
+* focus sessions;
+* completion reports;
+* interruptions;
+* discovered blockers;
+* calendar events;
+* connected development tools;
+* other relevant changes in the environment.
+
+Check-ins should occur when their expected value exceeds the cost of interrupting the user.
+
+OwnDay should protect attention, not compete for it.
+
+---
+
+## AI and User Input
+
+OwnDay minimizes manual bookkeeping.
+
+Instead of requiring the user to classify every event, it prefers natural descriptions.
+
+For example:
+
+> Parser is fixed and its tests pass, but the round-trip still fails because the writer has the same problem.
+
+OwnDay should infer the relevant structure:
+
+* progress was made;
+* the original outcome was not fully reached;
+* the remaining problem is in the writer;
+* scope expanded as new information appeared;
+* a possible next action exists.
+
+When confidence is high, OwnDay records its interpretation and allows correction.
+
+When ambiguity affects an important decision, it asks.
+
+The principle is:
+
+> **Infer when possible. Ask when necessary.**
+
+---
+
+## Planning Under Uncertainty
+
+OwnDay does not assume that estimates are facts.
+
+Work may have both an expected cost and uncertainty.
+
+Known implementation work and investigation of an unknown defect should therefore be treated differently.
+
+When uncertainty is high, OwnDay may recommend exploration before implementation:
+
+**Investigate → Learn → Re-estimate → Commit**
+
+Reducing uncertainty can itself be a valuable outcome.
 
 ---
 
 ## Progress Over Activity
 
-Completing tasks is not the goal.
+OwnDay does not optimize:
 
-Moving toward meaningful outcomes is.
+* hours worked;
+* tasks closed;
+* Pomodoro count;
+* keyboard activity;
+* streaks;
+* arbitrary productivity scores.
 
----
+Activity is evidence, not the objective.
 
-## Failure Is Information
+The objective is meaningful progress toward user-selected outcomes.
 
-Missed commitments are not moral failures.
-
-They are signals that must be captured as close as possible to the moment of failure.
-
-The most valuable information about a failure exists when the failure occurs, not hours later during retrospective reflection.
-
-OwnDay therefore encourages immediate reflection and recovery.
-
----
-
-## Accountability With Adaptation
-
-The system maintains accountability while adapting to reality.
-
-It helps users recover from setbacks without abandoning direction.
+A two-hour investigation that eliminates a critical uncertainty may be more valuable than completing several small tasks.
 
 ---
 
-# Behavioral Model
+## Plan vs. Reality
 
-OwnDay assumes that behavior changes through three mechanisms.
+OwnDay distinguishes between three layers:
 
-## Meaning
+**Intent** — what the user wanted to accomplish.
 
-People act more consistently when they understand why an action matters.
+**Allocation** — what time and resources were assigned.
 
-Every commitment should be connected to a larger goal.
+**Reality** — what actually happened.
 
----
+Differences between them provide information.
 
-## Accountability
+For example, an unfinished commitment may result from:
 
-People execute more reliably when commitments are explicit and tracked.
+* insufficient execution time;
+* underestimated complexity;
+* an external dependency;
+* interruption;
+* discovery of additional scope;
+* deliberate reprioritization;
+* an unclear next action;
+* missing knowledge.
 
-Every commitment requires verification.
+These situations require different responses.
 
-Silence is not treated as completion.
-
----
-
-## Visible Progress
-
-People persist longer when they can see evidence of movement.
-
-OwnDay continuously highlights how daily actions contribute to long-term goals.
-
-The system does not rely on artificial rewards.
-
-It provides proof that effort is producing change.
+OwnDay should use AI and execution history to distinguish between them rather than requiring the user to manually categorize every failure.
 
 ---
 
-# Execution Reliability
+## Reflection and Adaptation
 
-OwnDay does not evaluate users based on what they intend to do.
+A missed commitment is information.
 
-It evaluates them based on what they consistently do.
+When an important deviation occurs, OwnDay captures it while the context is still available.
 
-Over time, the system develops an understanding of the user's execution reliability.
+Reflection should lead to adaptation.
 
-When commitments are consistently fulfilled:
+Not:
 
-* trust increases
-* larger commitments become possible
-* plans can become more ambitious
+> Try harder tomorrow.
 
-When commitments are repeatedly broken:
+But, where supported by evidence:
 
-* trust decreases
-* plans must become more realistic
-* commitments may require additional decomposition
+> Similar infrastructure tasks have repeatedly contained significant unknowns. Start the next one with a short investigation before committing to an implementation estimate.
 
-The goal is not punishment.
+OwnDay distinguishes deliberate renegotiation from execution failure.
 
-The goal is creating a realistic path toward sustainable execution.
+Changing a plan because the environment changed is not inherently a failure.
 
 ---
 
-# Why Existing Solutions Fail
+## Learning From Execution
 
-Most products address only one part of the problem.
+OwnDay develops a **Personal Execution Model** from the difference between plans and actual behavior.
 
-| Category          | Vision | Planning | Execution | Progress |
-| ----------------- | ------ | -------- | --------- | -------- |
-| Task Managers     | No     | Partial  | No        | No       |
-| Habit Trackers    | No     | No       | Partial   | Partial  |
-| AI Planners       | No     | Yes      | No        | No       |
-| Coaching Programs | Yes    | Partial  | Partial   | Partial  |
-| OwnDay            | Yes    | Yes      | Yes       | Yes      |
+Over time it can learn patterns such as:
 
-Most solutions assume:
+* estimation bias for different types of work;
+* realistic focus capacity;
+* recurring blockers;
+* effects of interruptions;
+* context-switching costs;
+* useful focus-session lengths;
+* common causes of plan deviation;
+* the amount of capacity normally consumed by unplanned work.
 
-> If people know what to do, they will do it.
+These observations should improve future recommendations.
 
-OwnDay starts with a different assumption:
-
-> People usually know more than they execute.
-
-Therefore execution becomes the central problem.
+Generic productivity advice should gradually be replaced by evidence derived from the user's own execution history.
 
 ---
 
-# Long-Term Vision
+## Experiments
 
-OwnDay aims to become a personal operating system for intentional living.
+When OwnDay identifies a recurring problem, it may propose a temporary experiment.
 
-A system that helps people:
+For example:
 
-* define direction
-* make better commitments
-* execute consistently
-* understand progress
-* adapt without losing momentum
+> Large evening development commitments are frequently unfinished. For one week, limit evening commitments to work expected to take no more than one hour.
 
-Over time, users should develop a stronger connection between who they want to become and what they do every day.
+The system then observes the result.
 
----
+Useful experiments can become personal planning rules.
 
-# Success Definition
+Unsuccessful ones are discarded.
 
-OwnDay succeeds when users increasingly experience the following:
+OwnDay therefore improves the execution process through:
 
-> I am doing what I believe matters.
-
-The ultimate measure of success is not productivity.
-
-It is the reduction of the gap between intention and behavior.
-
-When users consistently act in alignment with their chosen future, OwnDay has fulfilled its mission.
+**Observation → Hypothesis → Experiment → Evaluation → Adaptation**
 
 ---
 
-# Vision Statement
+## Reviews
 
-> You choose who you want to become.
->
-> OwnDay helps ensure that today's actions move you in that direction.
+OwnDay operates at several feedback horizons.
+
+### Immediate Reflection
+
+What changed during execution, and does the current action or plan need adjustment?
+
+### Daily Review
+
+What was intended, what actually happened, and what remains?
+
+### Weekly Review
+
+Did execution support the week's outcomes? What patterns, blockers, or planning errors appeared?
+
+### Monthly Review
+
+Are current projects and weekly outcomes still aligned with the user's chosen direction?
+
+Different review horizons solve different problems:
+
+**Daily → execution**
+
+**Weekly → planning**
+
+**Monthly → direction**
+
+---
+
+## Product Principles
+
+### Human Owns Intent
+
+OwnDay may recommend goals, priorities, and changes, but consequential decisions remain with the user.
+
+### Maintain Reality, Not Just Tasks
+
+A task list is only one part of the execution state.
+
+### Infer Before Asking
+
+AI should perform classification and analysis when sufficient evidence exists.
+
+### Plan Under Uncertainty
+
+Plans are hypotheses based on current knowledge and should change when that knowledge changes.
+
+### Limit Work in Progress
+
+Fewer active commitments make execution and adaptation easier.
+
+### Close the Feedback Loop
+
+Useful deviations should be detected while correction is still possible.
+
+### Protect Attention
+
+Every interruption should justify its cost.
+
+### Outcomes Over Activity
+
+The system optimizes progress toward chosen outcomes rather than visible busyness.
+
+### Failure Is Information
+
+Execution failures should improve future decisions rather than merely produce statistics.
+
+### Adapt From Evidence
+
+Recommendations should increasingly reflect observed execution rather than generic productivity rules.
+
+---
+
+## Initial Product Scope
+
+The initial OwnDay user is a solo software developer managing development work with substantial autonomy, potentially across both professional and personal projects.
+
+The first product should focus on a small closed execution loop:
+
+**Daily priorities → Commitment → Focus Session → Observation → Outcome Evaluation → Reflection → Adaptation**
+
+Techniques such as GTD capture, Rule of Three, time blocking, Pomodoro-style focus sessions, implementation intentions, weekly reviews, and short execution check-ins may support this loop.
+
+They are mechanisms, not the product itself.
+
+---
+
+## Long-Term Vision
+
+OwnDay should become a persistent execution model that understands the relationship between:
+
+**Goals + Plans + Constraints + Commitments + Actions + Observations + Outcomes + History**
+
+As this model improves, OwnDay should require less manual management and provide better decisions about what to do, what to defer, when to continue, and when reality justifies changing the plan.
+
+The intended result is not maximum productivity.
+
+It is greater **agency**: a person's ability to reliably turn their own decisions into real-world outcomes.
+
+---
+
+## Success Definition
+
+OwnDay succeeds when the user becomes better at:
+
+* selecting realistic commitments;
+* focusing on work that contributes to chosen goals;
+* noticing meaningful deviations early;
+* adapting plans when assumptions change;
+* estimating future work from actual experience;
+* learning from repeated execution patterns;
+* producing intended outcomes reliably.
+
+The core measure is the reduction of the gap between **intention and reality**.

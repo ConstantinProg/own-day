@@ -1,0 +1,161 @@
+name: Deploy Production
+
+on:
+  push:
+    branches:
+      - main
+
+  workflow_dispatch:
+
+concurrency:
+  group: production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore
+        run: dotnet restore OwnDay.sln
+
+      - name: Build
+        run: >
+          dotnet build OwnDay.sln
+          --configuration Release
+          --no-restore
+
+      - name: Test
+        run: >
+          dotnet test OwnDay.sln
+          --configuration Release
+          --no-build
+
+  publish-image:
+    name: Publish Docker image
+    needs: test
+    runs-on: ubuntu-latest
+
+    outputs:
+      image: ${{ steps.image.outputs.name }}
+      tag: ${{ steps.image.outputs.tag }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set image metadata
+        id: image
+        shell: bash
+        run: |
+          echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+          echo "tag=sha-${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ steps.image.outputs.name }}:${{ steps.image.outputs.tag }}
+            ${{ steps.image.outputs.name }}:latest
+
+  deploy:
+    name: Deploy
+    needs: publish-image
+    runs-on: ubuntu-latest
+
+    environment:
+      name: production
+      url: https://telegram.ownday.life
+
+    steps:
+      - name: Configure SSH
+        shell: bash
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          install -m 700 -d ~/.ssh
+
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+
+          cat >> ~/.ssh/config <<'EOF'
+          Host production
+            IdentityFile ~/.ssh/id_ed25519
+            IdentitiesOnly yes
+            StrictHostKeyChecking accept-new
+          EOF
+
+          chmod 600 ~/.ssh/config
+
+      - name: Deploy exact image
+        shell: bash
+        env:
+          VPS_HOST: ${{ vars.VPS_HOST }}
+          VPS_USER: ${{ vars.VPS_USER }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+          IMAGE: ${{ needs.publish-image.outputs.image }}
+          IMAGE_TAG: ${{ needs.publish-image.outputs.tag }}
+        run: |
+          ssh \
+            -o "HostName=${VPS_HOST}" \
+            -o "User=${VPS_USER}" \
+            production \
+            "cd '${DEPLOY_PATH}' && \
+             sed -i 's|^OWNDAY_IMAGE=.*|OWNDAY_IMAGE=${IMAGE}:${IMAGE_TAG}|' .env && \
+             docker compose pull app && \
+             docker compose up -d --remove-orphans"
+
+      - name: Verify deployment
+        shell: bash
+        env:
+          VPS_HOST: ${{ vars.VPS_HOST }}
+          VPS_USER: ${{ vars.VPS_USER }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+        run: |
+          for attempt in {1..12}; do
+            if ssh \
+              -o "HostName=${VPS_HOST}" \
+              -o "User=${VPS_USER}" \
+              production \
+              "curl --fail --silent http://127.0.0.1:8080/health >/dev/null"; then
+              echo "Deployment is healthy."
+              exit 0
+            fi
+
+            echo "Health check attempt ${attempt}/12 failed."
+            sleep 5
+          done
+
+          echo "Deployment health check failed."
+
+          ssh \
+            -o "HostName=${VPS_HOST}" \
+            -o "User=${VPS_USER}" \
+            production \
+            "cd '${DEPLOY_PATH}' && \
+             docker compose ps && \
+             docker compose logs --tail=100 app"
+
+          exit 1
