@@ -7,6 +7,8 @@ COPY src/OwnDay.Domain/OwnDay.Domain.csproj src/OwnDay.Domain/
 COPY src/OwnDay.Application/OwnDay.Application.csproj src/OwnDay.Application/
 COPY src/OwnDay.Infrastructure/OwnDay.Infrastructure.csproj src/OwnDay.Infrastructure/
 COPY src/OwnDay.App/OwnDay.App.csproj src/OwnDay.App/
+COPY tests/OwnDay.UnitTests/OwnDay.UnitTests.csproj tests/OwnDay.UnitTests/
+COPY tests/OwnDay.IntegrationTests/OwnDay.IntegrationTests.csproj tests/OwnDay.IntegrationTests/
 
 RUN dotnet restore OwnDay.sln
 
