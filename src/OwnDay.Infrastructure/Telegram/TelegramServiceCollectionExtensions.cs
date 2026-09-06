@@ -1,6 +1,9 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using OwnDay.Infrastructure.Telegram.Commands;
 using OwnDay.Infrastructure.Telegram.Configuration;
+using OwnDay.Infrastructure.Telegram.Handling;
+using OwnDay.Infrastructure.Telegram.Routing;
 using Telegram.Bot;
 
 namespace OwnDay.Infrastructure.Telegram;
@@ -13,12 +16,13 @@ public static class TelegramServiceCollectionExtensions
 
         services.AddSingleton<ITelegramBotClient>(serviceProvider =>
         {
-            var options = serviceProvider
-                .GetRequiredService<IOptions<TelegramOptions>>()
-                .Value;
-
+            var options = serviceProvider.GetRequiredService<IOptions<TelegramOptions>>().Value;
             return new TelegramBotClient(options.BotToken!);
         });
+
+        services.AddSingleton<TelegramCommandParser>();
+        services.AddSingleton<TelegramUpdateRouter>();
+        services.AddSingleton<TelegramUpdateHandler>();
 
         return services;
     }
