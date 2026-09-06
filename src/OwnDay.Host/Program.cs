@@ -9,6 +9,7 @@ builder.Host.UseSerilog((context, loggerConfiguration) =>
     loggerConfiguration.ReadFrom.Configuration(context.Configuration));
 
 builder.Services.AddProblemDetails();
+builder.Services.AddControllers();
 builder.Services.AddHealthChecks();
 
 builder.Services.AddSingleton<IValidateOptions<TelegramOptions>, TelegramOptionsValidator>();
@@ -25,6 +26,7 @@ app.UseSerilogRequestLogging();
 app.UseExceptionHandler();
 app.UseStatusCodePages();
 
+app.MapControllers();
 app.MapHealthChecks("/health");
 app.MapGet("/version", () => TypedResults.Ok(new
 {

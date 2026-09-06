@@ -4,20 +4,25 @@ using Telegram.Bot.Types;
 
 namespace OwnDay.Infrastructure.Telegram.Handling;
 
-public sealed class TelegramUpdateHandler
+public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
 {
     private readonly ITelegramBotClient _botClient;
     private readonly TelegramUpdateRouter _router;
 
-    public TelegramUpdateHandler(ITelegramBotClient botClient, TelegramUpdateRouter router)
+    public TelegramUpdateHandler(
+        ITelegramBotClient botClient,
+        TelegramUpdateRouter router)
     {
         ArgumentNullException.ThrowIfNull(botClient);
         ArgumentNullException.ThrowIfNull(router);
+
         _botClient = botClient;
         _router = router;
     }
 
-    public async Task HandleAsync(Update update, CancellationToken cancellationToken = default)
+    public async Task HandleAsync(
+        Update update,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(update);
 

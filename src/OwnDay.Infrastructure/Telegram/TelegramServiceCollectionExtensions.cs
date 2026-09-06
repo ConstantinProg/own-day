@@ -16,13 +16,19 @@ public static class TelegramServiceCollectionExtensions
 
         services.AddSingleton<ITelegramBotClient>(serviceProvider =>
         {
-            var options = serviceProvider.GetRequiredService<IOptions<TelegramOptions>>().Value;
+            var options = serviceProvider
+                .GetRequiredService<IOptions<TelegramOptions>>()
+                .Value;
+
             return new TelegramBotClient(options.BotToken!);
         });
 
         services.AddSingleton<TelegramCommandParser>();
         services.AddSingleton<TelegramUpdateRouter>();
         services.AddSingleton<TelegramUpdateHandler>();
+        services.AddSingleton<ITelegramUpdateHandler>(
+            serviceProvider =>
+                serviceProvider.GetRequiredService<TelegramUpdateHandler>());
 
         return services;
     }
