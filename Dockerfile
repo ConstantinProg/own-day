@@ -2,18 +2,18 @@ FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
 COPY Directory.Build.props ./
-COPY OwnDay.sln ./
+COPY OwnDay.slnx ./
 COPY src/OwnDay.Domain/OwnDay.Domain.csproj src/OwnDay.Domain/
 COPY src/OwnDay.Application/OwnDay.Application.csproj src/OwnDay.Application/
 COPY src/OwnDay.Infrastructure/OwnDay.Infrastructure.csproj src/OwnDay.Infrastructure/
-COPY src/OwnDay.App/OwnDay.App.csproj src/OwnDay.App/
+COPY src/OwnDay.Host/OwnDay.Host.csproj src/OwnDay.Host/
 COPY tests/OwnDay.UnitTests/OwnDay.UnitTests.csproj tests/OwnDay.UnitTests/
 COPY tests/OwnDay.IntegrationTests/OwnDay.IntegrationTests.csproj tests/OwnDay.IntegrationTests/
 
-RUN dotnet restore OwnDay.sln
+RUN dotnet restore OwnDay.slnx
 
 COPY . ./
-RUN dotnet publish src/OwnDay.App/OwnDay.App.csproj \
+RUN dotnet publish src/OwnDay.Host/OwnDay.Host.csproj \
     -c Release \
     -o /app/publish \
     --no-restore
@@ -30,4 +30,4 @@ USER appuser
 ENV ASPNETCORE_URLS=http://+:8080
 EXPOSE 8080
 
-ENTRYPOINT ["dotnet", "OwnDay.App.dll"]
+ENTRYPOINT ["dotnet", "OwnDay.Host.dll"]

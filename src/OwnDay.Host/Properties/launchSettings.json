@@ -1,12 +1,12 @@
 {
   "profiles": {
-    "OwnDay.App": {
+    "OwnDay.Host": {
       "commandName": "Project",
       "launchBrowser": true,
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development"
       },
-      "applicationUrl": "https://localhost:53391;http://localhost:53392"
+      "applicationUrl": "https://localhost:57768;http://localhost:57769"
     }
   }
 }

@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/Solution Items/">
+    <File Path="Directory.Build.props" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/OwnDay.Application/OwnDay.Application.csproj" />
+    <Project Path="src/OwnDay.Domain/OwnDay.Domain.csproj" />
+    <Project Path="src/OwnDay.Host/OwnDay.Host.csproj" />
+    <Project Path="src/OwnDay.Infrastructure/OwnDay.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/OwnDay.IntegrationTests/OwnDay.IntegrationTests.csproj" />
+  </Folder>
+</Solution>
