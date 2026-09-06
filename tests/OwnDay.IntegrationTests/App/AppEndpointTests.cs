@@ -17,6 +17,7 @@ public sealed class AppEndpointTests : IClassFixture<OwnDayHostFactory>
     public async Task Health_ReturnsOk()
     {
         using var client = _factory.CreateClient();
+
         using var response = await client.GetAsync("/health");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
