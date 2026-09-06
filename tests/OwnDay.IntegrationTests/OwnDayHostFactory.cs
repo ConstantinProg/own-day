@@ -7,21 +7,25 @@ public sealed class OwnDayHostFactory : WebApplicationFactory<Program>
 {
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
-        builder.UseContentRoot(FindHostContentRoot());
+        builder.UseContentRoot(GetHostContentRoot());
+        builder.UseSetting("Telegram:BotToken", "integration-test-bot-token");
+        builder.UseSetting("Telegram:WebhookSecret", "integration-test-webhook-secret");
     }
 
-    private static string FindHostContentRoot()
+    private static string GetHostContentRoot()
     {
-        for (var directory = new DirectoryInfo(AppContext.BaseDirectory);
-             directory is not null;
-             directory = directory.Parent)
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+
+        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "OwnDay.slnx")))
         {
-            if (File.Exists(Path.Combine(directory.FullName, "OwnDay.slnx")))
-            {
-                return Path.Combine(directory.FullName, "src", "OwnDay.Host");
-            }
+            directory = directory.Parent;
         }
 
-        throw new InvalidOperationException("Could not locate the OwnDay solution root.");
+        if (directory is null)
+        {
+            throw new InvalidOperationException("Could not locate the OwnDay solution root.");
+        }
+
+        return Path.Combine(directory.FullName, "src", "OwnDay.Host");
     }
 }

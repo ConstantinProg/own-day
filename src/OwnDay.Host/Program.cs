@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Options;
+using OwnDay.Infrastructure.Telegram.Configuration;
 using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -7,6 +9,12 @@ builder.Host.UseSerilog((context, loggerConfiguration) =>
 
 builder.Services.AddProblemDetails();
 builder.Services.AddHealthChecks();
+
+builder.Services.AddSingleton<IValidateOptions<TelegramOptions>, TelegramOptionsValidator>();
+builder.Services
+    .AddOptions<TelegramOptions>()
+    .BindConfiguration(TelegramOptions.SectionName)
+    .ValidateOnStart();
 
 var app = builder.Build();
 
