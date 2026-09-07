@@ -30,17 +30,17 @@ jobs:
           dotnet-version: 10.0.x
 
       - name: Restore
-        run: dotnet restore OwnDay.sln
+        run: dotnet restore OwnDay.slnx
 
       - name: Build
         run: >
-          dotnet build OwnDay.sln
+          dotnet build OwnDay.slnx
           --configuration Release
           --no-restore
 
       - name: Test
         run: >
-          dotnet test OwnDay.sln
+          dotnet test OwnDay.slnx
           --configuration Release
           --no-build
 
