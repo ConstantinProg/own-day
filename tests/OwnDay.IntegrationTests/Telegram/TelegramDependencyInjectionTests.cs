@@ -1,4 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
+using OwnDay.Infrastructure.Telegram.Delivery;
+using OwnDay.Infrastructure.Telegram.Handling;
 using Telegram.Bot;
 using Xunit;
 
@@ -19,5 +21,21 @@ public sealed class TelegramDependencyInjectionTests : IClassFixture<OwnDayHostF
         var botClient = _factory.Services.GetRequiredService<ITelegramBotClient>();
 
         Assert.IsType<TelegramBotClient>(botClient);
+    }
+
+    [Fact]
+    public void TelegramMessageSender_IsRegistered()
+    {
+        var sender = _factory.Services.GetRequiredService<ITelegramMessageSender>();
+
+        Assert.IsType<TelegramBotMessageSender>(sender);
+    }
+
+    [Fact]
+    public void TelegramUpdateHandler_IsRegistered()
+    {
+        var handler = _factory.Services.GetRequiredService<ITelegramUpdateHandler>();
+
+        Assert.IsType<TelegramUpdateHandler>(handler);
     }
 }

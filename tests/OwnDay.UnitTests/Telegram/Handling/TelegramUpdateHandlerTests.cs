@@ -1,11 +1,7 @@
 using OwnDay.Infrastructure.Telegram.Commands;
+using OwnDay.Infrastructure.Telegram.Delivery;
 using OwnDay.Infrastructure.Telegram.Handling;
 using OwnDay.Infrastructure.Telegram.Routing;
-using Telegram.Bot;
-using Telegram.Bot.Args;
-using Telegram.Bot.Exceptions;
-using Telegram.Bot.Requests;
-using Telegram.Bot.Requests.Abstractions;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
 using Xunit;
@@ -15,25 +11,25 @@ namespace OwnDay.UnitTests.Telegram.Handling;
 public sealed class TelegramUpdateHandlerTests
 {
     [Fact]
-    public async Task HandleAsync_Ignore_DoesNotSendTelegramRequest()
+    public async Task HandleAsync_Ignore_DoesNotSendMessage()
     {
-        var botClient = new FakeTelegramBotClient();
-        var handler = CreateHandler(botClient);
+        var messageSender = new RecordingTelegramMessageSender();
+        var handler = CreateHandler(messageSender);
 
         await handler.HandleAsync(CreateTextMessageUpdate("hello"));
 
-        Assert.Empty(botClient.Requests);
+        Assert.Empty(messageSender.Messages);
     }
 
     [Fact]
-    public async Task HandleAsync_Reply_SendsMessageOnce()
+    public async Task HandleAsync_Reply_SendsExactlyOnce()
     {
-        var botClient = new FakeTelegramBotClient();
-        var handler = CreateHandler(botClient);
+        var messageSender = new RecordingTelegramMessageSender();
+        var handler = CreateHandler(messageSender);
 
         await handler.HandleAsync(CreateTextMessageUpdate("/ping"));
 
-        Assert.Single(botClient.Requests);
+        Assert.Single(messageSender.Messages);
     }
 
     [Fact]
@@ -41,69 +37,56 @@ public sealed class TelegramUpdateHandlerTests
     {
         const long chatId = 123456789;
 
-        var botClient = new FakeTelegramBotClient();
-        var handler = CreateHandler(botClient);
+        var messageSender = new RecordingTelegramMessageSender();
+        var handler = CreateHandler(messageSender);
 
-        await handler.HandleAsync(
-            CreateTextMessageUpdate("/ping", chatId));
+        await handler.HandleAsync(CreateTextMessageUpdate("/ping", chatId));
 
-        var request = Assert.IsType<SendMessageRequest>(
-            Assert.Single(botClient.Requests).Request);
-
-        Assert.Equal(new ChatId(chatId), request.ChatId);
+        var message = Assert.Single(messageSender.Messages);
+        Assert.Equal(chatId, message.ChatId);
     }
 
     [Fact]
     public async Task HandleAsync_Reply_SendsExpectedText()
     {
-        var botClient = new FakeTelegramBotClient();
-        var handler = CreateHandler(botClient);
+        var messageSender = new RecordingTelegramMessageSender();
+        var handler = CreateHandler(messageSender);
 
-        await handler.HandleAsync(
-            CreateTextMessageUpdate("/ping"));
+        await handler.HandleAsync(CreateTextMessageUpdate("/ping"));
 
-        var request = Assert.IsType<SendMessageRequest>(
-            Assert.Single(botClient.Requests).Request);
-
-        Assert.Equal("pong", request.Text);
+        var message = Assert.Single(messageSender.Messages);
+        Assert.Equal("pong", message.Text);
     }
 
     [Fact]
     public async Task HandleAsync_Reply_PassesCancellationToken()
     {
-        using var cancellationTokenSource =
-            new CancellationTokenSource();
+        using var cancellationTokenSource = new CancellationTokenSource();
 
-        var botClient = new FakeTelegramBotClient();
-        var handler = CreateHandler(botClient);
+        var messageSender = new RecordingTelegramMessageSender();
+        var handler = CreateHandler(messageSender);
 
         await handler.HandleAsync(
             CreateTextMessageUpdate("/ping"),
             cancellationTokenSource.Token);
 
-        var sentRequest = Assert.Single(botClient.Requests);
-
-        Assert.Equal(
-            cancellationTokenSource.Token,
-            sentRequest.CancellationToken);
+        var message = Assert.Single(messageSender.Messages);
+        Assert.Equal(cancellationTokenSource.Token, message.CancellationToken);
     }
 
     private static TelegramUpdateHandler CreateHandler(
-        ITelegramBotClient botClient)
+        ITelegramMessageSender messageSender)
     {
         var parser = new TelegramCommandParser();
         var router = new TelegramUpdateRouter(parser);
 
-        return new TelegramUpdateHandler(
-            botClient,
-            router);
+        return new TelegramUpdateHandler(messageSender, router);
     }
 
     private static Update CreateTextMessageUpdate(
         string text,
-        long chatId = 1)
-    {
-        return new Update
+        long chatId = 1) =>
+        new()
         {
             Id = 1,
             Message = new Message
@@ -118,98 +101,23 @@ public sealed class TelegramUpdateHandlerTests
                 Text = text
             }
         };
-    }
 
-    private sealed class FakeTelegramBotClient
-        : ITelegramBotClient
+    private sealed class RecordingTelegramMessageSender : ITelegramMessageSender
     {
-        public List<SentRequest> Requests { get; } = [];
+        public List<SentMessage> Messages { get; } = [];
 
-        public bool LocalBotServer => false;
-
-        public long BotId => 1;
-
-        public TimeSpan Timeout { get; set; }
-
-        public IExceptionParser ExceptionsParser { get; set; } =
-            new DefaultExceptionParser();
-
-        public event AsyncEventHandler<ApiRequestEventArgs>? OnMakingApiRequest
-        {
-            add
-            {
-            }
-            remove
-            {
-            }
-        }
-
-        public event AsyncEventHandler<ApiResponseEventArgs>? OnApiResponseReceived
-        {
-            add
-            {
-            }
-            remove
-            {
-            }
-        }
-
-        public Task<TResponse> SendRequest<TResponse>(
-            IRequest<TResponse> request,
+        public Task SendTextMessageAsync(
+            long chatId,
+            string text,
             CancellationToken cancellationToken = default)
         {
-            Requests.Add(
-                new SentRequest(
-                    request,
-                    cancellationToken));
-
-            return Task.FromResult(
-                CreateResponse<TResponse>());
-        }
-
-        public Task<bool> TestApi(
-            CancellationToken cancellationToken = default)
-        {
-            return Task.FromResult(true);
-        }
-
-        public Task DownloadFile(
-            string filePath,
-            Stream destination,
-            CancellationToken cancellationToken = default)
-        {
-            throw new NotSupportedException();
-        }
-
-        public Task DownloadFile(
-            TGFile file,
-            Stream destination,
-            CancellationToken cancellationToken = default)
-        {
-            throw new NotSupportedException();
-        }
-
-        private static TResponse CreateResponse<TResponse>()
-        {
-            if (typeof(TResponse) == typeof(Message))
-            {
-                return (TResponse)(object)new Message
-                {
-                    Id = 1,
-                    Date = DateTime.UtcNow,
-                    Chat = new Chat
-                    {
-                        Id = 1,
-                        Type = ChatType.Private
-                    }
-                };
-            }
-
-            return default!;
+            Messages.Add(new SentMessage(chatId, text, cancellationToken));
+            return Task.CompletedTask;
         }
     }
 
-    private sealed record SentRequest(
-        object Request,
+    private sealed record SentMessage(
+        long ChatId,
+        string Text,
         CancellationToken CancellationToken);
 }

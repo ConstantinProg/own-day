@@ -1,22 +1,22 @@
+using OwnDay.Infrastructure.Telegram.Delivery;
 using OwnDay.Infrastructure.Telegram.Routing;
-using Telegram.Bot;
 using Telegram.Bot.Types;
 
 namespace OwnDay.Infrastructure.Telegram.Handling;
 
 public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
 {
-    private readonly ITelegramBotClient _botClient;
+    private readonly ITelegramMessageSender _messageSender;
     private readonly TelegramUpdateRouter _router;
 
     public TelegramUpdateHandler(
-        ITelegramBotClient botClient,
+        ITelegramMessageSender messageSender,
         TelegramUpdateRouter router)
     {
-        ArgumentNullException.ThrowIfNull(botClient);
+        ArgumentNullException.ThrowIfNull(messageSender);
         ArgumentNullException.ThrowIfNull(router);
 
-        _botClient = botClient;
+        _messageSender = messageSender;
         _router = router;
     }
 
@@ -37,9 +37,9 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
 
         // Direct Telegram delivery is temporary for side-effect-free Phase 1
         // commands. Domain-changing flows must use transactional outbox.
-        await _botClient.SendMessage(
-            chatId: chatId,
-            text: reply.Text,
-            cancellationToken: cancellationToken);
+        await _messageSender.SendTextMessageAsync(
+            chatId,
+            reply.Text,
+            cancellationToken);
     }
 }

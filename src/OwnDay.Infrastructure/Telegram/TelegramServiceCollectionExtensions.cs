@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using OwnDay.Infrastructure.Telegram.Commands;
 using OwnDay.Infrastructure.Telegram.Configuration;
+using OwnDay.Infrastructure.Telegram.Delivery;
 using OwnDay.Infrastructure.Telegram.Handling;
 using OwnDay.Infrastructure.Telegram.Routing;
 using Telegram.Bot;
@@ -23,8 +24,11 @@ public static class TelegramServiceCollectionExtensions
             return new TelegramBotClient(options.BotToken!);
         });
 
+        services.AddSingleton<ITelegramMessageSender, TelegramBotMessageSender>();
+
         services.AddSingleton<TelegramCommandParser>();
         services.AddSingleton<TelegramUpdateRouter>();
+
         services.AddSingleton<TelegramUpdateHandler>();
         services.AddSingleton<ITelegramUpdateHandler>(
             serviceProvider =>
