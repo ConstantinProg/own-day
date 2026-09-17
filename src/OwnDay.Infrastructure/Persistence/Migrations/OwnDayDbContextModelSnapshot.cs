@@ -81,6 +81,8 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
 
             b.HasIndex("Status", "NextAttemptAt");
 
+            b.HasIndex("Status", "SentAt");
+
             b.ToTable("telegram_outbox_messages");
         });
 #pragma warning restore 612, 618

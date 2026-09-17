@@ -1,7 +1,6 @@
 using OwnDay.Application.Interactions;
 using Microsoft.EntityFrameworkCore;
 using OwnDay.Infrastructure.Persistence;
-using OwnDay.Infrastructure.Telegram.Delivery;
 using OwnDay.Infrastructure.Telegram.Routing;
 using Telegram.Bot.Types;
 
@@ -32,6 +31,12 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(update);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (_router.Route(update) is not TelegramUpdateRouteResult.Dispatch dispatch)
+        {
+            return;
+        }
 
         var now = DateTime.UtcNow;
 
@@ -51,33 +56,29 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
             return;
         }
 
-        var result = _router.Route(update);
+        var commandResult = await _commandHandler.HandleAsync(
+            dispatch.Command,
+            cancellationToken);
 
-        if (result is TelegramUpdateRouteResult.Dispatch dispatch)
+        if (commandResult is IncomingCommandResult.Reply reply)
         {
-            var commandResult = await _commandHandler.HandleAsync(
-                dispatch.Command,
-                cancellationToken);
-
-            if (commandResult is IncomingCommandResult.Reply reply)
+            _dbContext.TelegramOutboxMessages.Add(new TelegramOutboxMessage
             {
-                _dbContext.TelegramOutboxMessages.Add(new TelegramOutboxMessage
-                {
-                    Id = Guid.NewGuid(),
-                    ChatId = update.Message!.Chat.Id,
-                    Text = reply.Text,
-                    Status = OutboxMessageStatus.Pending,
-                    AttemptCount = 0,
-                    NextAttemptAt = now,
-                    CreatedAt = now
-                });
-            }
+                Id = Guid.NewGuid(),
+                ChatId = update.Message!.Chat.Id,
+                Text = reply.Text,
+                Status = OutboxMessageStatus.Pending,
+                AttemptCount = 0,
+                NextAttemptAt = now,
+                CreatedAt = now
+            });
         }
 
-        var processedUpdate = await _dbContext.ProcessedTelegramUpdates.SingleAsync(
-            processed => processed.UpdateId == update.Id,
-            cancellationToken);
-        processedUpdate.ProcessedAt = now;
+        await _dbContext.ProcessedTelegramUpdates
+            .Where(processed => processed.UpdateId == update.Id)
+            .ExecuteUpdateAsync(
+                setters => setters.SetProperty(processed => processed.ProcessedAt, now),
+                cancellationToken);
 
         await _dbContext.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);

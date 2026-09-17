@@ -29,6 +29,8 @@ builder.Services.AddDbContext<OwnDayDbContext>(options =>
         throw new InvalidOperationException("ConnectionStrings:Default is required.")));
 builder.Services.AddScoped<TelegramOutboxDeliveryService>();
 builder.Services.AddHostedService<TelegramOutboxWorker>();
+builder.Services.AddScoped<TelegramOutboxCleanupService>();
+builder.Services.AddHostedService<TelegramOutboxCleanupWorker>();
 
 builder.Services.AddSingleton<IValidateOptions<TelegramOptions>, TelegramOptionsValidator>();
 builder.Services

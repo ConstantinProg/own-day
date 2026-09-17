@@ -6,6 +6,7 @@ namespace OwnDay.Infrastructure.Telegram.Delivery;
 
 public sealed class TelegramOutboxDeliveryService
 {
+    private const int BatchSize = 10;
     private const int MaximumAttempts = 5;
     private readonly OwnDayDbContext _dbContext;
     private readonly ITelegramMessageSender _messageSender;
@@ -25,14 +26,14 @@ public sealed class TelegramOutboxDeliveryService
         _logger = logger;
     }
 
-    public async Task DeliverPendingAsync(CancellationToken cancellationToken)
+    public async Task<bool> DeliverPendingAsync(CancellationToken cancellationToken)
     {
         var now = DateTime.UtcNow;
         var messages = await _dbContext.TelegramOutboxMessages
             .Where(message => message.Status == OutboxMessageStatus.Pending &&
                               message.NextAttemptAt <= now)
             .OrderBy(message => message.CreatedAt)
-            .Take(10)
+            .Take(BatchSize)
             .ToListAsync(cancellationToken);
 
         foreach (var message in messages)
@@ -76,5 +77,8 @@ public sealed class TelegramOutboxDeliveryService
             // Persist each attempt before a later send can be cancelled.
             await _dbContext.SaveChangesAsync(cancellationToken);
         }
+
+        // A full batch may have more ready messages behind it.
+        return messages.Count == BatchSize;
     }
 }

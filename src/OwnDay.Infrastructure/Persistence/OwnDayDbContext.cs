@@ -38,6 +38,7 @@ public sealed class OwnDayDbContext(DbContextOptions<OwnDayDbContext> options)
             entity.Property(message => message.SentAt).HasColumnName("sent_at");
             entity.Property(message => message.LastError).HasColumnName("last_error");
             entity.HasIndex(message => new { message.Status, message.NextAttemptAt });
+            entity.HasIndex(message => new { message.Status, message.SentAt });
         });
     }
 }

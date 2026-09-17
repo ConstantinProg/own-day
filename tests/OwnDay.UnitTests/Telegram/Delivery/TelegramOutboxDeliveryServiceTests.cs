@@ -9,6 +9,32 @@ namespace OwnDay.UnitTests.Telegram.Delivery;
 
 public sealed class TelegramOutboxDeliveryServiceTests
 {
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(9, false)]
+    [InlineData(10, true)]
+    [InlineData(11, true)]
+    public async Task DeliverPendingAsync_ReadyMessages_ReturnsWhetherBatchWasFull(
+        int messageCount, bool expectedFullBatch)
+    {
+        await using var fixture = await DeliveryFixture.CreateAsync(new RecordingMessageSender());
+        for (var index = 0; index < messageCount; index++)
+        {
+            fixture.AddPendingMessage();
+        }
+
+        var futureMessage = fixture.AddPendingMessage();
+        futureMessage.NextAttemptAt = DateTime.UtcNow.AddDays(1);
+        await fixture.DbContext.SaveChangesAsync();
+
+        var fullBatch = await fixture.DeliveryService.DeliverPendingAsync(CancellationToken.None);
+
+        Assert.Equal(expectedFullBatch, fullBatch);
+        Assert.Equal(Math.Min(messageCount, 10), await fixture.DbContext.TelegramOutboxMessages
+            .CountAsync(message => message.Status == OutboxMessageStatus.Sent));
+        Assert.Equal(OutboxMessageStatus.Pending, futureMessage.Status);
+    }
+
     [Fact]
     public async Task DeliverPendingAsync_SendSucceeds_MarksMessageSent()
     {

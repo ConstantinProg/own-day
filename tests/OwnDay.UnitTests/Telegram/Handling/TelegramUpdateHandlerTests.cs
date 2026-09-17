@@ -1,5 +1,6 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Options;
 using OwnDay.Application.Interactions;
 using OwnDay.Infrastructure.Persistence;
@@ -15,14 +16,20 @@ namespace OwnDay.UnitTests.Telegram.Handling;
 
 public sealed class TelegramUpdateHandlerTests
 {
-    [Fact]
-    public async Task HandleAsync_NonCommand_RecordsUpdateWithoutOutboxMessage()
+    [Theory]
+    [InlineData("hello", ChatType.Private)]
+    [InlineData("/ping@OtherBot", ChatType.Private)]
+    [InlineData("/ping", ChatType.Group)]
+    public async Task HandleAsync_IgnoredMessage_DoesNotAccessDatabase(string text, ChatType chatType)
     {
         await using var fixture = await HandlerFixture.CreateAsync();
 
-        await fixture.Handler.HandleAsync(CreateTextMessageUpdate("hello"));
+        var update = CreateTextMessageUpdate(text);
+        update.Message!.Chat.Type = chatType;
+        await fixture.Handler.HandleAsync(update);
 
-        Assert.Single(fixture.DbContext.ProcessedTelegramUpdates);
+        Assert.Empty(fixture.DatabaseCommands);
+        Assert.Empty(fixture.DbContext.ProcessedTelegramUpdates);
         Assert.Empty(fixture.DbContext.TelegramOutboxMessages);
     }
 
@@ -33,6 +40,7 @@ public sealed class TelegramUpdateHandlerTests
 
         await fixture.Handler.HandleAsync(CreateTextMessageUpdate("/ping", chatId: 123456789));
 
+        Assert.DoesNotContain(fixture.DatabaseCommands, command => command.Contains("SELECT", StringComparison.OrdinalIgnoreCase));
         var processedUpdate = Assert.Single(fixture.DbContext.ProcessedTelegramUpdates);
         Assert.NotNull(processedUpdate.ProcessedAt);
         var outboxMessage = Assert.Single(fixture.DbContext.TelegramOutboxMessages);
@@ -51,6 +59,55 @@ public sealed class TelegramUpdateHandlerTests
         await fixture.Handler.HandleAsync(update);
 
         Assert.Single(fixture.DbContext.ProcessedTelegramUpdates);
+        Assert.Single(fixture.DbContext.TelegramOutboxMessages);
+    }
+
+    [Fact]
+    public async Task HandleAsync_UnsupportedUpdate_DoesNotAccessDatabase()
+    {
+        await using var fixture = await HandlerFixture.CreateAsync();
+
+        await fixture.Handler.HandleAsync(new Update { Id = 1 });
+
+        Assert.Empty(fixture.DatabaseCommands);
+    }
+
+    [Theory]
+    [InlineData("hello")]
+    [InlineData("/ping")]
+    public async Task HandleAsync_Cancelled_DoesNotAccessDatabase(string text)
+    {
+        await using var fixture = await HandlerFixture.CreateAsync();
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            fixture.Handler.HandleAsync(CreateTextMessageUpdate(text), cancellation.Token));
+
+        Assert.Empty(fixture.DatabaseCommands);
+    }
+
+    [Fact]
+    public async Task HandleAsync_OutboxSaveFails_RollsBackDeduplicationRecord()
+    {
+        await using var fixture = await HandlerFixture.CreateAsync();
+        await fixture.DbContext.Database.ExecuteSqlRawAsync(
+            """
+            CREATE TRIGGER reject_outbox BEFORE INSERT ON telegram_outbox_messages
+            BEGIN SELECT RAISE(ABORT, 'Simulated storage failure'); END;
+            """);
+
+        await Assert.ThrowsAsync<DbUpdateException>(() =>
+            fixture.Handler.HandleAsync(CreateTextMessageUpdate("/ping")));
+
+        fixture.DbContext.ChangeTracker.Clear();
+        Assert.Empty(fixture.DbContext.ProcessedTelegramUpdates);
+        Assert.Empty(fixture.DbContext.TelegramOutboxMessages);
+
+        await fixture.DbContext.Database.ExecuteSqlRawAsync("DROP TRIGGER reject_outbox");
+        await fixture.Handler.HandleAsync(CreateTextMessageUpdate("/ping"));
+
+        Assert.NotNull(Assert.Single(fixture.DbContext.ProcessedTelegramUpdates).ProcessedAt);
         Assert.Single(fixture.DbContext.TelegramOutboxMessages);
     }
 
@@ -74,24 +131,30 @@ public sealed class TelegramUpdateHandlerTests
         private HandlerFixture(
             SqliteConnection connection,
             OwnDayDbContext dbContext,
-            TelegramUpdateHandler handler)
+            TelegramUpdateHandler handler,
+            List<string> databaseCommands)
         {
             _connection = connection;
             DbContext = dbContext;
             Handler = handler;
+            DatabaseCommands = databaseCommands;
         }
 
         public OwnDayDbContext DbContext { get; }
 
         public TelegramUpdateHandler Handler { get; }
 
+        public List<string> DatabaseCommands { get; }
+
         public static async Task<HandlerFixture> CreateAsync()
         {
             var connection = new SqliteConnection("Data Source=:memory:");
             await connection.OpenAsync();
+            var databaseCommands = new List<string>();
             var dbContext = new OwnDayDbContext(
                 new DbContextOptionsBuilder<OwnDayDbContext>()
                     .UseSqlite(connection)
+                    .LogTo(databaseCommands.Add, [RelationalEventId.CommandExecuted])
                     .Options);
             await dbContext.Database.EnsureCreatedAsync();
 
@@ -103,7 +166,8 @@ public sealed class TelegramUpdateHandlerTests
                 new IncomingCommandHandler(),
                 dbContext);
 
-            return new HandlerFixture(connection, dbContext, handler);
+            databaseCommands.Clear();
+            return new HandlerFixture(connection, dbContext, handler, databaseCommands);
         }
 
         public async ValueTask DisposeAsync()

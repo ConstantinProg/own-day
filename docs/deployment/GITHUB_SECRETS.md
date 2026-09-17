@@ -124,6 +124,15 @@ The application does not apply migrations during startup. Do not use a bundle ta
 in production without a reviewed rollback plan because it executes `Down` operations and may
 delete data.
 
+## Outbox retention
+
+The application removes successfully delivered Telegram outbox messages whose `SentAt` is
+older than 30 days. Cleanup runs on startup and then hourly, in batches of at most 500 rows
+with a one-second pause between full batches. It runs independently of message delivery.
+
+Pending and failed messages, sent messages without `SentAt`, and Telegram update deduplication
+records are retained. The cleanup index is installed by the normal deployment migration step.
+
 ## Configuration Ownership
 
 The current configuration separates deployment settings and credentials from application runtime credentials:
