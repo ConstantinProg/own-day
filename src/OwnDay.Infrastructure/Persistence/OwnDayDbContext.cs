@@ -17,7 +17,9 @@ public sealed class OwnDayDbContext(DbContextOptions<OwnDayDbContext> options)
         {
             entity.ToTable("processed_telegram_updates");
             entity.HasKey(update => update.UpdateId);
-            entity.Property(update => update.UpdateId).HasColumnName("update_id");
+            entity.Property(update => update.UpdateId)
+                .ValueGeneratedNever()
+                .HasColumnName("update_id");
             entity.Property(update => update.ReceivedAt).HasColumnName("received_at");
             entity.Property(update => update.ProcessedAt).HasColumnName("processed_at");
         });
