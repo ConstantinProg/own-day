@@ -124,10 +124,10 @@ jobs:
             production \
             "cd '${DEPLOY_PATH}' && \
              sed -i 's|^OWNDAY_IMAGE=.*|OWNDAY_IMAGE=${IMAGE}:${IMAGE_TAG}|' .env && \
-             docker compose pull app migrate postgres && \
-             docker compose up -d postgres && \
-             docker compose run --rm migrate && \
-             docker compose up -d app --remove-orphans"
+             docker compose -f compose.yaml pull app migrate postgres && \
+             docker compose -f compose.yaml up -d postgres && \
+             docker compose -f compose.yaml run --rm migrate && \
+             docker compose -f compose.yaml up -d app --remove-orphans"
 
       - name: Verify deployment
         shell: bash
@@ -157,7 +157,7 @@ jobs:
             -o "User=${VPS_USER}" \
             production \
             "cd '${DEPLOY_PATH}' && \
-             docker compose ps && \
-             docker compose logs --tail=100 migrate app"
+             docker compose -f compose.yaml ps && \
+             docker compose -f compose.yaml logs --tail=100 migrate app"
 
           exit 1
