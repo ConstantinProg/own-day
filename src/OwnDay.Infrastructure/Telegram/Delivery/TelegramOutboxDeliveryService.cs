@@ -72,8 +72,9 @@ public sealed class TelegramOutboxDeliveryService
                         message.AttemptCount);
                 }
             }
-        }
 
-        await _dbContext.SaveChangesAsync(cancellationToken);
+            // Persist each attempt before a later send can be cancelled.
+            await _dbContext.SaveChangesAsync(cancellationToken);
+        }
     }
 }

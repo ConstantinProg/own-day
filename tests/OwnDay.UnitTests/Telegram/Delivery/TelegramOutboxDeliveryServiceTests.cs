@@ -38,6 +38,53 @@ public sealed class TelegramOutboxDeliveryServiceTests
         Assert.True(message.NextAttemptAt > DateTime.UtcNow.AddSeconds(-1));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DeliverPendingAsync_SecondSendCancelled_PersistsFirstAttempt(bool firstSendFails)
+    {
+        using var cancellation = new CancellationTokenSource();
+        var sender = new CancellingMessageSender(cancellation, firstSendFails);
+        await using var fixture = await DeliveryFixture.CreateAsync(sender);
+        var first = fixture.AddPendingMessage(DateTime.UtcNow.AddMinutes(-2));
+        var second = fixture.AddPendingMessage(DateTime.UtcNow.AddMinutes(-1));
+        var originalNextAttemptAt = first.NextAttemptAt;
+        await fixture.DbContext.SaveChangesAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            fixture.DeliveryService.DeliverPendingAsync(cancellation.Token));
+
+        Assert.Equal(2, sender.Tokens.Count);
+        Assert.All(sender.Tokens, token => Assert.Equal(cancellation.Token, token));
+
+        fixture.DbContext.ChangeTracker.Clear();
+        var storedFirst = await fixture.DbContext.TelegramOutboxMessages.SingleAsync(
+            message => message.Id == first.Id);
+        var storedSecond = await fixture.DbContext.TelegramOutboxMessages.SingleAsync(
+            message => message.Id == second.Id);
+
+        Assert.Equal(
+            firstSendFails ? OutboxMessageStatus.Pending : OutboxMessageStatus.Sent,
+            storedFirst.Status);
+        Assert.Equal(firstSendFails ? 1 : 0, storedFirst.AttemptCount);
+        if (firstSendFails)
+        {
+            Assert.Null(storedFirst.SentAt);
+            Assert.Equal("Telegram is unavailable.", storedFirst.LastError);
+            Assert.True(storedFirst.NextAttemptAt > originalNextAttemptAt);
+        }
+        else
+        {
+            Assert.NotNull(storedFirst.SentAt);
+            Assert.Null(storedFirst.LastError);
+        }
+
+        Assert.Equal(OutboxMessageStatus.Pending, storedSecond.Status);
+        Assert.Equal(0, storedSecond.AttemptCount);
+        Assert.Null(storedSecond.SentAt);
+        Assert.Null(storedSecond.LastError);
+    }
+
     private sealed class DeliveryFixture : IAsyncDisposable
     {
         private readonly SqliteConnection _connection;
@@ -75,7 +122,7 @@ public sealed class TelegramOutboxDeliveryServiceTests
                     NullLogger<TelegramOutboxDeliveryService>.Instance));
         }
 
-        public TelegramOutboxMessage AddPendingMessage()
+        public TelegramOutboxMessage AddPendingMessage(DateTime? createdAt = null)
         {
             var message = new TelegramOutboxMessage
             {
@@ -84,7 +131,7 @@ public sealed class TelegramOutboxDeliveryServiceTests
                 Text = "pong",
                 Status = OutboxMessageStatus.Pending,
                 NextAttemptAt = DateTime.UtcNow.AddMinutes(-1),
-                CreatedAt = DateTime.UtcNow.AddMinutes(-1)
+                CreatedAt = createdAt ?? DateTime.UtcNow.AddMinutes(-1)
             };
 
             DbContext.TelegramOutboxMessages.Add(message);
@@ -104,6 +151,30 @@ public sealed class TelegramOutboxDeliveryServiceTests
             long chatId,
             string text,
             CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+
+    private sealed class CancellingMessageSender(
+        CancellationTokenSource cancellation,
+        bool firstSendFails) : ITelegramMessageSender
+    {
+        public List<CancellationToken> Tokens { get; } = [];
+
+        public Task SendTextMessageAsync(
+            long chatId,
+            string text,
+            CancellationToken cancellationToken = default)
+        {
+            Tokens.Add(cancellationToken);
+            if (Tokens.Count == 2)
+            {
+                cancellation.Cancel();
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+
+            return firstSendFails
+                ? Task.FromException(new InvalidOperationException("Telegram is unavailable."))
+                : Task.CompletedTask;
+        }
     }
 
     private sealed class FailingMessageSender : ITelegramMessageSender
