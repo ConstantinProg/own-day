@@ -1,8 +1,9 @@
-# OwnDay — GitHub Secrets
+# OwnDay — GitHub Deployment Variables and Secrets
 
 ## Overview
 
-OwnDay uses GitHub Actions Environment secrets to provide credentials required for production deployment.
+OwnDay uses GitHub Actions variables for deployment settings and Environment secrets for credentials.
+The [deployment workflow](../../.github/workflows/deploy.yml) is the source of truth for their usage.
 
 Production deployment is associated with the GitHub environment:
 
@@ -18,17 +19,19 @@ Location in the repository settings:
 
 Deployment jobs that require access to production credentials must explicitly use the `production` environment.
 
-## Environment Secrets
+## Environment Variables
 
-The following secrets are configured in:
+Configure the following required variables in:
 
-`Settings → Environments → production → Environment secrets`
+`Settings → Environments → production → Environment variables`
 
-| Secret        | Purpose                                                                       |
-| ------------- | ----------------------------------------------------------------------------- |
-| `VPS_HOST`    | Public IP address or hostname of the production VPS.                          |
-| `VPS_USER`    | Linux user used by GitHub Actions to connect to the VPS over SSH.             |
-| `VPS_SSH_KEY` | Private SSH key used by GitHub Actions to authenticate on the production VPS. |
+| Variable      | Purpose                                                                |
+| ------------- | ---------------------------------------------------------------------- |
+| `VPS_HOST`    | Public IP address or hostname of the production VPS.                    |
+| `VPS_USER`    | Linux user used by GitHub Actions to connect to the VPS over SSH.        |
+| `DEPLOY_PATH` | Absolute directory on the VPS containing `compose.yaml` and `.env`.     |
+
+The workflow reads these values through `vars`. Creating only same-named secrets does not supply them.
 
 ### VPS_HOST
 
@@ -53,6 +56,18 @@ OwnDay production deployment currently uses:
 `deploy`
 
 The account should have only the permissions required to deploy and manage OwnDay.
+
+### DEPLOY_PATH
+
+Contains the absolute path to the deployment directory, for example `/opt/ownday`.
+The workflow changes to this directory before updating `.env` and running Docker Compose.
+The directory must already contain `compose.yaml` and `.env` and be accessible to `VPS_USER`.
+
+## Environment Secrets
+
+Configure `VPS_SSH_KEY` in:
+
+`Settings → Environments → production → Environment secrets`
 
 ### VPS_SSH_KEY
 
@@ -99,8 +114,9 @@ docker compose run --rm migrate
 docker compose up -d app --remove-orphans
 ```
 
-Copy [`deploy/compose.yaml`](../../deploy/compose.yaml) to `/opt/ownday/compose.yaml` before the
-first deployment. The bundle reads `ConnectionStrings__Default` from the VPS `.env`; do not put
+Copy [`deploy/compose.yaml`](../../deploy/compose.yaml) to `compose.yaml` in the directory specified
+by `DEPLOY_PATH` before the first deployment (for example `/opt/ownday/compose.yaml`). Run the
+commands above from that directory. The bundle reads `ConnectionStrings__Default` from the VPS `.env`; do not put
 production connection strings in the image or repository. The VPS must use an x86-64 Linux host,
 which matches the `linux-x64` bundle target.
 
@@ -108,14 +124,18 @@ The application does not apply migrations during startup. Do not use a bundle ta
 in production without a reviewed rollback plan because it executes `Down` operations and may
 delete data.
 
-## Secret Ownership
+## Configuration Ownership
 
-The current configuration separates deployment credentials from application runtime credentials:
+The current configuration separates deployment settings and credentials from application runtime credentials:
 
-GitHub `production` environment:
+GitHub `production` environment variables:
 
 * `VPS_HOST`
 * `VPS_USER`
+* `DEPLOY_PATH`
+
+GitHub `production` environment secrets:
+
 * `VPS_SSH_KEY`
 
 Production VPS:
@@ -133,13 +153,12 @@ A deployment job that accesses the VPS secrets must target:
 
 `environment: production`
 
-The secrets are then available through GitHub Actions expressions:
+The workflow uses these GitHub Actions expressions:
 
-`secrets.VPS_HOST`
-
-`secrets.VPS_USER`
-
-`secrets.VPS_SSH_KEY`
+* `vars.VPS_HOST`
+* `vars.VPS_USER`
+* `vars.DEPLOY_PATH`
+* `secrets.VPS_SSH_KEY`
 
 Build and test jobs should not require access to these production credentials.
 
@@ -161,10 +180,14 @@ GitHub environment:
 
 `production`
 
-Configured Environment secrets:
+Required Environment variables:
 
 * `VPS_HOST`
 * `VPS_USER`
+* `DEPLOY_PATH`
+
+Required Environment secrets:
+
 * `VPS_SSH_KEY`
 
 Runtime Telegram secrets:
