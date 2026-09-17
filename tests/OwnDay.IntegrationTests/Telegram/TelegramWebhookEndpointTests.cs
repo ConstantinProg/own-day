@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
@@ -98,6 +99,64 @@ public sealed class TelegramWebhookEndpointTests : IClassFixture<OwnDayHostFacto
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Empty(messageSender.Messages);
+    }
+
+    [Theory]
+    [InlineData(null, "{")]
+    [InlineData("invalid-secret", "{")]
+    [InlineData("", "{")]
+    [InlineData(null, "")]
+    public async Task Post_UnauthorizedMalformedBody_ReturnsUnauthorizedWithoutDispatch(
+        string? secret, string body)
+    {
+        var handler = new RecordingTelegramUpdateHandler();
+        using var factory = CreateFactoryWithHandler(handler);
+        using var client = factory.CreateClient();
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/telegram/webhook");
+        if (secret is not null)
+        {
+            request.Headers.TryAddWithoutValidation(SecretHeaderName, secret);
+        }
+
+        request.Content = new StringContent(body, Encoding.UTF8, "application/json");
+
+        using var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Empty(handler.Calls);
+    }
+
+    [Theory]
+    [InlineData("{")]
+    [InlineData("{\"update_id\":42}")]
+    public async Task Post_MultipleSecretValues_ReturnsUnauthorizedWithoutDispatch(string body)
+    {
+        var handler = new RecordingTelegramUpdateHandler();
+        using var factory = CreateFactoryWithHandler(handler);
+        using var client = factory.CreateClient();
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/telegram/webhook");
+        request.Headers.TryAddWithoutValidation(SecretHeaderName, new[] { WebhookSecret, WebhookSecret });
+        request.Content = new StringContent(body, Encoding.UTF8, "application/json");
+
+        using var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Empty(handler.Calls);
+    }
+
+    [Fact]
+    public async Task Post_AuthorizedMalformedBody_ReturnsBadRequestWithoutDispatch()
+    {
+        var handler = new RecordingTelegramUpdateHandler();
+        using var factory = CreateFactoryWithHandler(handler);
+        using var client = factory.CreateClient();
+        AddValidSecret(client);
+        using var content = new StringContent("{", Encoding.UTF8, "application/json");
+
+        using var response = await client.PostAsync("/telegram/webhook", content);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Empty(handler.Calls);
     }
 
     private WebApplicationFactory<Program> CreateFactoryWithHandler(

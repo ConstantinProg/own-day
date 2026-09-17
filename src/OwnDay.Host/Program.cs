@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Options;
+using OwnDay.Host.Filters;
 using OwnDay.Infrastructure.Telegram;
 using OwnDay.Infrastructure.Telegram.Configuration;
 using Serilog;
@@ -10,6 +11,7 @@ builder.Host.UseSerilog((context, loggerConfiguration) =>
 
 builder.Services.AddProblemDetails();
 builder.Services.AddControllers();
+builder.Services.AddScoped<TelegramWebhookAuthorizationFilter>();
 builder.Services.AddHealthChecks();
 
 builder.Services.AddSingleton<IValidateOptions<TelegramOptions>, TelegramOptionsValidator>();
