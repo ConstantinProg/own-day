@@ -1,3 +1,5 @@
+using OwnDay.Application.Interactions;
+
 namespace OwnDay.Infrastructure.Telegram.Routing;
 
 public abstract record TelegramUpdateRouteResult
@@ -6,5 +8,5 @@ public abstract record TelegramUpdateRouteResult
 
     public sealed record Ignore : TelegramUpdateRouteResult;
 
-    public sealed record Reply(string Text) : TelegramUpdateRouteResult;
+    public sealed record Dispatch(ProcessIncomingCommand Command) : TelegramUpdateRouteResult;
 }

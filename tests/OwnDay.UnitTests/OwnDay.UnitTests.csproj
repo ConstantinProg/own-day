@@ -6,6 +6,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\OwnDay.Application\OwnDay.Application.csproj" />
     <ProjectReference Include="..\..\src\OwnDay.Host\OwnDay.Host.csproj" />
     <ProjectReference Include="..\..\src\OwnDay.Infrastructure\OwnDay.Infrastructure.csproj" />
   </ItemGroup>

@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Options;
+using OwnDay.Application.Interactions;
 using OwnDay.Infrastructure.Telegram.Commands;
 using OwnDay.Infrastructure.Telegram.Configuration;
 using OwnDay.Infrastructure.Telegram.Routing;
@@ -15,27 +16,27 @@ public sealed class TelegramUpdateRouterTests
         Options.Create(new TelegramOptions { BotUsername = "OwnDayBot" }));
 
     [Theory]
-    [InlineData("/start", "OwnDay is running. Use /help to see available commands.")]
-    [InlineData("/ping", "pong")]
-    [InlineData("/ping@OwnDayBot", "pong")]
-    [InlineData("/unknown", "Unknown command. Use /help.")]
-    public void Route_Command_ReturnsExpectedReply(string text, string expected)
+    [InlineData("/start", "start")]
+    [InlineData("/help", "help")]
+    [InlineData("/ping", "ping")]
+    [InlineData("/ping@OwnDayBot", "ping")]
+    [InlineData("/unknown", "unknown")]
+    public void Route_Command_ReturnsApplicationCommand(string text, string expectedName)
     {
         var result = _router.Route(CreateTextMessageUpdate(text));
 
-        var reply = Assert.IsType<TelegramUpdateRouteResult.Reply>(result);
-        Assert.Equal(expected, reply.Text);
+        var dispatch = Assert.IsType<TelegramUpdateRouteResult.Dispatch>(result);
+        Assert.Equal(expectedName, dispatch.Command.Name);
+        Assert.Empty(dispatch.Command.Arguments);
     }
 
     [Fact]
-    public void Route_HelpCommand_ReturnsHelpReply()
+    public void Route_CommandWithArguments_PreservesArguments()
     {
-        var result = _router.Route(CreateTextMessageUpdate("/help"));
+        var result = _router.Route(CreateTextMessageUpdate("/start first step"));
 
-        var reply = Assert.IsType<TelegramUpdateRouteResult.Reply>(result);
-        Assert.Contains("/start", reply.Text);
-        Assert.Contains("/help", reply.Text);
-        Assert.Contains("/ping", reply.Text);
+        var dispatch = Assert.IsType<TelegramUpdateRouteResult.Dispatch>(result);
+        Assert.Equal(new ProcessIncomingCommand("start", "first step"), dispatch.Command);
     }
 
     [Theory]
@@ -49,12 +50,12 @@ public sealed class TelegramUpdateRouterTests
     }
 
     [Fact]
-    public void Route_CommandAddressedToThisBotWithDifferentCase_ReturnsReply()
+    public void Route_CommandAddressedToThisBotWithDifferentCase_ReturnsApplicationCommand()
     {
         var result = _router.Route(CreateTextMessageUpdate("/ping@owndaybot"));
 
-        var reply = Assert.IsType<TelegramUpdateRouteResult.Reply>(result);
-        Assert.Equal("pong", reply.Text);
+        var dispatch = Assert.IsType<TelegramUpdateRouteResult.Dispatch>(result);
+        Assert.Equal("ping", dispatch.Command.Name);
     }
 
     [Theory]
@@ -115,12 +116,7 @@ public sealed class TelegramUpdateRouterTests
             CallbackQuery = new CallbackQuery
             {
                 Id = "callback-query-id",
-                From = new User
-                {
-                    Id = 1,
-                    IsBot = false,
-                    FirstName = "Test"
-                },
+                From = new User { Id = 1, IsBot = false, FirstName = "Test" },
                 ChatInstance = "chat-instance"
             }
         };

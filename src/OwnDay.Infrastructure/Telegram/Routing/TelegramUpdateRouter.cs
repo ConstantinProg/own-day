@@ -1,5 +1,6 @@
-using OwnDay.Infrastructure.Telegram.Commands;
 using Microsoft.Extensions.Options;
+using OwnDay.Application.Interactions;
+using OwnDay.Infrastructure.Telegram.Commands;
 using OwnDay.Infrastructure.Telegram.Configuration;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
@@ -8,20 +9,6 @@ namespace OwnDay.Infrastructure.Telegram.Routing;
 
 public sealed class TelegramUpdateRouter
 {
-    private const string StartResponse =
-        "OwnDay is running. Use /help to see available commands.";
-
-    private const string HelpResponse =
-        """
-        Available commands:
-        /start — start OwnDay
-        /help — show this help
-        /ping — check bot availability
-        """;
-
-    private const string PingResponse = "pong";
-    private const string UnknownCommandResponse = "Unknown command. Use /help.";
-
     private readonly TelegramCommandParser _commandParser;
     private readonly string _botUsername;
 
@@ -67,12 +54,7 @@ public sealed class TelegramUpdateRouter
             return new TelegramUpdateRouteResult.Ignore();
         }
 
-        return command.Name switch
-        {
-            "start" => new TelegramUpdateRouteResult.Reply(StartResponse),
-            "help" => new TelegramUpdateRouteResult.Reply(HelpResponse),
-            "ping" => new TelegramUpdateRouteResult.Reply(PingResponse),
-            _ => new TelegramUpdateRouteResult.Reply(UnknownCommandResponse)
-        };
+        return new TelegramUpdateRouteResult.Dispatch(
+            new ProcessIncomingCommand(command.Name, command.Arguments));
     }
 }
