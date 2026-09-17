@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using OwnDay.Application.Interactions;
@@ -16,7 +17,11 @@ builder.Host.UseSerilog((context, loggerConfiguration) =>
 builder.Services.AddProblemDetails();
 builder.Services.AddControllers();
 builder.Services.AddScoped<TelegramWebhookAuthorizationFilter>();
-builder.Services.AddHealthChecks();
+builder.Services
+    .AddHealthChecks()
+    .AddDbContextCheck<OwnDayDbContext>(
+        name: "postgresql",
+        tags: ["ready"]);
 builder.Services.AddSingleton<IIncomingCommandHandler, IncomingCommandHandler>();
 builder.Services.AddDbContext<OwnDayDbContext>(options =>
     options.UseNpgsql(
@@ -40,7 +45,18 @@ app.UseExceptionHandler();
 app.UseStatusCodePages();
 
 app.MapControllers();
-app.MapHealthChecks("/health");
+app.MapHealthChecks("/health", new HealthCheckOptions
+{
+    Predicate = healthCheck => healthCheck.Tags.Contains("ready")
+});
+app.MapHealthChecks("/health/live", new HealthCheckOptions
+{
+    Predicate = _ => false
+});
+app.MapHealthChecks("/health/ready", new HealthCheckOptions
+{
+    Predicate = healthCheck => healthCheck.Tags.Contains("ready")
+});
 app.MapGet("/version", () => TypedResults.Ok(new
 {
     service = "OwnDay.Host",

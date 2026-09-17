@@ -24,6 +24,26 @@ public sealed class AppEndpointTests : IClassFixture<OwnDayHostFactory>
     }
 
     [Fact]
+    public async Task HealthLive_ReturnsOk()
+    {
+        using var client = _factory.CreateClient();
+
+        using var response = await client.GetAsync("/health/live");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task HealthReady_ReturnsOk()
+    {
+        using var client = _factory.CreateClient();
+
+        using var response = await client.GetAsync("/health/ready");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
     public async Task Version_ReturnsServiceNameAndVersion()
     {
         using var client = _factory.CreateClient();
