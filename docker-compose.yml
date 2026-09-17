@@ -7,6 +7,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ConnectionStrings__Default: Host=postgres;Port=5432;Database=ownday;Username=ownday;Password=ownday
@@ -16,6 +18,19 @@ services:
       Llm__Enabled: false
     ports:
       - "8080:8080"
+
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: "no"
+    entrypoint:
+      - /app/efbundle
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ConnectionStrings__Default: Host=postgres;Port=5432;Database=ownday;Username=ownday;Password=ownday
 
   postgres:
     image: postgres:18-alpine
