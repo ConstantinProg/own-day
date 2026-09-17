@@ -18,12 +18,24 @@ RUN dotnet publish src/OwnDay.Host/OwnDay.Host.csproj \
     -o /app/publish \
     --no-restore
 
+FROM build AS migrations
+
+RUN dotnet tool install --tool-path /tools dotnet-ef --version 10.0.12
+RUN /tools/dotnet-ef migrations bundle \
+    --project src/OwnDay.Infrastructure/OwnDay.Infrastructure.csproj \
+    --startup-project src/OwnDay.Host/OwnDay.Host.csproj \
+    --configuration Release \
+    --self-contained \
+    --target-runtime linux-x64 \
+    --output /app/efbundle
+
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 
 RUN useradd --create-home --shell /bin/bash appuser
 
 COPY --from=build /app/publish ./
+COPY --from=migrations /app/efbundle ./efbundle
 
 USER appuser
 

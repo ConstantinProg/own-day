@@ -124,8 +124,10 @@ jobs:
             production \
             "cd '${DEPLOY_PATH}' && \
              sed -i 's|^OWNDAY_IMAGE=.*|OWNDAY_IMAGE=${IMAGE}:${IMAGE_TAG}|' .env && \
-             docker compose pull app && \
-             docker compose up -d --remove-orphans"
+             docker compose pull app migrate postgres && \
+             docker compose up -d postgres && \
+             docker compose run --rm migrate && \
+             docker compose up -d app --remove-orphans"
 
       - name: Verify deployment
         shell: bash
@@ -156,6 +158,6 @@ jobs:
             production \
             "cd '${DEPLOY_PATH}' && \
              docker compose ps && \
-             docker compose logs --tail=100 app"
+             docker compose logs --tail=100 migrate app"
 
           exit 1

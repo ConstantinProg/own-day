@@ -87,15 +87,26 @@ They must not be committed to the repository.
 
 ## Database migration
 
-Apply EF Core migrations against the production PostgreSQL database before deploying a version that requires them:
+The production image contains an EF Core migration bundle. The deployment workflow runs it as
+the one-shot `migrate` Compose service after PostgreSQL becomes healthy and before it starts a
+new application container. The bundle records completed migrations in EF Core's migration history,
+so it applies only migrations that have not yet run.
 
 ```sh
-dotnet ef database update \
-  --project src/OwnDay.Infrastructure/OwnDay.Infrastructure.csproj \
-  --startup-project src/OwnDay.Host/OwnDay.Host.csproj
+docker compose pull app migrate postgres
+docker compose up -d postgres
+docker compose run --rm migrate
+docker compose up -d app --remove-orphans
 ```
 
-The application does not apply migrations during startup.
+Copy [`deploy/compose.yaml`](../../deploy/compose.yaml) to `/opt/ownday/compose.yaml` before the
+first deployment. The bundle reads `ConnectionStrings__Default` from the VPS `.env`; do not put
+production connection strings in the image or repository. The VPS must use an x86-64 Linux host,
+which matches the `linux-x64` bundle target.
+
+The application does not apply migrations during startup. Do not use a bundle target such as `0`
+in production without a reviewed rollback plan because it executes `Down` operations and may
+delete data.
 
 ## Secret Ownership
 
