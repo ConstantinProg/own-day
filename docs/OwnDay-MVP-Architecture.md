@@ -1581,6 +1581,7 @@ Examples:
 ConnectionStrings__Default
 
 Telegram__BotToken
+Telegram__BotUsername
 Telegram__WebhookSecret
 
 Llm__ApiKey

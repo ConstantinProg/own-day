@@ -1,4 +1,6 @@
 using OwnDay.Infrastructure.Telegram.Commands;
+using Microsoft.Extensions.Options;
+using OwnDay.Infrastructure.Telegram.Configuration;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
 
@@ -21,11 +23,17 @@ public sealed class TelegramUpdateRouter
     private const string UnknownCommandResponse = "Unknown command. Use /help.";
 
     private readonly TelegramCommandParser _commandParser;
+    private readonly string _botUsername;
 
-    public TelegramUpdateRouter(TelegramCommandParser commandParser)
+    public TelegramUpdateRouter(
+        TelegramCommandParser commandParser,
+        IOptions<TelegramOptions> options)
     {
         ArgumentNullException.ThrowIfNull(commandParser);
+        ArgumentNullException.ThrowIfNull(options);
+
         _commandParser = commandParser;
+        _botUsername = options.Value.BotUsername!;
     }
 
     public TelegramUpdateRouteResult Route(Update update)
@@ -49,6 +57,15 @@ public sealed class TelegramUpdateRouter
         }
 
         var command = parseResult.Command!;
+
+        if (command.BotUsername is not null &&
+            !string.Equals(
+                command.BotUsername,
+                _botUsername,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return new TelegramUpdateRouteResult.Ignore();
+        }
 
         return command.Name switch
         {

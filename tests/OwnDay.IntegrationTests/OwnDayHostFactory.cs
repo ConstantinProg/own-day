@@ -11,6 +11,7 @@ public sealed class OwnDayHostFactory : WebApplicationFactory<Program>
         builder.UseSetting(
             "Telegram:BotToken",
             "123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi");
+        builder.UseSetting("Telegram:BotUsername", "OwnDayBot");
         builder.UseSetting(
             "Telegram:WebhookSecret",
             "integration-test-webhook-secret");

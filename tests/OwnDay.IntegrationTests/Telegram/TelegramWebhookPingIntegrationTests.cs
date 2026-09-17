@@ -80,6 +80,24 @@ public sealed class TelegramWebhookPingIntegrationTests
         Assert.Empty(messageSender.Messages);
     }
 
+    [Fact]
+    public async Task Post_PingAddressedToAnotherBot_ReturnsOkWithoutSending()
+    {
+        var messageSender = new RecordingTelegramMessageSender();
+
+        using var factory = CreateFactory(messageSender);
+        using var client = factory.CreateClient();
+
+        using var request = CreateRequest(
+            ValidWebhookSecret,
+            "/ping@OtherBot");
+
+        using var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Empty(messageSender.Messages);
+    }
+
     private WebApplicationFactory<Program> CreateFactory(
         ITelegramMessageSender messageSender)
     {
@@ -95,20 +113,23 @@ public sealed class TelegramWebhookPingIntegrationTests
     }
 
     private static HttpRequestMessage CreatePingRequest(
-        string webhookSecret)
+        string webhookSecret) => CreateRequest(webhookSecret, "/ping");
+
+    private static HttpRequestMessage CreateRequest(
+        string webhookSecret,
+        string command)
     {
-        const string json =
-            """
+        var json = $$"""
             {
               "update_id": 100001,
               "message": {
                 "message_id": 42,
                 "date": 1788728400,
                 "chat": {
-                  "id": 123456789,
+                  "id": {{ChatId}},
                   "type": "private"
                 },
-                "text": "/ping"
+                "text": "{{command}}"
               }
             }
             """;

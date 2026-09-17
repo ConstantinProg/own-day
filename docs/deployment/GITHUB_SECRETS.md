@@ -78,6 +78,7 @@ These include:
 | Configuration             | Purpose                                                         |
 | ------------------------- | --------------------------------------------------------------- |
 | `Telegram__BotToken`      | Authentication token for the OwnDay Telegram bot.               |
+| `Telegram__BotUsername`   | Telegram username used to identify commands addressed to OwnDay. |
 | `Telegram__WebhookSecret` | Secret used to authenticate incoming Telegram webhook requests. |
 
 These values are stored directly on the production VPS and supplied to the OwnDay container through environment configuration.
@@ -97,6 +98,7 @@ GitHub `production` environment:
 Production VPS:
 
 * `Telegram__BotToken`
+* `Telegram__BotUsername`
 * `Telegram__WebhookSecret`
 * database credentials and other future runtime secrets
 

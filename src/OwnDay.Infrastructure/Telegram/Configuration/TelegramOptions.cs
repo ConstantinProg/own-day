@@ -6,5 +6,7 @@ public sealed class TelegramOptions
 
     public string? BotToken { get; init; }
 
+    public string? BotUsername { get; init; }
+
     public string? WebhookSecret { get; init; }
 }

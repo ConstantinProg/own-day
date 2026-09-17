@@ -11,6 +11,7 @@ services:
       ASPNETCORE_ENVIRONMENT: Development
       ConnectionStrings__Default: Host=postgres;Port=5432;Database=ownday;Username=ownday;Password=ownday
       Telegram__BotToken: ${TELEGRAM_BOT_TOKEN:-CHANGE_ME}
+      Telegram__BotUsername: ${TELEGRAM_BOT_USERNAME:-CHANGE_ME}
       Telegram__WebhookSecret: ${TELEGRAM_WEBHOOK_SECRET:-CHANGE_ME}
       Llm__Enabled: false
     ports:

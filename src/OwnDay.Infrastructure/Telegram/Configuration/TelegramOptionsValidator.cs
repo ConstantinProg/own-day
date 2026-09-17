@@ -15,6 +15,11 @@ public sealed class TelegramOptionsValidator : IValidateOptions<TelegramOptions>
             failures.Add("Telegram:BotToken is required.");
         }
 
+        if (string.IsNullOrWhiteSpace(options.BotUsername))
+        {
+            failures.Add("Telegram:BotUsername is required.");
+        }
+
         if (string.IsNullOrWhiteSpace(options.WebhookSecret))
         {
             failures.Add("Telegram:WebhookSecret is required.");

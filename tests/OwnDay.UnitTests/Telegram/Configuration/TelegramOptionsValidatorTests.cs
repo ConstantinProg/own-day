@@ -13,6 +13,7 @@ public sealed class TelegramOptionsValidatorTests
         var options = new TelegramOptions
         {
             BotToken = "bot-token",
+            BotUsername = "OwnDayBot",
             WebhookSecret = "webhook-secret"
         };
 
@@ -30,6 +31,7 @@ public sealed class TelegramOptionsValidatorTests
         var options = new TelegramOptions
         {
             BotToken = botToken,
+            BotUsername = "OwnDayBot",
             WebhookSecret = "webhook-secret"
         };
 
@@ -49,6 +51,7 @@ public sealed class TelegramOptionsValidatorTests
         var options = new TelegramOptions
         {
             BotToken = "bot-token",
+            BotUsername = "OwnDayBot",
             WebhookSecret = webhookSecret
         };
 
@@ -57,5 +60,25 @@ public sealed class TelegramOptionsValidatorTests
         Assert.False(result.Succeeded);
         Assert.NotNull(result.Failures);
         Assert.Contains("Telegram:WebhookSecret is required.", result.Failures);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Validate_WithInvalidBotUsername_Fails(string? botUsername)
+    {
+        var options = new TelegramOptions
+        {
+            BotToken = "bot-token",
+            BotUsername = botUsername,
+            WebhookSecret = "webhook-secret"
+        };
+
+        var result = _validator.Validate(null, options);
+
+        Assert.False(result.Succeeded);
+        Assert.NotNull(result.Failures);
+        Assert.Contains("Telegram:BotUsername is required.", result.Failures);
     }
 }

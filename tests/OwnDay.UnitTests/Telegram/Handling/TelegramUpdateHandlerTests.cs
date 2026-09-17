@@ -2,6 +2,8 @@ using OwnDay.Infrastructure.Telegram.Commands;
 using OwnDay.Infrastructure.Telegram.Delivery;
 using OwnDay.Infrastructure.Telegram.Handling;
 using OwnDay.Infrastructure.Telegram.Routing;
+using Microsoft.Extensions.Options;
+using OwnDay.Infrastructure.Telegram.Configuration;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
 using Xunit;
@@ -78,7 +80,9 @@ public sealed class TelegramUpdateHandlerTests
         ITelegramMessageSender messageSender)
     {
         var parser = new TelegramCommandParser();
-        var router = new TelegramUpdateRouter(parser);
+        var router = new TelegramUpdateRouter(
+            parser,
+            Options.Create(new TelegramOptions { BotUsername = "OwnDayBot" }));
 
         return new TelegramUpdateHandler(messageSender, router);
     }

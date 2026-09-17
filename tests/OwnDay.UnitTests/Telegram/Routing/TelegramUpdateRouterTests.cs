@@ -1,4 +1,6 @@
+using Microsoft.Extensions.Options;
 using OwnDay.Infrastructure.Telegram.Commands;
+using OwnDay.Infrastructure.Telegram.Configuration;
 using OwnDay.Infrastructure.Telegram.Routing;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
@@ -8,7 +10,9 @@ namespace OwnDay.UnitTests.Telegram.Routing;
 
 public sealed class TelegramUpdateRouterTests
 {
-    private readonly TelegramUpdateRouter _router = new(new TelegramCommandParser());
+    private readonly TelegramUpdateRouter _router = new(
+        new TelegramCommandParser(),
+        Options.Create(new TelegramOptions { BotUsername = "OwnDayBot" }));
 
     [Theory]
     [InlineData("/start", "OwnDay is running. Use /help to see available commands.")]
@@ -32,6 +36,25 @@ public sealed class TelegramUpdateRouterTests
         Assert.Contains("/start", reply.Text);
         Assert.Contains("/help", reply.Text);
         Assert.Contains("/ping", reply.Text);
+    }
+
+    [Theory]
+    [InlineData("/ping@OtherBot")]
+    [InlineData("/unknown@OtherBot")]
+    public void Route_CommandAddressedToAnotherBot_ReturnsIgnore(string text)
+    {
+        var result = _router.Route(CreateTextMessageUpdate(text));
+
+        Assert.IsType<TelegramUpdateRouteResult.Ignore>(result);
+    }
+
+    [Fact]
+    public void Route_CommandAddressedToThisBotWithDifferentCase_ReturnsReply()
+    {
+        var result = _router.Route(CreateTextMessageUpdate("/ping@owndaybot"));
+
+        var reply = Assert.IsType<TelegramUpdateRouteResult.Reply>(result);
+        Assert.Equal("pong", reply.Text);
     }
 
     [Theory]
