@@ -31,6 +31,17 @@ public sealed class TelegramUpdateRouterTests
     }
 
     [Fact]
+    public void Route_Command_PreservesChatId()
+    {
+        var update = CreateTextMessageUpdate("/ping");
+        update.Message!.Chat.Id = 123456789;
+
+        var dispatch = Assert.IsType<TelegramUpdateRouteResult.Dispatch>(_router.Route(update));
+
+        Assert.Equal(123456789, dispatch.ChatId);
+    }
+
+    [Fact]
     public void Route_CommandWithArguments_PreservesArguments()
     {
         var result = _router.Route(CreateTextMessageUpdate("/start first step"));

@@ -1,17 +1,17 @@
 ﻿using System.Net;
-using System.Net.Http.Headers;
 using System.Text;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using OwnDay.Infrastructure.Persistence;
 using OwnDay.Infrastructure.Telegram.Delivery;
 using Xunit;
 
 namespace OwnDay.IntegrationTests.Telegram;
 
 public sealed class TelegramWebhookPingIntegrationTests
-    : IClassFixture<OwnDayHostFactory>
 {
     private const string WebhookPath = "/telegram/webhook";
 
@@ -23,20 +23,13 @@ public sealed class TelegramWebhookPingIntegrationTests
 
     private const long ChatId = 123456789;
 
-    private readonly OwnDayHostFactory _factory;
-
-    public TelegramWebhookPingIntegrationTests(
-        OwnDayHostFactory factory)
-    {
-        _factory = factory;
-    }
-
     [Fact]
-    public async Task Post_PingWithValidSecret_ReturnsOkWithoutDirectDelivery()
+    public async Task Post_PingWithValidSecret_QueuesPongWithoutDirectDelivery()
     {
         var messageSender = new RecordingTelegramMessageSender();
 
-        using var factory = CreateFactory(messageSender);
+        using var host = new OwnDayHostFactory();
+        using var factory = CreateFactory(host, messageSender);
         using var client = factory.CreateClient();
 
         using var request = CreatePingRequest(
@@ -49,6 +42,16 @@ public sealed class TelegramWebhookPingIntegrationTests
             response.StatusCode);
 
         Assert.Empty(messageSender.Messages);
+
+        using var scope = factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
+        var reply = Assert.Single(await dbContext.TelegramOutboxMessages.ToListAsync());
+        Assert.Equal(ChatId, reply.ChatId);
+        Assert.Equal("pong", reply.Text);
+        Assert.Equal(OutboxMessageStatus.Pending, reply.Status);
+        var processed = Assert.Single(await dbContext.ProcessedTelegramUpdates.ToListAsync());
+        Assert.Equal(100001, processed.UpdateId);
+        Assert.NotNull(processed.ProcessedAt);
     }
 
     [Fact]
@@ -56,7 +59,8 @@ public sealed class TelegramWebhookPingIntegrationTests
     {
         var messageSender = new RecordingTelegramMessageSender();
 
-        using var factory = CreateFactory(messageSender);
+        using var host = new OwnDayHostFactory();
+        using var factory = CreateFactory(host, messageSender);
         using var client = factory.CreateClient();
 
         using var request = CreatePingRequest(
@@ -69,6 +73,7 @@ public sealed class TelegramWebhookPingIntegrationTests
             response.StatusCode);
 
         Assert.Empty(messageSender.Messages);
+        await AssertNoPersistedMessagesAsync(factory);
     }
 
     [Fact]
@@ -76,7 +81,8 @@ public sealed class TelegramWebhookPingIntegrationTests
     {
         var messageSender = new RecordingTelegramMessageSender();
 
-        using var factory = CreateFactory(messageSender);
+        using var host = new OwnDayHostFactory();
+        using var factory = CreateFactory(host, messageSender);
         using var client = factory.CreateClient();
 
         using var request = CreateRequest(
@@ -87,12 +93,22 @@ public sealed class TelegramWebhookPingIntegrationTests
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Empty(messageSender.Messages);
+        await AssertNoPersistedMessagesAsync(factory);
     }
 
-    private WebApplicationFactory<Program> CreateFactory(
+    private static async Task AssertNoPersistedMessagesAsync(WebApplicationFactory<Program> factory)
+    {
+        using var scope = factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
+        Assert.Empty(await dbContext.TelegramOutboxMessages.ToListAsync());
+        Assert.Empty(await dbContext.ProcessedTelegramUpdates.ToListAsync());
+    }
+
+    private static WebApplicationFactory<Program> CreateFactory(
+        OwnDayHostFactory host,
         ITelegramMessageSender messageSender)
     {
-        return _factory.WithWebHostBuilder(builder =>
+        return host.WithWebHostBuilder(builder =>
         {
             builder.ConfigureServices(services =>
             {

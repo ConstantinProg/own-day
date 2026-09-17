@@ -16,6 +16,8 @@ namespace OwnDay.UnitTests.Telegram.Handling;
 
 public sealed class TelegramUpdateHandlerTests
 {
+    private static readonly DateTime Now = new(2026, 9, 17, 12, 0, 0, DateTimeKind.Utc);
+
     [Theory]
     [InlineData("hello", ChatType.Private)]
     [InlineData("/ping@OtherBot", ChatType.Private)]
@@ -42,11 +44,14 @@ public sealed class TelegramUpdateHandlerTests
 
         Assert.DoesNotContain(fixture.DatabaseCommands, command => command.Contains("SELECT", StringComparison.OrdinalIgnoreCase));
         var processedUpdate = Assert.Single(fixture.DbContext.ProcessedTelegramUpdates);
-        Assert.NotNull(processedUpdate.ProcessedAt);
+        Assert.Equal(Now, processedUpdate.ReceivedAt);
+        Assert.Equal(Now, processedUpdate.ProcessedAt);
         var outboxMessage = Assert.Single(fixture.DbContext.TelegramOutboxMessages);
         Assert.Equal(123456789, outboxMessage.ChatId);
         Assert.Equal("pong", outboxMessage.Text);
         Assert.Equal(OutboxMessageStatus.Pending, outboxMessage.Status);
+        Assert.Equal(Now, outboxMessage.CreatedAt);
+        Assert.Equal(Now, outboxMessage.NextAttemptAt);
     }
 
     [Fact]
@@ -118,7 +123,7 @@ public sealed class TelegramUpdateHandlerTests
             Message = new Message
             {
                 Id = 1,
-                Date = DateTime.UtcNow,
+                Date = Now,
                 Chat = new Chat { Id = chatId, Type = ChatType.Private },
                 Text = text
             }
@@ -164,7 +169,8 @@ public sealed class TelegramUpdateHandlerTests
             var handler = new TelegramUpdateHandler(
                 router,
                 new IncomingCommandHandler(),
-                dbContext);
+                dbContext,
+                new FixedTimeProvider(Now));
 
             databaseCommands.Clear();
             return new HandlerFixture(connection, dbContext, handler, databaseCommands);

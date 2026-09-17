@@ -11,19 +11,23 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
     private readonly IIncomingCommandHandler _commandHandler;
     private readonly OwnDayDbContext _dbContext;
     private readonly TelegramUpdateRouter _router;
+    private readonly TimeProvider _timeProvider;
 
     public TelegramUpdateHandler(
         TelegramUpdateRouter router,
         IIncomingCommandHandler commandHandler,
-        OwnDayDbContext dbContext)
+        OwnDayDbContext dbContext,
+        TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(router);
         ArgumentNullException.ThrowIfNull(commandHandler);
         ArgumentNullException.ThrowIfNull(dbContext);
+        ArgumentNullException.ThrowIfNull(timeProvider);
 
         _router = router;
         _commandHandler = commandHandler;
         _dbContext = dbContext;
+        _timeProvider = timeProvider;
     }
 
     public async Task HandleAsync(
@@ -38,7 +42,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
             return;
         }
 
-        var now = DateTime.UtcNow;
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
 
         await using var transaction = await _dbContext.Database.BeginTransactionAsync(
             cancellationToken);
@@ -65,7 +69,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
             _dbContext.TelegramOutboxMessages.Add(new TelegramOutboxMessage
             {
                 Id = Guid.NewGuid(),
-                ChatId = update.Message!.Chat.Id,
+                ChatId = dispatch.ChatId,
                 Text = reply.Text,
                 Status = OutboxMessageStatus.Pending,
                 AttemptCount = 0,

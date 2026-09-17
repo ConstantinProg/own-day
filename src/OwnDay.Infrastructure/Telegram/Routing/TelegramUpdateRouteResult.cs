@@ -8,5 +8,5 @@ public abstract record TelegramUpdateRouteResult
 
     public sealed record Ignore : TelegramUpdateRouteResult;
 
-    public sealed record Dispatch(ProcessIncomingCommand Command) : TelegramUpdateRouteResult;
+    public sealed record Dispatch(ProcessIncomingCommand Command, long ChatId) : TelegramUpdateRouteResult;
 }

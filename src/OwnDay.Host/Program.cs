@@ -5,7 +5,6 @@ using OwnDay.Application.Interactions;
 using OwnDay.Host.Filters;
 using OwnDay.Infrastructure.Telegram;
 using OwnDay.Infrastructure.Telegram.Configuration;
-using OwnDay.Infrastructure.Telegram.Delivery;
 using OwnDay.Infrastructure.Persistence;
 using Serilog;
 
@@ -27,10 +26,6 @@ builder.Services.AddDbContext<OwnDayDbContext>(options =>
     options.UseNpgsql(
         builder.Configuration.GetConnectionString("Default") ??
         throw new InvalidOperationException("ConnectionStrings:Default is required.")));
-builder.Services.AddScoped<TelegramOutboxDeliveryService>();
-builder.Services.AddHostedService<TelegramOutboxWorker>();
-builder.Services.AddScoped<TelegramOutboxCleanupService>();
-builder.Services.AddHostedService<TelegramOutboxCleanupWorker>();
 
 builder.Services.AddSingleton<IValidateOptions<TelegramOptions>, TelegramOptionsValidator>();
 builder.Services

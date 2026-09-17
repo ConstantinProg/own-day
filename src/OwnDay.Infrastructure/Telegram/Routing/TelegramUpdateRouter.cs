@@ -55,6 +55,6 @@ public sealed class TelegramUpdateRouter
         }
 
         return new TelegramUpdateRouteResult.Dispatch(
-            new ProcessIncomingCommand(command.Name, command.Arguments));
+            new ProcessIncomingCommand(command.Name, command.Arguments), message.Chat.Id);
     }
 }

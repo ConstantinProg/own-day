@@ -107,22 +107,15 @@ public sealed class TelegramCommandParser
         return -1;
     }
 
-    private static bool IsValidCommandName(ReadOnlySpan<char> commandName)
-    {
-        foreach (var character in commandName)
-        {
-            if (!char.IsAsciiLetterOrDigit(character) && character != '_')
-            {
-                return false;
-            }
-        }
+    private static bool IsValidCommandName(ReadOnlySpan<char> commandName) =>
+        ContainsOnlyIdentifierCharacters(commandName);
 
-        return true;
-    }
+    private static bool IsValidBotUsername(ReadOnlySpan<char> botUsername) =>
+        ContainsOnlyIdentifierCharacters(botUsername);
 
-    private static bool IsValidBotUsername(ReadOnlySpan<char> botUsername)
+    private static bool ContainsOnlyIdentifierCharacters(ReadOnlySpan<char> value)
     {
-        foreach (var character in botUsername)
+        foreach (var character in value)
         {
             if (!char.IsAsciiLetterOrDigit(character) && character != '_')
             {

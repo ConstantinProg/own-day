@@ -3,15 +3,18 @@ using OwnDay.Infrastructure.Persistence;
 
 namespace OwnDay.Infrastructure.Telegram.Delivery;
 
-public sealed class TelegramOutboxCleanupService(OwnDayDbContext dbContext)
+public sealed class TelegramOutboxCleanupService(OwnDayDbContext dbContext, TimeProvider timeProvider)
 {
     private const int BatchSize = 500;
+    private const int RetentionDays = 30;
     private readonly OwnDayDbContext _dbContext = dbContext ??
         throw new ArgumentNullException(nameof(dbContext));
+    private readonly TimeProvider _timeProvider = timeProvider ??
+        throw new ArgumentNullException(nameof(timeProvider));
 
-    public async Task<bool> DeleteExpiredAsync(DateTime utcNow, CancellationToken cancellationToken)
+    public async Task<BatchProcessingResult> DeleteExpiredBatchAsync(CancellationToken cancellationToken)
     {
-        var cutoff = utcNow.AddDays(-30);
+        var cutoff = _timeProvider.GetUtcNow().UtcDateTime.AddDays(-RetentionDays);
         var deleted = await _dbContext.TelegramOutboxMessages
             .Where(message => message.Status == OutboxMessageStatus.Sent && message.SentAt < cutoff)
             .OrderBy(message => message.SentAt)
@@ -19,6 +22,6 @@ public sealed class TelegramOutboxCleanupService(OwnDayDbContext dbContext)
             .Take(BatchSize)
             .ExecuteDeleteAsync(cancellationToken);
 
-        return deleted == BatchSize;
+        return new BatchProcessingResult(deleted == BatchSize);
     }
 }

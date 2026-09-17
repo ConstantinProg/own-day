@@ -11,24 +11,28 @@ public sealed class TelegramOutboxDeliveryService
     private readonly OwnDayDbContext _dbContext;
     private readonly ITelegramMessageSender _messageSender;
     private readonly ILogger<TelegramOutboxDeliveryService> _logger;
+    private readonly TimeProvider _timeProvider;
 
     public TelegramOutboxDeliveryService(
         OwnDayDbContext dbContext,
         ITelegramMessageSender messageSender,
-        ILogger<TelegramOutboxDeliveryService> logger)
+        ILogger<TelegramOutboxDeliveryService> logger,
+        TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(dbContext);
         ArgumentNullException.ThrowIfNull(messageSender);
         ArgumentNullException.ThrowIfNull(logger);
+        ArgumentNullException.ThrowIfNull(timeProvider);
 
         _dbContext = dbContext;
         _messageSender = messageSender;
         _logger = logger;
+        _timeProvider = timeProvider;
     }
 
-    public async Task<bool> DeliverPendingAsync(CancellationToken cancellationToken)
+    public async Task<BatchProcessingResult> DeliverBatchAsync(CancellationToken cancellationToken)
     {
-        var now = DateTime.UtcNow;
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
         var messages = await _dbContext.TelegramOutboxMessages
             .Where(message => message.Status == OutboxMessageStatus.Pending &&
                               message.NextAttemptAt <= now)
@@ -46,7 +50,7 @@ public sealed class TelegramOutboxDeliveryService
                     cancellationToken);
 
                 message.Status = OutboxMessageStatus.Sent;
-                message.SentAt = DateTime.UtcNow;
+                message.SentAt = _timeProvider.GetUtcNow().UtcDateTime;
                 message.LastError = null;
             }
             catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
@@ -64,7 +68,7 @@ public sealed class TelegramOutboxDeliveryService
                 }
                 else
                 {
-                    message.NextAttemptAt = DateTime.UtcNow.AddSeconds(
+                    message.NextAttemptAt = _timeProvider.GetUtcNow().UtcDateTime.AddSeconds(
                         Math.Pow(2, message.AttemptCount));
                     _logger.LogWarning(
                         exception,
@@ -79,6 +83,6 @@ public sealed class TelegramOutboxDeliveryService
         }
 
         // A full batch may have more ready messages behind it.
-        return messages.Count == BatchSize;
+        return new BatchProcessingResult(messages.Count == BatchSize);
     }
 }

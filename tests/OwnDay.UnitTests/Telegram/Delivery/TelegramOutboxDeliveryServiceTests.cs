@@ -9,12 +9,14 @@ namespace OwnDay.UnitTests.Telegram.Delivery;
 
 public sealed class TelegramOutboxDeliveryServiceTests
 {
+    private static readonly DateTime Now = new(2026, 9, 17, 12, 0, 0, DateTimeKind.Utc);
+
     [Theory]
     [InlineData(0, false)]
     [InlineData(9, false)]
     [InlineData(10, true)]
     [InlineData(11, true)]
-    public async Task DeliverPendingAsync_ReadyMessages_ReturnsWhetherBatchWasFull(
+    public async Task DeliverBatchAsync_ReadyMessages_ReturnsWhetherBatchWasFull(
         int messageCount, bool expectedFullBatch)
     {
         await using var fixture = await DeliveryFixture.CreateAsync(new RecordingMessageSender());
@@ -24,61 +26,61 @@ public sealed class TelegramOutboxDeliveryServiceTests
         }
 
         var futureMessage = fixture.AddPendingMessage();
-        futureMessage.NextAttemptAt = DateTime.UtcNow.AddDays(1);
+        futureMessage.NextAttemptAt = Now.AddDays(1);
         await fixture.DbContext.SaveChangesAsync();
 
-        var fullBatch = await fixture.DeliveryService.DeliverPendingAsync(CancellationToken.None);
+        var fullBatch = await fixture.DeliveryService.DeliverBatchAsync(CancellationToken.None);
 
-        Assert.Equal(expectedFullBatch, fullBatch);
+        Assert.Equal(expectedFullBatch, fullBatch.IsFullBatch);
         Assert.Equal(Math.Min(messageCount, 10), await fixture.DbContext.TelegramOutboxMessages
             .CountAsync(message => message.Status == OutboxMessageStatus.Sent));
         Assert.Equal(OutboxMessageStatus.Pending, futureMessage.Status);
     }
 
     [Fact]
-    public async Task DeliverPendingAsync_SendSucceeds_MarksMessageSent()
+    public async Task DeliverBatchAsync_SendSucceeds_MarksMessageSent()
     {
         await using var fixture = await DeliveryFixture.CreateAsync(new RecordingMessageSender());
         var message = fixture.AddPendingMessage();
         await fixture.DbContext.SaveChangesAsync();
 
-        await fixture.DeliveryService.DeliverPendingAsync(CancellationToken.None);
+        await fixture.DeliveryService.DeliverBatchAsync(CancellationToken.None);
 
         Assert.Equal(OutboxMessageStatus.Sent, message.Status);
-        Assert.NotNull(message.SentAt);
+        Assert.Equal(Now, message.SentAt);
         Assert.Equal(0, message.AttemptCount);
     }
 
     [Fact]
-    public async Task DeliverPendingAsync_SendFails_SchedulesRetry()
+    public async Task DeliverBatchAsync_SendFails_SchedulesRetry()
     {
         await using var fixture = await DeliveryFixture.CreateAsync(new FailingMessageSender());
         var message = fixture.AddPendingMessage();
         await fixture.DbContext.SaveChangesAsync();
 
-        await fixture.DeliveryService.DeliverPendingAsync(CancellationToken.None);
+        await fixture.DeliveryService.DeliverBatchAsync(CancellationToken.None);
 
         Assert.Equal(OutboxMessageStatus.Pending, message.Status);
         Assert.Equal(1, message.AttemptCount);
         Assert.NotNull(message.LastError);
-        Assert.True(message.NextAttemptAt > DateTime.UtcNow.AddSeconds(-1));
+        Assert.Equal(Now.AddSeconds(2), message.NextAttemptAt);
     }
 
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task DeliverPendingAsync_SecondSendCancelled_PersistsFirstAttempt(bool firstSendFails)
+    public async Task DeliverBatchAsync_SecondSendCancelled_PersistsFirstAttempt(bool firstSendFails)
     {
         using var cancellation = new CancellationTokenSource();
         var sender = new CancellingMessageSender(cancellation, firstSendFails);
         await using var fixture = await DeliveryFixture.CreateAsync(sender);
-        var first = fixture.AddPendingMessage(DateTime.UtcNow.AddMinutes(-2));
-        var second = fixture.AddPendingMessage(DateTime.UtcNow.AddMinutes(-1));
+        var first = fixture.AddPendingMessage(Now.AddMinutes(-2));
+        var second = fixture.AddPendingMessage(Now.AddMinutes(-1));
         var originalNextAttemptAt = first.NextAttemptAt;
         await fixture.DbContext.SaveChangesAsync();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            fixture.DeliveryService.DeliverPendingAsync(cancellation.Token));
+            fixture.DeliveryService.DeliverBatchAsync(cancellation.Token));
 
         Assert.Equal(2, sender.Tokens.Count);
         Assert.All(sender.Tokens, token => Assert.Equal(cancellation.Token, token));
@@ -145,7 +147,8 @@ public sealed class TelegramOutboxDeliveryServiceTests
                 new TelegramOutboxDeliveryService(
                     dbContext,
                     sender,
-                    NullLogger<TelegramOutboxDeliveryService>.Instance));
+                    NullLogger<TelegramOutboxDeliveryService>.Instance,
+                    new FixedTimeProvider(Now)));
         }
 
         public TelegramOutboxMessage AddPendingMessage(DateTime? createdAt = null)
@@ -156,8 +159,8 @@ public sealed class TelegramOutboxDeliveryServiceTests
                 ChatId = 1,
                 Text = "pong",
                 Status = OutboxMessageStatus.Pending,
-                NextAttemptAt = DateTime.UtcNow.AddMinutes(-1),
-                CreatedAt = createdAt ?? DateTime.UtcNow.AddMinutes(-1)
+                NextAttemptAt = Now.AddMinutes(-1),
+                CreatedAt = createdAt ?? Now.AddMinutes(-1)
             };
 
             DbContext.TelegramOutboxMessages.Add(message);

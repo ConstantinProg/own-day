@@ -6,9 +6,12 @@ namespace OwnDay.Infrastructure.Telegram.Delivery;
 
 public sealed class TelegramOutboxWorker(
     IServiceScopeFactory scopeFactory,
-    ILogger<TelegramOutboxWorker> logger) : BackgroundService
+    ILogger<TelegramOutboxWorker> logger,
+    TimeProvider timeProvider) : BackgroundService
 {
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(1);
+    private readonly TimeProvider _timeProvider = timeProvider ??
+        throw new ArgumentNullException(nameof(timeProvider));
     private readonly IServiceScopeFactory _scopeFactory = scopeFactory ??
         throw new ArgumentNullException(nameof(scopeFactory));
     private readonly ILogger<TelegramOutboxWorker> _logger = logger ??
@@ -24,7 +27,8 @@ public sealed class TelegramOutboxWorker(
                 var deliveryService = scope.ServiceProvider
                     .GetRequiredService<TelegramOutboxDeliveryService>();
 
-                if (await deliveryService.DeliverPendingAsync(stoppingToken))
+                var result = await deliveryService.DeliverBatchAsync(stoppingToken);
+                if (result.IsFullBatch)
                 {
                     continue;
                 }
@@ -34,7 +38,7 @@ public sealed class TelegramOutboxWorker(
                 _logger.LogError(exception, "Telegram outbox delivery cycle failed.");
             }
 
-            await Task.Delay(PollInterval, stoppingToken);
+            await Task.Delay(PollInterval, _timeProvider, stoppingToken);
         }
     }
 }

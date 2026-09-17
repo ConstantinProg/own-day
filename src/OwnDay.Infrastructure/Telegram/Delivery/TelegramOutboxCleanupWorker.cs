@@ -6,10 +6,13 @@ namespace OwnDay.Infrastructure.Telegram.Delivery;
 
 public sealed class TelegramOutboxCleanupWorker(
     IServiceScopeFactory scopeFactory,
-    ILogger<TelegramOutboxCleanupWorker> logger) : BackgroundService
+    ILogger<TelegramOutboxCleanupWorker> logger,
+    TimeProvider timeProvider) : BackgroundService
 {
     private static readonly TimeSpan CleanupInterval = TimeSpan.FromHours(1);
     private static readonly TimeSpan BatchInterval = TimeSpan.FromSeconds(1);
+    private readonly TimeProvider _timeProvider = timeProvider ??
+        throw new ArgumentNullException(nameof(timeProvider));
     private readonly IServiceScopeFactory _scopeFactory = scopeFactory ??
         throw new ArgumentNullException(nameof(scopeFactory));
     private readonly ILogger<TelegramOutboxCleanupWorker> _logger = logger ??
@@ -24,7 +27,8 @@ public sealed class TelegramOutboxCleanupWorker(
             {
                 using var scope = _scopeFactory.CreateScope();
                 var cleanup = scope.ServiceProvider.GetRequiredService<TelegramOutboxCleanupService>();
-                if (await cleanup.DeleteExpiredAsync(DateTime.UtcNow, stoppingToken))
+                var result = await cleanup.DeleteExpiredBatchAsync(stoppingToken);
+                if (result.IsFullBatch)
                 {
                     interval = BatchInterval;
                 }
@@ -34,7 +38,7 @@ public sealed class TelegramOutboxCleanupWorker(
                 _logger.LogError(exception, "Telegram outbox cleanup cycle failed.");
             }
 
-            await Task.Delay(interval, stoppingToken);
+            await Task.Delay(interval, _timeProvider, stoppingToken);
         }
     }
 }

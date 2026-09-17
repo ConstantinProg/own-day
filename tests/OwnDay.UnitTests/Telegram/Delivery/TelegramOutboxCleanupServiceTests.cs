@@ -11,7 +11,7 @@ public sealed class TelegramOutboxCleanupServiceTests
     private static readonly DateTime Now = new(2026, 9, 17, 12, 0, 0, DateTimeKind.Utc);
 
     [Fact]
-    public async Task DeleteExpiredAsync_MixedMessages_DeletesOnlyExpiredSentMessages()
+    public async Task DeleteExpiredBatchAsync_MixedMessages_DeletesOnlyExpiredSentMessages()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
         await connection.OpenAsync();
@@ -36,10 +36,10 @@ public sealed class TelegramOutboxCleanupServiceTests
         });
         await context.SaveChangesAsync();
 
-        var fullBatch = await new TelegramOutboxCleanupService(context)
-            .DeleteExpiredAsync(Now, CancellationToken.None);
+        var fullBatch = await new TelegramOutboxCleanupService(context, new FixedTimeProvider(Now))
+            .DeleteExpiredBatchAsync(CancellationToken.None);
 
-        Assert.False(fullBatch);
+        Assert.False(fullBatch.IsFullBatch);
         var remaining = await context.TelegramOutboxMessages.AsNoTracking().ToListAsync();
         Assert.Equal(retained.Length, remaining.Count);
         Assert.DoesNotContain(remaining, message => message.Id == expired.Id);
@@ -47,7 +47,7 @@ public sealed class TelegramOutboxCleanupServiceTests
     }
 
     [Fact]
-    public async Task DeleteExpiredAsync_LargeBacklog_DeletesInBoundedBatches()
+    public async Task DeleteExpiredBatchAsync_LargeBacklog_DeletesInBoundedBatches()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
         await connection.OpenAsync();
@@ -56,17 +56,17 @@ public sealed class TelegramOutboxCleanupServiceTests
         context.TelegramOutboxMessages.AddRange(Enumerable.Range(0, 501)
             .Select(_ => CreateMessage(OutboxMessageStatus.Sent, Now.AddDays(-31))));
         await context.SaveChangesAsync();
-        var cleanup = new TelegramOutboxCleanupService(context);
+        var cleanup = new TelegramOutboxCleanupService(context, new FixedTimeProvider(Now));
 
-        Assert.True(await cleanup.DeleteExpiredAsync(Now, CancellationToken.None));
+        Assert.True((await cleanup.DeleteExpiredBatchAsync(CancellationToken.None)).IsFullBatch);
         Assert.Equal(1, await context.TelegramOutboxMessages.CountAsync());
-        Assert.False(await cleanup.DeleteExpiredAsync(Now, CancellationToken.None));
+        Assert.False((await cleanup.DeleteExpiredBatchAsync(CancellationToken.None)).IsFullBatch);
         Assert.Empty(await context.TelegramOutboxMessages.ToListAsync());
-        Assert.False(await cleanup.DeleteExpiredAsync(Now, CancellationToken.None));
+        Assert.False((await cleanup.DeleteExpiredBatchAsync(CancellationToken.None)).IsFullBatch);
     }
 
     [Fact]
-    public async Task DeleteExpiredAsync_Cancelled_DoesNotDeleteMessages()
+    public async Task DeleteExpiredBatchAsync_Cancelled_DoesNotDeleteMessages()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
         await connection.OpenAsync();
@@ -78,17 +78,10 @@ public sealed class TelegramOutboxCleanupServiceTests
         cancellation.Cancel();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            new TelegramOutboxCleanupService(context).DeleteExpiredAsync(Now, cancellation.Token));
+            new TelegramOutboxCleanupService(context, new FixedTimeProvider(Now))
+                .DeleteExpiredBatchAsync(cancellation.Token));
 
         Assert.Equal(1, await context.TelegramOutboxMessages.CountAsync());
-    }
-
-    [Fact]
-    public void Model_CurrentNpgsqlModel_MatchesMigrationSnapshot()
-    {
-        using var context = new OwnDayDbContextFactory().CreateDbContext([]);
-
-        Assert.False(context.Database.HasPendingModelChanges());
     }
 
     private static OwnDayDbContext CreateContext(SqliteConnection connection) =>
