@@ -29,8 +29,8 @@ public static class TelegramServiceCollectionExtensions
         services.AddSingleton<TelegramCommandParser>();
         services.AddSingleton<TelegramUpdateRouter>();
 
-        services.AddSingleton<TelegramUpdateHandler>();
-        services.AddSingleton<ITelegramUpdateHandler>(
+        services.AddScoped<TelegramUpdateHandler>();
+        services.AddScoped<ITelegramUpdateHandler>(
             serviceProvider =>
                 serviceProvider.GetRequiredService<TelegramUpdateHandler>());
 

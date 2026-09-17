@@ -1,4 +1,6 @@
 using OwnDay.Application.Interactions;
+using Microsoft.EntityFrameworkCore;
+using OwnDay.Infrastructure.Persistence;
 using OwnDay.Infrastructure.Telegram.Delivery;
 using OwnDay.Infrastructure.Telegram.Routing;
 using Telegram.Bot.Types;
@@ -7,22 +9,22 @@ namespace OwnDay.Infrastructure.Telegram.Handling;
 
 public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
 {
-    private readonly ITelegramMessageSender _messageSender;
     private readonly IIncomingCommandHandler _commandHandler;
+    private readonly OwnDayDbContext _dbContext;
     private readonly TelegramUpdateRouter _router;
 
     public TelegramUpdateHandler(
-        ITelegramMessageSender messageSender,
         TelegramUpdateRouter router,
-        IIncomingCommandHandler commandHandler)
+        IIncomingCommandHandler commandHandler,
+        OwnDayDbContext dbContext)
     {
-        ArgumentNullException.ThrowIfNull(messageSender);
         ArgumentNullException.ThrowIfNull(router);
         ArgumentNullException.ThrowIfNull(commandHandler);
+        ArgumentNullException.ThrowIfNull(dbContext);
 
-        _messageSender = messageSender;
         _router = router;
         _commandHandler = commandHandler;
+        _dbContext = dbContext;
     }
 
     public async Task HandleAsync(
@@ -31,29 +33,53 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
     {
         ArgumentNullException.ThrowIfNull(update);
 
+        var now = DateTime.UtcNow;
+
+        await using var transaction = await _dbContext.Database.BeginTransactionAsync(
+            cancellationToken);
+
+        var inserted = await _dbContext.Database.ExecuteSqlInterpolatedAsync(
+            $"""
+            INSERT INTO processed_telegram_updates (update_id, received_at)
+            VALUES ({update.Id}, {now})
+            ON CONFLICT (update_id) DO NOTHING
+            """,
+            cancellationToken);
+
+        if (inserted is 0)
+        {
+            return;
+        }
+
         var result = _router.Route(update);
 
-        if (result is not TelegramUpdateRouteResult.Dispatch dispatch)
+        if (result is TelegramUpdateRouteResult.Dispatch dispatch)
         {
-            return;
+            var commandResult = await _commandHandler.HandleAsync(
+                dispatch.Command,
+                cancellationToken);
+
+            if (commandResult is IncomingCommandResult.Reply reply)
+            {
+                _dbContext.TelegramOutboxMessages.Add(new TelegramOutboxMessage
+                {
+                    Id = Guid.NewGuid(),
+                    ChatId = update.Message!.Chat.Id,
+                    Text = reply.Text,
+                    Status = OutboxMessageStatus.Pending,
+                    AttemptCount = 0,
+                    NextAttemptAt = now,
+                    CreatedAt = now
+                });
+            }
         }
 
-        var commandResult = await _commandHandler.HandleAsync(
-            dispatch.Command,
+        var processedUpdate = await _dbContext.ProcessedTelegramUpdates.SingleAsync(
+            processed => processed.UpdateId == update.Id,
             cancellationToken);
+        processedUpdate.ProcessedAt = now;
 
-        if (commandResult is not IncomingCommandResult.Reply reply)
-        {
-            return;
-        }
-
-        var chatId = update.Message!.Chat.Id;
-
-        // Direct Telegram delivery is temporary for side-effect-free Phase 1
-        // commands. Domain-changing flows must use transactional outbox.
-        await _messageSender.SendTextMessageAsync(
-            chatId,
-            reply.Text,
-            cancellationToken);
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
     }
 }

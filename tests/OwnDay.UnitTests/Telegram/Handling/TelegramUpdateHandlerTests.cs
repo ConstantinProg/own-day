@@ -1,10 +1,12 @@
-using OwnDay.Application.Interactions;
+using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using OwnDay.Application.Interactions;
+using OwnDay.Infrastructure.Persistence;
 using OwnDay.Infrastructure.Telegram.Commands;
-using OwnDay.Infrastructure.Telegram.Delivery;
+using OwnDay.Infrastructure.Telegram.Configuration;
 using OwnDay.Infrastructure.Telegram.Handling;
 using OwnDay.Infrastructure.Telegram.Routing;
-using OwnDay.Infrastructure.Telegram.Configuration;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
 using Xunit;
@@ -14,86 +16,45 @@ namespace OwnDay.UnitTests.Telegram.Handling;
 public sealed class TelegramUpdateHandlerTests
 {
     [Fact]
-    public async Task HandleAsync_Ignore_DoesNotSendMessage()
+    public async Task HandleAsync_NonCommand_RecordsUpdateWithoutOutboxMessage()
     {
-        var messageSender = new RecordingTelegramMessageSender();
-        var handler = CreateHandler(messageSender);
+        await using var fixture = await HandlerFixture.CreateAsync();
 
-        await handler.HandleAsync(CreateTextMessageUpdate("hello"));
+        await fixture.Handler.HandleAsync(CreateTextMessageUpdate("hello"));
 
-        Assert.Empty(messageSender.Messages);
+        Assert.Single(fixture.DbContext.ProcessedTelegramUpdates);
+        Assert.Empty(fixture.DbContext.TelegramOutboxMessages);
     }
 
     [Fact]
-    public async Task HandleAsync_Reply_SendsExactlyOnce()
+    public async Task HandleAsync_Command_RecordsUpdateAndQueuesReply()
     {
-        var messageSender = new RecordingTelegramMessageSender();
-        var handler = CreateHandler(messageSender);
+        await using var fixture = await HandlerFixture.CreateAsync();
 
-        await handler.HandleAsync(CreateTextMessageUpdate("/ping"));
+        await fixture.Handler.HandleAsync(CreateTextMessageUpdate("/ping", chatId: 123456789));
 
-        Assert.Single(messageSender.Messages);
+        var processedUpdate = Assert.Single(fixture.DbContext.ProcessedTelegramUpdates);
+        Assert.NotNull(processedUpdate.ProcessedAt);
+        var outboxMessage = Assert.Single(fixture.DbContext.TelegramOutboxMessages);
+        Assert.Equal(123456789, outboxMessage.ChatId);
+        Assert.Equal("pong", outboxMessage.Text);
+        Assert.Equal(OutboxMessageStatus.Pending, outboxMessage.Status);
     }
 
     [Fact]
-    public async Task HandleAsync_Reply_SendsToOriginalChat()
+    public async Task HandleAsync_DuplicateCommand_QueuesReplyOnce()
     {
-        const long chatId = 123456789;
+        await using var fixture = await HandlerFixture.CreateAsync();
+        var update = CreateTextMessageUpdate("/ping");
 
-        var messageSender = new RecordingTelegramMessageSender();
-        var handler = CreateHandler(messageSender);
+        await fixture.Handler.HandleAsync(update);
+        await fixture.Handler.HandleAsync(update);
 
-        await handler.HandleAsync(CreateTextMessageUpdate("/ping", chatId));
-
-        var message = Assert.Single(messageSender.Messages);
-        Assert.Equal(chatId, message.ChatId);
+        Assert.Single(fixture.DbContext.ProcessedTelegramUpdates);
+        Assert.Single(fixture.DbContext.TelegramOutboxMessages);
     }
 
-    [Fact]
-    public async Task HandleAsync_Reply_SendsExpectedText()
-    {
-        var messageSender = new RecordingTelegramMessageSender();
-        var handler = CreateHandler(messageSender);
-
-        await handler.HandleAsync(CreateTextMessageUpdate("/ping"));
-
-        var message = Assert.Single(messageSender.Messages);
-        Assert.Equal("pong", message.Text);
-    }
-
-    [Fact]
-    public async Task HandleAsync_Reply_PassesCancellationToken()
-    {
-        using var cancellationTokenSource = new CancellationTokenSource();
-
-        var messageSender = new RecordingTelegramMessageSender();
-        var handler = CreateHandler(messageSender);
-
-        await handler.HandleAsync(
-            CreateTextMessageUpdate("/ping"),
-            cancellationTokenSource.Token);
-
-        var message = Assert.Single(messageSender.Messages);
-        Assert.Equal(cancellationTokenSource.Token, message.CancellationToken);
-    }
-
-    private static TelegramUpdateHandler CreateHandler(
-        ITelegramMessageSender messageSender)
-    {
-        var parser = new TelegramCommandParser();
-        var router = new TelegramUpdateRouter(
-            parser,
-            Options.Create(new TelegramOptions { BotUsername = "OwnDayBot" }));
-
-        return new TelegramUpdateHandler(
-            messageSender,
-            router,
-            new IncomingCommandHandler());
-    }
-
-    private static Update CreateTextMessageUpdate(
-        string text,
-        long chatId = 1) =>
+    private static Update CreateTextMessageUpdate(string text, long chatId = 1) =>
         new()
         {
             Id = 1,
@@ -101,31 +62,54 @@ public sealed class TelegramUpdateHandlerTests
             {
                 Id = 1,
                 Date = DateTime.UtcNow,
-                Chat = new Chat
-                {
-                    Id = chatId,
-                    Type = ChatType.Private
-                },
+                Chat = new Chat { Id = chatId, Type = ChatType.Private },
                 Text = text
             }
         };
 
-    private sealed class RecordingTelegramMessageSender : ITelegramMessageSender
+    private sealed class HandlerFixture : IAsyncDisposable
     {
-        public List<SentMessage> Messages { get; } = [];
+        private readonly SqliteConnection _connection;
 
-        public Task SendTextMessageAsync(
-            long chatId,
-            string text,
-            CancellationToken cancellationToken = default)
+        private HandlerFixture(
+            SqliteConnection connection,
+            OwnDayDbContext dbContext,
+            TelegramUpdateHandler handler)
         {
-            Messages.Add(new SentMessage(chatId, text, cancellationToken));
-            return Task.CompletedTask;
+            _connection = connection;
+            DbContext = dbContext;
+            Handler = handler;
+        }
+
+        public OwnDayDbContext DbContext { get; }
+
+        public TelegramUpdateHandler Handler { get; }
+
+        public static async Task<HandlerFixture> CreateAsync()
+        {
+            var connection = new SqliteConnection("Data Source=:memory:");
+            await connection.OpenAsync();
+            var dbContext = new OwnDayDbContext(
+                new DbContextOptionsBuilder<OwnDayDbContext>()
+                    .UseSqlite(connection)
+                    .Options);
+            await dbContext.Database.EnsureCreatedAsync();
+
+            var router = new TelegramUpdateRouter(
+                new TelegramCommandParser(),
+                Options.Create(new TelegramOptions { BotUsername = "OwnDayBot" }));
+            var handler = new TelegramUpdateHandler(
+                router,
+                new IncomingCommandHandler(),
+                dbContext);
+
+            return new HandlerFixture(connection, dbContext, handler);
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            await DbContext.DisposeAsync();
+            await _connection.DisposeAsync();
         }
     }
-
-    private sealed record SentMessage(
-        long ChatId,
-        string Text,
-        CancellationToken CancellationToken);
 }

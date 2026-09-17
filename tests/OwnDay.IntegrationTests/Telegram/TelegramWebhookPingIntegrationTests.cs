@@ -32,7 +32,7 @@ public sealed class TelegramWebhookPingIntegrationTests
     }
 
     [Fact]
-    public async Task Post_PingWithValidSecret_ReturnsOkAndSendsPong()
+    public async Task Post_PingWithValidSecret_ReturnsOkWithoutDirectDelivery()
     {
         var messageSender = new RecordingTelegramMessageSender();
 
@@ -48,16 +48,7 @@ public sealed class TelegramWebhookPingIntegrationTests
             HttpStatusCode.OK,
             response.StatusCode);
 
-        var sentMessage =
-            Assert.Single(messageSender.Messages);
-
-        Assert.Equal(
-            ChatId,
-            sentMessage.ChatId);
-
-        Assert.Equal(
-            "pong",
-            sentMessage.Text);
+        Assert.Empty(messageSender.Messages);
     }
 
     [Fact]

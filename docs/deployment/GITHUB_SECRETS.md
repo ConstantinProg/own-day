@@ -85,6 +85,18 @@ These values are stored directly on the production VPS and supplied to the OwnDa
 
 They must not be committed to the repository.
 
+## Database migration
+
+Apply EF Core migrations against the production PostgreSQL database before deploying a version that requires them:
+
+```sh
+dotnet ef database update \
+  --project src/OwnDay.Infrastructure/OwnDay.Infrastructure.csproj \
+  --startup-project src/OwnDay.Host/OwnDay.Host.csproj
+```
+
+The application does not apply migrations during startup.
+
 ## Secret Ownership
 
 The current configuration separates deployment credentials from application runtime credentials:

@@ -34,7 +34,8 @@ public sealed class TelegramDependencyInjectionTests : IClassFixture<OwnDayHostF
     [Fact]
     public void TelegramUpdateHandler_IsRegistered()
     {
-        var handler = _factory.Services.GetRequiredService<ITelegramUpdateHandler>();
+        using var scope = _factory.Services.CreateScope();
+        var handler = scope.ServiceProvider.GetRequiredService<ITelegramUpdateHandler>();
 
         Assert.IsType<TelegramUpdateHandler>(handler);
     }
