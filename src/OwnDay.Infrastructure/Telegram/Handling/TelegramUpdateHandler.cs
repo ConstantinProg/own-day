@@ -1,6 +1,7 @@
 using OwnDay.Application.Interactions;
 using Microsoft.EntityFrameworkCore;
 using OwnDay.Infrastructure.Persistence;
+using OwnDay.Infrastructure.Telegram.Commands;
 using OwnDay.Infrastructure.Telegram.Routing;
 using Telegram.Bot.Types;
 
@@ -9,6 +10,7 @@ namespace OwnDay.Infrastructure.Telegram.Handling;
 public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
 {
     private readonly IIncomingCommandHandler _commandHandler;
+    private readonly TelegramTaskCommandHandler _taskCommandHandler;
     private readonly OwnDayDbContext _dbContext;
     private readonly TelegramUpdateRouter _router;
     private readonly TimeProvider _timeProvider;
@@ -16,16 +18,19 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
     public TelegramUpdateHandler(
         TelegramUpdateRouter router,
         IIncomingCommandHandler commandHandler,
+        TelegramTaskCommandHandler taskCommandHandler,
         OwnDayDbContext dbContext,
         TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(router);
         ArgumentNullException.ThrowIfNull(commandHandler);
+        ArgumentNullException.ThrowIfNull(taskCommandHandler);
         ArgumentNullException.ThrowIfNull(dbContext);
         ArgumentNullException.ThrowIfNull(timeProvider);
 
         _router = router;
         _commandHandler = commandHandler;
+        _taskCommandHandler = taskCommandHandler;
         _dbContext = dbContext;
         _timeProvider = timeProvider;
     }
@@ -60,17 +65,17 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
             return;
         }
 
-        var commandResult = await _commandHandler.HandleAsync(
-            dispatch.Command,
-            cancellationToken);
+        var replyText = _taskCommandHandler.Handles(dispatch.Command.Name)
+            ? await _taskCommandHandler.HandleAsync(dispatch.Command, cancellationToken)
+            : (await _commandHandler.HandleAsync(dispatch.Command, cancellationToken) as IncomingCommandResult.Reply)?.Text;
 
-        if (commandResult is IncomingCommandResult.Reply reply)
+        if (replyText is not null)
         {
             _dbContext.TelegramOutboxMessages.Add(new TelegramOutboxMessage
             {
                 Id = Guid.NewGuid(),
                 ChatId = dispatch.ChatId,
-                Text = reply.Text,
+                Text = replyText,
                 Status = OutboxMessageStatus.Pending,
                 AttemptCount = 0,
                 NextAttemptAt = now,

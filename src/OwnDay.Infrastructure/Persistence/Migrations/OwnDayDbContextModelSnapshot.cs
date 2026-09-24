@@ -19,6 +19,47 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
 
         NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+        modelBuilder.Entity("OwnDay.Domain.Tasks.TaskItem", b =>
+        {
+            b.Property<long>("Id")
+                .ValueGeneratedOnAdd()
+                .HasColumnType("bigint")
+                .HasColumnName("id");
+
+            NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+            b.Property<DateTime?>("CompletedAt")
+                .HasColumnType("timestamp with time zone")
+                .HasColumnName("completed_at");
+
+            b.Property<DateTime>("CreatedAt")
+                .HasColumnType("timestamp with time zone")
+                .HasColumnName("created_at");
+
+            b.Property<int>("Status")
+                .IsConcurrencyToken()
+                .HasColumnType("integer")
+                .HasColumnName("status");
+
+            b.Property<string>("Title")
+                .IsRequired()
+                .HasMaxLength(200)
+                .HasColumnType("character varying(200)")
+                .HasColumnName("title");
+
+            b.Property<long>("UserId")
+                .HasColumnType("bigint")
+                .HasColumnName("user_id");
+
+            b.HasKey("Id");
+
+            b.HasIndex("UserId", "Status", "CreatedAt", "Id");
+
+            b.ToTable("tasks", t => t.HasCheckConstraint(
+                "CK_tasks_status_completed_at",
+                "(status = 0 AND completed_at IS NULL) OR (status = 1 AND completed_at IS NOT NULL)"));
+        });
+
         modelBuilder.Entity("OwnDay.Infrastructure.Persistence.ProcessedTelegramUpdate", b =>
         {
             b.Property<long>("UpdateId")

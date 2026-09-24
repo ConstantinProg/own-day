@@ -32,6 +32,9 @@ public sealed class IncomingCommandHandlerTests
         Assert.Contains("/start", reply.Text);
         Assert.Contains("/help", reply.Text);
         Assert.Contains("/ping", reply.Text);
+        Assert.Contains("/add", reply.Text);
+        Assert.Contains("/tasks", reply.Text);
+        Assert.Contains("/done", reply.Text);
     }
 
     [Fact]

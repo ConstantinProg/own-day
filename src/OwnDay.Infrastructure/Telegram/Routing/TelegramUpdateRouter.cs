@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Options;
 using OwnDay.Application.Interactions;
+using OwnDay.Domain.Tasks;
 using OwnDay.Infrastructure.Telegram.Commands;
 using OwnDay.Infrastructure.Telegram.Configuration;
 using Telegram.Bot.Types;
@@ -31,6 +32,7 @@ public sealed class TelegramUpdateRouter
 
         if (message is null ||
             message.Chat.Type is not ChatType.Private ||
+            message.From is null ||
             message.Text is null)
         {
             return new TelegramUpdateRouteResult.Ignore();
@@ -55,6 +57,7 @@ public sealed class TelegramUpdateRouter
         }
 
         return new TelegramUpdateRouteResult.Dispatch(
-            new ProcessIncomingCommand(command.Name, command.Arguments), message.Chat.Id);
+            new ProcessIncomingCommand(command.Name, command.Arguments, new UserId(message.From.Id)),
+            message.Chat.Id);
     }
 }

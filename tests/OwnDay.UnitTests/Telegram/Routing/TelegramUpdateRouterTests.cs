@@ -42,12 +42,34 @@ public sealed class TelegramUpdateRouterTests
     }
 
     [Fact]
+    public void Route_Command_UsesTelegramSenderAsUserId()
+    {
+        var update = CreateTextMessageUpdate("/tasks");
+        update.Message!.Chat.Id = 123456789;
+        update.Message.From!.Id = 987654321;
+
+        var dispatch = Assert.IsType<TelegramUpdateRouteResult.Dispatch>(_router.Route(update));
+
+        Assert.Equal(123456789, dispatch.ChatId);
+        Assert.Equal(new(987654321), dispatch.Command.UserId);
+    }
+
+    [Fact]
+    public void Route_MessageWithoutSender_ReturnsIgnore()
+    {
+        var update = CreateTextMessageUpdate("/tasks");
+        update.Message!.From = null;
+
+        Assert.IsType<TelegramUpdateRouteResult.Ignore>(_router.Route(update));
+    }
+
+    [Fact]
     public void Route_CommandWithArguments_PreservesArguments()
     {
         var result = _router.Route(CreateTextMessageUpdate("/start first step"));
 
         var dispatch = Assert.IsType<TelegramUpdateRouteResult.Dispatch>(result);
-        Assert.Equal(new ProcessIncomingCommand("start", "first step"), dispatch.Command);
+        Assert.Equal(new ProcessIncomingCommand("start", "first step", new(1)), dispatch.Command);
     }
 
     [Theory]
@@ -148,6 +170,7 @@ public sealed class TelegramUpdateRouterTests
                 Id = 1,
                 Date = DateTime.UtcNow,
                 Chat = CreateChat(chatType),
+                From = new User { Id = 1, IsBot = false, FirstName = "Test" },
                 Text = text
             }
         };

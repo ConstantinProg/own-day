@@ -11,6 +11,9 @@ public sealed class IncomingCommandHandler : IIncomingCommandHandler
         /start — start OwnDay
         /help — show this help
         /ping — check bot availability
+        /add <title> — save a task
+        /tasks — list active tasks
+        /done <id> — complete a task
         """;
 
     private const string PingResponse = "pong";

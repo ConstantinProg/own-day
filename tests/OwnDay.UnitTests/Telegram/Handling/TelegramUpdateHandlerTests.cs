@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Options;
 using OwnDay.Application.Interactions;
+using OwnDay.Application.Tasks;
 using OwnDay.Infrastructure.Persistence;
 using OwnDay.Infrastructure.Telegram.Commands;
 using OwnDay.Infrastructure.Telegram.Configuration;
@@ -116,6 +117,24 @@ public sealed class TelegramUpdateHandlerTests
         Assert.Single(fixture.DbContext.TelegramOutboxMessages);
     }
 
+    [Fact]
+    public async Task HandleAsync_TaskReplySaveFails_RollsBackTaskAndDeduplication()
+    {
+        await using var fixture = await HandlerFixture.CreateAsync();
+        await fixture.DbContext.Database.ExecuteSqlRawAsync(
+            """
+            CREATE TRIGGER reject_outbox BEFORE INSERT ON telegram_outbox_messages
+            BEGIN SELECT RAISE(ABORT, 'Simulated storage failure'); END;
+            """);
+
+        await Assert.ThrowsAsync<DbUpdateException>(() =>
+            fixture.Handler.HandleAsync(CreateTextMessageUpdate("/add Buy groceries")));
+
+        fixture.DbContext.ChangeTracker.Clear();
+        Assert.Empty(fixture.DbContext.Tasks);
+        Assert.Empty(fixture.DbContext.ProcessedTelegramUpdates);
+    }
+
     private static Update CreateTextMessageUpdate(string text, long chatId = 1) =>
         new()
         {
@@ -125,6 +144,7 @@ public sealed class TelegramUpdateHandlerTests
                 Id = 1,
                 Date = Now,
                 Chat = new Chat { Id = chatId, Type = ChatType.Private },
+                From = new User { Id = chatId, IsBot = false, FirstName = "Test" },
                 Text = text
             }
         };
@@ -169,6 +189,7 @@ public sealed class TelegramUpdateHandlerTests
             var handler = new TelegramUpdateHandler(
                 router,
                 new IncomingCommandHandler(),
+                new TelegramTaskCommandHandler(new TaskService(new EfTaskStore(dbContext), new FixedTimeProvider(Now))),
                 dbContext,
                 new FixedTimeProvider(Now));
 

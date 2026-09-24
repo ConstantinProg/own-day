@@ -132,6 +132,7 @@ public sealed class TelegramWebhookPingIntegrationTests
               "message": {
                 "message_id": 42,
                 "date": 1788728400,
+                "from": { "id": {{ChatId}}, "is_bot": false, "first_name": "Test" },
                 "chat": {
                   "id": {{ChatId}},
                   "type": "private"
