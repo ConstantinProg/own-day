@@ -2,6 +2,7 @@ using System.Net;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using OwnDay.Domain.Tasks;
 using OwnDay.Infrastructure.Persistence;
 using Xunit;
 
@@ -69,6 +70,37 @@ public sealed class TelegramTaskCommandsIntegrationTests
         Assert.Equal("Task title must be at most 200 characters.",
             Assert.Single(await db.TelegramOutboxMessages.ToListAsync()).Text);
         Assert.Empty(await db.Tasks.ToListAsync());
+    }
+
+    [Fact]
+    public async Task Post_ManyTasks_QueuesOrderedMessagesWithinTelegramLimit()
+    {
+        using var factory = new OwnDayHostFactory();
+        using var client = factory.CreateClient();
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
+            for (var index = 0; index < 50; index++)
+            {
+                db.Tasks.Add(TaskItem.Create(new UserId(101),
+                    new string('x', TaskItem.MaxTitleLength), DateTime.UtcNow));
+            }
+
+            await db.SaveChangesAsync();
+        }
+
+        await PostAsync(client, 1, 101, "/tasks");
+
+        using var resultScope = factory.Services.CreateScope();
+        var resultDb = resultScope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
+        var messages = await resultDb.TelegramOutboxMessages
+            .OrderBy(message => message.CreatedAt).ToListAsync();
+        var tasks = await resultDb.Tasks.OrderBy(task => task.Id).ToListAsync();
+
+        Assert.True(messages.Count > 1);
+        Assert.All(messages, message => Assert.InRange(message.Text.Length, 1, 4096));
+        Assert.Equal(string.Join('\n', tasks.Select(task => $"#{task.Id} {task.Title}")),
+            string.Join('\n', messages.Select(message => message.Text)));
     }
 
     private static async Task PostAsync(HttpClient client, long updateId, long userId, string command)

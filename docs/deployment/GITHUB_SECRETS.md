@@ -132,6 +132,8 @@ with a one-second pause between full batches. It runs independently of message d
 
 Pending and failed messages, sent messages without `SentAt`, and Telegram update deduplication
 records are retained. The cleanup index is installed by the normal deployment migration step.
+Transient delivery errors keep messages pending with exponential retry delays capped at one hour.
+Telegram rejections with status 400, 403, or 404 mark messages as failed.
 
 ## Configuration Ownership
 

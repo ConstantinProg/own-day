@@ -65,21 +65,23 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
             return;
         }
 
-        var replyText = _taskCommandHandler.Handles(dispatch.Command.Name)
+        IReadOnlyList<string> replies = _taskCommandHandler.Handles(dispatch.Command.Name)
             ? await _taskCommandHandler.HandleAsync(dispatch.Command, cancellationToken)
-            : (await _commandHandler.HandleAsync(dispatch.Command, cancellationToken) as IncomingCommandResult.Reply)?.Text;
+            : (await _commandHandler.HandleAsync(dispatch.Command, cancellationToken) is IncomingCommandResult.Reply reply
+                ? [reply.Text]
+                : []);
 
-        if (replyText is not null)
+        for (var index = 0; index < replies.Count; index++)
         {
             _dbContext.TelegramOutboxMessages.Add(new TelegramOutboxMessage
             {
                 Id = Guid.NewGuid(),
                 ChatId = dispatch.ChatId,
-                Text = replyText,
+                Text = replies[index],
                 Status = OutboxMessageStatus.Pending,
                 AttemptCount = 0,
                 NextAttemptAt = now,
-                CreatedAt = now
+                CreatedAt = now.AddTicks(index * 10L)
             });
         }
 

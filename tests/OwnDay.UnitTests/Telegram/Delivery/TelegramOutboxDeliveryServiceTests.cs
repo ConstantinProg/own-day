@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using OwnDay.Infrastructure.Persistence;
 using OwnDay.Infrastructure.Telegram.Delivery;
+using Telegram.Bot.Exceptions;
 using Xunit;
 
 namespace OwnDay.UnitTests.Telegram.Delivery;
@@ -64,6 +65,56 @@ public sealed class TelegramOutboxDeliveryServiceTests
         Assert.Equal(1, message.AttemptCount);
         Assert.NotNull(message.LastError);
         Assert.Equal(Now.AddSeconds(2), message.NextAttemptAt);
+    }
+
+    [Theory]
+    [InlineData(429)]
+    [InlineData(500)]
+    public async Task DeliverBatchAsync_TransientTelegramFailureAfterFiveAttempts_RemainsPending(
+        int errorCode)
+    {
+        await using var fixture = await DeliveryFixture.CreateAsync(
+            new ErrorMessageSender(new ApiRequestException("Try again", errorCode)));
+        var message = fixture.AddPendingMessage();
+        message.AttemptCount = 4;
+        await fixture.DbContext.SaveChangesAsync();
+
+        await fixture.DeliveryService.DeliverBatchAsync(CancellationToken.None);
+
+        Assert.Equal(OutboxMessageStatus.Pending, message.Status);
+        Assert.Equal(5, message.AttemptCount);
+        Assert.Equal(Now.AddSeconds(32), message.NextAttemptAt);
+    }
+
+    [Fact]
+    public async Task DeliverBatchAsync_RepeatedTransientFailure_CapsRetryDelay()
+    {
+        await using var fixture = await DeliveryFixture.CreateAsync(new FailingMessageSender());
+        var message = fixture.AddPendingMessage();
+        message.AttemptCount = 12;
+        await fixture.DbContext.SaveChangesAsync();
+
+        await fixture.DeliveryService.DeliverBatchAsync(CancellationToken.None);
+
+        Assert.Equal(OutboxMessageStatus.Pending, message.Status);
+        Assert.Equal(Now.AddHours(1), message.NextAttemptAt);
+    }
+
+    [Theory]
+    [InlineData(400)]
+    [InlineData(403)]
+    [InlineData(404)]
+    public async Task DeliverBatchAsync_PermanentTelegramError_MarksMessageFailed(int errorCode)
+    {
+        await using var fixture = await DeliveryFixture.CreateAsync(
+            new ErrorMessageSender(new ApiRequestException("Rejected", errorCode)));
+        var message = fixture.AddPendingMessage();
+        await fixture.DbContext.SaveChangesAsync();
+
+        await fixture.DeliveryService.DeliverBatchAsync(CancellationToken.None);
+
+        Assert.Equal(OutboxMessageStatus.Failed, message.Status);
+        Assert.Equal(1, message.AttemptCount);
     }
 
     [Theory]
@@ -213,5 +264,13 @@ public sealed class TelegramOutboxDeliveryServiceTests
             string text,
             CancellationToken cancellationToken = default) =>
             Task.FromException(new InvalidOperationException("Telegram is unavailable."));
+    }
+
+    private sealed class ErrorMessageSender(Exception exception) : ITelegramMessageSender
+    {
+        public Task SendTextMessageAsync(
+            long chatId,
+            string text,
+            CancellationToken cancellationToken = default) => Task.FromException(exception);
     }
 }

@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 using OwnDay.Application.Interactions;
 using OwnDay.Application.Tasks;
 using OwnDay.Domain.Tasks;
@@ -7,13 +8,26 @@ namespace OwnDay.Infrastructure.Telegram.Commands;
 
 public sealed class TelegramTaskCommandHandler(TaskService taskService)
 {
+    private const int MaximumMessageLength = 4096;
+
     public bool Handles(string name) => name is "add" or "tasks" or "done";
 
-    public Task<string> HandleAsync(ProcessIncomingCommand command, CancellationToken cancellationToken) =>
+    public async Task<IReadOnlyList<string>> HandleAsync(
+        ProcessIncomingCommand command,
+        CancellationToken cancellationToken)
+    {
+        if (command.Name is "tasks")
+        {
+            return await ListAsync(command, cancellationToken);
+        }
+
+        return [await HandleSingleAsync(command, cancellationToken)];
+    }
+
+    private Task<string> HandleSingleAsync(ProcessIncomingCommand command, CancellationToken cancellationToken) =>
         command.Name switch
         {
             "add" => AddAsync(command, cancellationToken),
-            "tasks" => ListAsync(command, cancellationToken),
             "done" => CompleteAsync(command, cancellationToken),
             _ => throw new ArgumentOutOfRangeException(nameof(command))
         };
@@ -35,17 +49,42 @@ public sealed class TelegramTaskCommandHandler(TaskService taskService)
         return $"Task #{task.Id} added: {task.Title}";
     }
 
-    private async Task<string> ListAsync(ProcessIncomingCommand command, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<string>> ListAsync(
+        ProcessIncomingCommand command,
+        CancellationToken cancellationToken)
     {
         if (command.Arguments.Length > 0)
         {
-            return "Usage: /tasks";
+            return ["Usage: /tasks"];
         }
 
         var tasks = await taskService.GetActiveAsync(command.UserId, cancellationToken);
-        return tasks.Count is 0
-            ? "No active tasks."
-            : string.Join('\n', tasks.Select(task => $"#{task.Id} {task.Title}"));
+        if (tasks.Count is 0)
+        {
+            return ["No active tasks."];
+        }
+
+        var messages = new List<string>();
+        var current = new StringBuilder();
+        foreach (var task in tasks)
+        {
+            var line = $"#{task.Id} {task.Title}";
+            if (current.Length > 0 && current.Length + 1 + line.Length > MaximumMessageLength)
+            {
+                messages.Add(current.ToString());
+                current.Clear();
+            }
+
+            if (current.Length > 0)
+            {
+                current.Append('\n');
+            }
+
+            current.Append(line);
+        }
+
+        messages.Add(current.ToString());
+        return messages;
     }
 
     private async Task<string> CompleteAsync(ProcessIncomingCommand command, CancellationToken cancellationToken)

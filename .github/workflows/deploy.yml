@@ -20,6 +20,24 @@ jobs:
     name: Test
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_DB: ownday_test
+          POSTGRES_USER: ownday_test
+          POSTGRES_PASSWORD: ownday_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ownday_test -d ownday_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      OWNDAY_TEST_POSTGRES_CONNECTION: Host=localhost;Port=5432;Database=ownday_test;Username=ownday_test;Password=ownday_test
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4

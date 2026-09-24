@@ -20,7 +20,7 @@ public sealed class PostgresTelegramRestartIntegrationTests
         var connectionString = Environment.GetEnvironmentVariable("OWNDAY_TEST_POSTGRES_CONNECTION");
         if (string.IsNullOrWhiteSpace(connectionString))
         {
-            return;
+            throw new InvalidOperationException("OWNDAY_TEST_POSTGRES_CONNECTION is required for this test.");
         }
 
         var schema = "ownday_test_" + Guid.NewGuid().ToString("N");

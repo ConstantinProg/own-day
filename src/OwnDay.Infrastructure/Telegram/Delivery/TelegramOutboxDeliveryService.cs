@@ -1,13 +1,14 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using OwnDay.Infrastructure.Persistence;
+using Telegram.Bot.Exceptions;
 
 namespace OwnDay.Infrastructure.Telegram.Delivery;
 
 public sealed class TelegramOutboxDeliveryService
 {
     private const int BatchSize = 10;
-    private const int MaximumAttempts = 5;
+    private const int MaximumRetryDelaySeconds = 3600;
     private readonly OwnDayDbContext _dbContext;
     private readonly ITelegramMessageSender _messageSender;
     private readonly ILogger<TelegramOutboxDeliveryService> _logger;
@@ -55,21 +56,24 @@ public sealed class TelegramOutboxDeliveryService
             }
             catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
             {
-                message.AttemptCount++;
+                if (message.AttemptCount < int.MaxValue)
+                {
+                    message.AttemptCount++;
+                }
                 message.LastError = exception.Message;
 
-                if (message.AttemptCount >= MaximumAttempts)
+                if (exception is ApiRequestException { ErrorCode: 400 or 403 or 404 })
                 {
                     message.Status = OutboxMessageStatus.Failed;
                     _logger.LogError(
                         exception,
-                        "Telegram outbox message {OutboxMessageId} exhausted delivery attempts.",
+                        "Telegram outbox message {OutboxMessageId} was rejected permanently.",
                         message.Id);
                 }
                 else
                 {
                     message.NextAttemptAt = _timeProvider.GetUtcNow().UtcDateTime.AddSeconds(
-                        Math.Pow(2, message.AttemptCount));
+                        Math.Min(MaximumRetryDelaySeconds, Math.Pow(2, Math.Min(message.AttemptCount, 12))));
                     _logger.LogWarning(
                         exception,
                         "Telegram outbox message {OutboxMessageId} delivery failed on attempt {AttemptCount}.",
