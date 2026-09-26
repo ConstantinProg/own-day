@@ -5,6 +5,7 @@ using OwnDay.Domain.Projects;
 using OwnDay.Domain.SomedayMaybes;
 using OwnDay.Domain.References;
 using OwnDay.Domain.WaitingFors;
+using OwnDay.Domain.Inbox;
 using Action = OwnDay.Domain.Actions.Action;
 
 namespace OwnDay.Infrastructure.Persistence;
@@ -17,6 +18,7 @@ public sealed class OwnDayDbContext(DbContextOptions<OwnDayDbContext> options)
     public DbSet<SomedayMaybe> SomedayMaybes => Set<SomedayMaybe>();
     public DbSet<Reference> References => Set<Reference>();
     public DbSet<WaitingFor> WaitingFors => Set<WaitingFor>();
+    public DbSet<InboxItem> InboxItems => Set<InboxItem>();
 
     public DbSet<ProcessedTelegramUpdate> ProcessedTelegramUpdates =>
         Set<ProcessedTelegramUpdate>();
@@ -26,6 +28,26 @@ public sealed class OwnDayDbContext(DbContextOptions<OwnDayDbContext> options)
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<InboxItem>(entity =>
+        {
+            entity.ToTable("inbox_items", table => table.HasCheckConstraint(
+                "CK_inbox_items_lifecycle",
+                "(status = 0 AND processed_at IS NULL AND discarded_at IS NULL AND target_kind IS NULL AND target_id IS NULL) OR " +
+                "(status = 1 AND processed_at IS NOT NULL AND discarded_at IS NULL AND target_kind IS NOT NULL AND target_kind BETWEEN 0 AND 4 AND target_id IS NOT NULL AND target_id > 0 AND processed_at >= captured_at) OR " +
+                "(status = 2 AND processed_at IS NULL AND discarded_at IS NOT NULL AND target_kind IS NULL AND target_id IS NULL AND discarded_at >= captured_at)"));
+            entity.HasKey(item => item.Id);
+            entity.Property(item => item.Id).HasColumnName("id");
+            entity.Property(item => item.UserId).HasConversion(id => id.Value, value => new UserId(value)).HasColumnName("user_id");
+            entity.Property(item => item.OriginalText).HasColumnType("text").HasColumnName("original_text");
+            entity.Property(item => item.CapturedAt).HasColumnName("captured_at");
+            entity.Property(item => item.Status).IsConcurrencyToken().HasColumnName("status");
+            entity.Property(item => item.ProcessedAt).HasColumnName("processed_at");
+            entity.Property(item => item.DiscardedAt).HasColumnName("discarded_at");
+            entity.Property(item => item.TargetKind).HasColumnName("target_kind");
+            entity.Property(item => item.TargetId).HasColumnName("target_id");
+            entity.HasIndex(item => new { item.UserId, item.Status, item.CapturedAt, item.Id });
+        });
+
         modelBuilder.Entity<Action>(entity =>
         {
             entity.ToTable("actions", table => table.HasCheckConstraint(

@@ -4,7 +4,6 @@ using OwnDay.Domain.Projects;
 using OwnDay.Domain.SomedayMaybes;
 using OwnDay.Domain.References;
 using OwnDay.Domain.WaitingFors;
-using Action = OwnDay.Domain.Actions.Action;
 using Xunit;
 
 namespace OwnDay.UnitTests.StructuredItems;
@@ -36,11 +35,10 @@ public sealed class StructuredItemServiceTests
         var service = new StructuredItemService(store, TimeProvider.System);
         var token = CancellationToken.None;
 
-        Assert.Null((await service.CreateActionAsync(Alice, "Action", null, token)).ProjectId);
         Assert.Null((await service.CreateSomedayMaybeAsync(Alice, "Idea", null, token)).ProjectId);
         Assert.Null((await service.CreateReferenceAsync(Alice, "Note", null, token)).ProjectId);
         Assert.Null((await service.CreateWaitingForAsync(Alice, "Reply", null, null, token)).ProjectId);
-        Assert.Equal(4, store.AddCount);
+        Assert.Equal(3, store.AddCount);
         Assert.Equal(0, store.ProjectLookupCount);
     }
 
@@ -51,12 +49,11 @@ public sealed class StructuredItemServiceTests
         var service = new StructuredItemService(store, TimeProvider.System);
         using var source = new CancellationTokenSource();
 
-        Assert.Equal(7, (await service.CreateActionAsync(Alice, "Action", 7, source.Token)).ProjectId);
         Assert.Equal(7, (await service.CreateSomedayMaybeAsync(Alice, "Idea", 7, source.Token)).ProjectId);
         Assert.Equal(7, (await service.CreateReferenceAsync(Alice, "Note", 7, source.Token)).ProjectId);
         Assert.Equal(7, (await service.CreateWaitingForAsync(Alice, "Reply", null, 7, source.Token)).ProjectId);
-        Assert.Equal(4, store.ProjectLookupCount);
-        Assert.Equal(4, store.AddCount);
+        Assert.Equal(3, store.ProjectLookupCount);
+        Assert.Equal(3, store.AddCount);
         Assert.Equal(source.Token, store.LastToken);
     }
 
@@ -69,7 +66,6 @@ public sealed class StructuredItemServiceTests
         var service = new StructuredItemService(store, TimeProvider.System);
         var user = new UserId(owner);
 
-        await Assert.ThrowsAsync<ArgumentException>(() => service.CreateActionAsync(user, "Action", projectId, CancellationToken.None));
         await Assert.ThrowsAsync<ArgumentException>(() => service.CreateSomedayMaybeAsync(user, "Idea", projectId, CancellationToken.None));
         await Assert.ThrowsAsync<ArgumentException>(() => service.CreateReferenceAsync(user, "Note", projectId, CancellationToken.None));
         await Assert.ThrowsAsync<ArgumentException>(() => service.CreateWaitingForAsync(user, "Reply", null, projectId, CancellationToken.None));
@@ -92,8 +88,22 @@ public sealed class StructuredItemServiceTests
             return Task.FromResult(OwnedProjectId == projectId && ProjectOwner == userId);
         }
 
+        public Task<Project?> FindProjectAsync(UserId userId, long projectId, CancellationToken cancellationToken) =>
+            Task.FromResult<Project?>(null);
+
+        public Task<IReadOnlyList<Project>> GetActiveProjectsAsync(UserId userId, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<Project>>([]);
+
+        public Task<IReadOnlyList<SomedayMaybe>> GetActiveSomedayMaybesAsync(UserId userId, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<SomedayMaybe>>([]);
+
+        public Task<IReadOnlyList<Reference>> GetActiveReferencesAsync(UserId userId, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<Reference>>([]);
+
+        public Task<IReadOnlyList<WaitingFor>> GetActiveWaitingForsAsync(UserId userId, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<WaitingFor>>([]);
+
         public Task<Project> AddAsync(Project project, CancellationToken cancellationToken) => Add(project, cancellationToken);
-        public Task<Action> AddAsync(Action action, CancellationToken cancellationToken) => Add(action, cancellationToken);
         public Task<SomedayMaybe> AddAsync(SomedayMaybe item, CancellationToken cancellationToken) => Add(item, cancellationToken);
         public Task<Reference> AddAsync(Reference item, CancellationToken cancellationToken) => Add(item, cancellationToken);
         public Task<WaitingFor> AddAsync(WaitingFor item, CancellationToken cancellationToken) => Add(item, cancellationToken);

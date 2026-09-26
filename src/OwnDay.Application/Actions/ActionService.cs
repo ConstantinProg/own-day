@@ -15,22 +15,34 @@ public sealed class ActionService
         _timeProvider = timeProvider;
     }
 
-    public async Task<Action> AddAsync(UserId userId, string title, CancellationToken cancellationToken)
+    public Task<Action> AddAsync(UserId userId, string title, CancellationToken cancellationToken) =>
+        AddAsync(userId, title, null, cancellationToken);
+
+    public async Task<Action> AddAsync(UserId userId, string title, long? projectId, CancellationToken cancellationToken)
     {
-        var action = Action.Create(userId, title, _timeProvider.GetUtcNow().UtcDateTime);
+        var action = Action.Create(userId, title, _timeProvider.GetUtcNow().UtcDateTime, projectId);
+        if (projectId is long id && !await _store.ProjectBelongsToAsync(id, userId, cancellationToken))
+        {
+            throw new ArgumentException("Project was not found for this user.", nameof(projectId));
+        }
+
         return await _store.AddAsync(action, cancellationToken);
     }
 
-    public Task<IReadOnlyList<Action>> GetActiveAsync(UserId userId, CancellationToken cancellationToken) =>
-        _store.GetActiveAsync(userId, cancellationToken);
+    public Task<IReadOnlyList<Action>> GetActiveAsync(UserId userId, CancellationToken cancellationToken)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(userId.Value);
+        return _store.GetActiveAsync(userId, cancellationToken);
+    }
 
     public async Task<CompleteActionResult> CompleteAsync(
         UserId userId,
         long actionId,
         CancellationToken cancellationToken)
     {
-        var action = await _store.FindAsync(actionId, cancellationToken);
-        if (action is null || action.UserId != userId)
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(userId.Value);
+        var action = await _store.FindAsync(userId, actionId, cancellationToken);
+        if (action is null)
         {
             return CompleteActionResult.NotFound;
         }

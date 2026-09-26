@@ -26,6 +26,33 @@ public sealed class ActionServiceTests
     }
 
     [Fact]
+    public async Task AddAsync_OwnedProject_PersistsRelation()
+    {
+        var store = new RecordingActionStore { OwnedProjectId = 7, ProjectOwner = Alice };
+        var service = CreateService(store);
+        using var source = new CancellationTokenSource();
+
+        var action = await service.AddAsync(Alice, "My action", 7, source.Token);
+
+        Assert.Equal(7, action.ProjectId);
+        Assert.Equal(source.Token, store.LastToken);
+        Assert.Equal(1, store.ProjectLookupCount);
+    }
+
+    [Theory]
+    [InlineData(7, 1)]
+    [InlineData(8, 2)]
+    public async Task AddAsync_ForeignOrUnknownProject_RejectsBeforeInsert(long projectId, long owner)
+    {
+        var store = new RecordingActionStore { OwnedProjectId = 7, ProjectOwner = Bob };
+        var service = CreateService(store);
+
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            service.AddAsync(new UserId(owner), "My action", projectId, CancellationToken.None));
+        Assert.Empty(store.Actions);
+    }
+
+    [Fact]
     public async Task GetActiveAsync_MultipleUsers_ReturnsOnlyOwnActiveActions()
     {
         var store = new RecordingActionStore();
@@ -102,8 +129,18 @@ public sealed class ActionServiceTests
     private sealed class RecordingActionStore : IActionStore
     {
         public List<Action> Actions { get; } = [];
+        public long? OwnedProjectId { get; init; }
+        public UserId ProjectOwner { get; init; }
+        public int ProjectLookupCount { get; private set; }
         public int SaveCount { get; private set; }
         public CancellationToken LastToken { get; private set; }
+
+        public Task<bool> ProjectBelongsToAsync(long projectId, UserId userId, CancellationToken cancellationToken)
+        {
+            LastToken = cancellationToken;
+            ProjectLookupCount++;
+            return Task.FromResult(OwnedProjectId == projectId && ProjectOwner == userId);
+        }
 
         public Task<Action> AddAsync(Action action, CancellationToken cancellationToken)
         {
@@ -119,10 +156,10 @@ public sealed class ActionServiceTests
                 Actions.Where(action => action.UserId == userId && action.Status == ActionStatus.Active).ToList());
         }
 
-        public Task<Action?> FindAsync(long actionId, CancellationToken cancellationToken)
+        public Task<Action?> FindAsync(UserId userId, long actionId, CancellationToken cancellationToken)
         {
             LastToken = cancellationToken;
-            return Task.FromResult(Actions.ElementAtOrDefault(checked((int)actionId - 1)));
+            return Task.FromResult(Actions.ElementAtOrDefault(checked((int)actionId - 1)) is { } action && action.UserId == userId ? action : null);
         }
 
         public Task SaveAsync(CancellationToken cancellationToken)

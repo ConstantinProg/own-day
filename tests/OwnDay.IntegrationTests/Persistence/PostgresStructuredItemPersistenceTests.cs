@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using OwnDay.Application.StructuredItems;
+using OwnDay.Application.Actions;
 using OwnDay.Domain;
 using OwnDay.Infrastructure.Persistence;
 using Xunit;
@@ -33,13 +34,14 @@ public sealed class PostgresStructuredItemPersistenceTests
             await using var db = new OwnDayDbContext(options);
             await db.Database.MigrateAsync();
             var service = new StructuredItemService(new EfStructuredItemStore(db), TimeProvider.System);
+            var actions = new ActionService(new EfActionStore(db), TimeProvider.System);
             var alice = new UserId(101);
             var bob = new UserId(102);
             var token = CancellationToken.None;
 
             var project = await service.CreateProjectAsync(alice, "Outcome", token);
-            var plainAction = await service.CreateActionAsync(alice, "Standalone", null, token);
-            var action = await service.CreateActionAsync(alice, "Linked", project.Id, token);
+            var plainAction = await actions.AddAsync(alice, "Standalone", token);
+            var action = await actions.AddAsync(alice, "Linked", project.Id, token);
             var idea = await service.CreateSomedayMaybeAsync(alice, "Idea", project.Id, token);
             var note = await service.CreateReferenceAsync(alice, "Note", project.Id, token);
             var waiting = await service.CreateWaitingForAsync(alice, "Reply", "Bob", project.Id, token);
@@ -52,7 +54,7 @@ public sealed class PostgresStructuredItemPersistenceTests
             Assert.Equal(project.Id, (await db.WaitingFors.SingleAsync(item => item.Id == waiting.Id)).ProjectId);
             Assert.Equal("Outcome", (await db.Projects.SingleAsync(item => item.Id == project.Id)).Title);
 
-            await Assert.ThrowsAsync<ArgumentException>(() => service.CreateActionAsync(bob, "Foreign", project.Id, token));
+            await Assert.ThrowsAsync<ArgumentException>(() => actions.AddAsync(bob, "Foreign", project.Id, token));
             await Assert.ThrowsAsync<ArgumentException>(() => service.CreateReferenceAsync(alice, "Unknown", project.Id + 999, token));
 
             Assert.Equal("23503", (await Assert.ThrowsAsync<PostgresException>(async () =>

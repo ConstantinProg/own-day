@@ -3,7 +3,6 @@ using OwnDay.Domain.Projects;
 using OwnDay.Domain.SomedayMaybes;
 using OwnDay.Domain.References;
 using OwnDay.Domain.WaitingFors;
-using Action = OwnDay.Domain.Actions.Action;
 
 namespace OwnDay.Application.StructuredItems;
 
@@ -21,11 +20,36 @@ public sealed class StructuredItemService
     public Task<Project> CreateProjectAsync(UserId userId, string title, CancellationToken cancellationToken) =>
         _store.AddAsync(Project.Create(userId, title, Now()), cancellationToken);
 
-    public async Task<Action> CreateActionAsync(UserId userId, string title, long? projectId, CancellationToken cancellationToken)
+    public Task<Project?> FindProjectAsync(UserId userId, long projectId, CancellationToken cancellationToken)
     {
-        var action = Action.Create(userId, title, Now(), projectId);
-        await ValidateProjectAsync(userId, projectId, cancellationToken);
-        return await _store.AddAsync(action, cancellationToken);
+        RequireOwner(userId);
+        return projectId > 0
+            ? _store.FindProjectAsync(userId, projectId, cancellationToken)
+            : Task.FromResult<Project?>(null);
+    }
+
+    public Task<IReadOnlyList<Project>> GetActiveProjectsAsync(UserId userId, CancellationToken cancellationToken)
+    {
+        RequireOwner(userId);
+        return _store.GetActiveProjectsAsync(userId, cancellationToken);
+    }
+
+    public Task<IReadOnlyList<SomedayMaybe>> GetActiveSomedayMaybesAsync(UserId userId, CancellationToken cancellationToken)
+    {
+        RequireOwner(userId);
+        return _store.GetActiveSomedayMaybesAsync(userId, cancellationToken);
+    }
+
+    public Task<IReadOnlyList<Reference>> GetActiveReferencesAsync(UserId userId, CancellationToken cancellationToken)
+    {
+        RequireOwner(userId);
+        return _store.GetActiveReferencesAsync(userId, cancellationToken);
+    }
+
+    public Task<IReadOnlyList<WaitingFor>> GetActiveWaitingForsAsync(UserId userId, CancellationToken cancellationToken)
+    {
+        RequireOwner(userId);
+        return _store.GetActiveWaitingForsAsync(userId, cancellationToken);
     }
 
     public async Task<SomedayMaybe> CreateSomedayMaybeAsync(UserId userId, string text, long? projectId, CancellationToken cancellationToken)
@@ -50,6 +74,8 @@ public sealed class StructuredItemService
     }
 
     private DateTime Now() => _timeProvider.GetUtcNow().UtcDateTime;
+
+    private static void RequireOwner(UserId userId) => ArgumentOutOfRangeException.ThrowIfNegativeOrZero(userId.Value);
 
     private async Task ValidateProjectAsync(UserId userId, long? projectId, CancellationToken cancellationToken)
     {

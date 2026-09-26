@@ -19,6 +19,26 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
 
         NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+        modelBuilder.Entity("OwnDay.Domain.Inbox.InboxItem", b =>
+        {
+            b.Property<long>("Id").ValueGeneratedOnAdd().HasColumnType("bigint").HasColumnName("id");
+            NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+            b.Property<DateTime>("CapturedAt").HasColumnType("timestamp with time zone").HasColumnName("captured_at");
+            b.Property<DateTime?>("DiscardedAt").HasColumnType("timestamp with time zone").HasColumnName("discarded_at");
+            b.Property<string>("OriginalText").IsRequired().HasColumnType("text").HasColumnName("original_text");
+            b.Property<DateTime?>("ProcessedAt").HasColumnType("timestamp with time zone").HasColumnName("processed_at");
+            b.Property<int>("Status").IsConcurrencyToken().HasColumnType("integer").HasColumnName("status");
+            b.Property<long?>("TargetId").HasColumnType("bigint").HasColumnName("target_id");
+            b.Property<int?>("TargetKind").HasColumnType("integer").HasColumnName("target_kind");
+            b.Property<long>("UserId").HasColumnType("bigint").HasColumnName("user_id");
+            b.HasKey("Id");
+            b.HasIndex("UserId", "Status", "CapturedAt", "Id");
+            b.ToTable("inbox_items", t => t.HasCheckConstraint("CK_inbox_items_lifecycle",
+                "(status = 0 AND processed_at IS NULL AND discarded_at IS NULL AND target_kind IS NULL AND target_id IS NULL) OR " +
+                "(status = 1 AND processed_at IS NOT NULL AND discarded_at IS NULL AND target_kind IS NOT NULL AND target_kind BETWEEN 0 AND 4 AND target_id IS NOT NULL AND target_id > 0 AND processed_at >= captured_at) OR " +
+                "(status = 2 AND processed_at IS NULL AND discarded_at IS NOT NULL AND target_kind IS NULL AND target_id IS NULL AND discarded_at >= captured_at)"));
+        });
+
         modelBuilder.Entity("OwnDay.Domain.Actions.Action", b =>
         {
             b.Property<long>("Id")

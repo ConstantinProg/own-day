@@ -8,6 +8,9 @@ namespace OwnDay.Infrastructure.Persistence;
 
 public sealed class EfActionStore(OwnDayDbContext dbContext) : IActionStore
 {
+    public Task<bool> ProjectBelongsToAsync(long projectId, UserId userId, CancellationToken cancellationToken) =>
+        dbContext.Projects.AnyAsync(project => project.Id == projectId && project.UserId == userId, cancellationToken);
+
     public async Task<Action> AddAsync(Action action, CancellationToken cancellationToken)
     {
         dbContext.Actions.Add(action);
@@ -24,8 +27,8 @@ public sealed class EfActionStore(OwnDayDbContext dbContext) : IActionStore
             .ThenBy(action => action.Id)
             .ToListAsync(cancellationToken);
 
-    public Task<Action?> FindAsync(long actionId, CancellationToken cancellationToken) =>
-        dbContext.Actions.SingleOrDefaultAsync(action => action.Id == actionId, cancellationToken);
+    public Task<Action?> FindAsync(UserId userId, long actionId, CancellationToken cancellationToken) =>
+        dbContext.Actions.SingleOrDefaultAsync(action => action.UserId == userId && action.Id == actionId, cancellationToken);
 
     public async Task SaveAsync(CancellationToken cancellationToken) =>
         await dbContext.SaveChangesAsync(cancellationToken);
