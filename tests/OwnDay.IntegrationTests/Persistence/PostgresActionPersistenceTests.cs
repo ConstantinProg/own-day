@@ -82,6 +82,7 @@ public sealed class PostgresActionPersistenceTests
                         Assert.Equal(ActionStatus.Active, active.Status);
                         Assert.Equal(createdAt, active.CreatedAt);
                         Assert.Null(active.CompletedAt);
+                        Assert.Null(active.ProjectId);
                     },
                     completed =>
                     {
@@ -91,6 +92,7 @@ public sealed class PostgresActionPersistenceTests
                         Assert.Equal(ActionStatus.Completed, completed.Status);
                         Assert.Equal(createdAt, completed.CreatedAt);
                         Assert.Equal(completedAt, completed.CompletedAt);
+                        Assert.Null(completed.ProjectId);
                     });
 
                 var service = new ActionService(new EfActionStore(db), TimeProvider.System);
@@ -98,6 +100,12 @@ public sealed class PostgresActionPersistenceTests
                     await service.CompleteAsync(new UserId(101), 42, CancellationToken.None));
 
                 var sqlGenerator = db.GetService<IMigrationsSqlGenerator>();
+                foreach (var migrationCommand in sqlGenerator.Generate(
+                    new AddStructuredItems().DownOperations, db.Model))
+                {
+                    await db.Database.ExecuteSqlRawAsync(migrationCommand.CommandText);
+                }
+
                 foreach (var migrationCommand in sqlGenerator.Generate(
                     new RenameTasksToActions().DownOperations, db.Model))
                 {

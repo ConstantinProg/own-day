@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using OwnDay.Application.Interactions;
 using OwnDay.Application.Actions;
+using OwnDay.Application.StructuredItems;
 using OwnDay.Host.Filters;
 using OwnDay.Infrastructure.Telegram;
 using OwnDay.Infrastructure.Telegram.Configuration;
@@ -25,6 +26,8 @@ builder.Services
 builder.Services.AddSingleton<IIncomingCommandHandler, IncomingCommandHandler>();
 builder.Services.AddScoped<ActionService>();
 builder.Services.AddScoped<IActionStore, EfActionStore>();
+builder.Services.AddScoped<StructuredItemService>();
+builder.Services.AddScoped<IStructuredItemStore, EfStructuredItemStore>();
 builder.Services.AddDbContext<OwnDayDbContext>(options =>
     options.UseNpgsql(
         builder.Configuration.GetConnectionString("Default") ??

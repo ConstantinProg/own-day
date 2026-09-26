@@ -36,6 +36,10 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
                 .HasColumnType("timestamp with time zone")
                 .HasColumnName("created_at");
 
+            b.Property<long?>("ProjectId")
+                .HasColumnType("bigint")
+                .HasColumnName("project_id");
+
             b.Property<int>("Status")
                 .IsConcurrencyToken()
                 .HasColumnType("integer")
@@ -53,11 +57,114 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
 
             b.HasKey("Id");
 
+            b.HasIndex("ProjectId", "UserId");
+
             b.HasIndex("UserId", "Status", "CreatedAt", "Id");
 
             b.ToTable("actions", t => t.HasCheckConstraint(
                 "CK_actions_status_completed_at",
                 "(status = 0 AND completed_at IS NULL) OR (status = 1 AND completed_at IS NOT NULL)"));
+        });
+
+        modelBuilder.Entity("OwnDay.Domain.Projects.Project", b =>
+        {
+            b.Property<long>("Id").ValueGeneratedOnAdd().HasColumnType("bigint").HasColumnName("id");
+            NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+            b.Property<DateTime?>("CompletedAt").HasColumnType("timestamp with time zone").HasColumnName("completed_at");
+            b.Property<DateTime>("CreatedAt").HasColumnType("timestamp with time zone").HasColumnName("created_at");
+            b.Property<int>("Status").IsConcurrencyToken().HasColumnType("integer").HasColumnName("status");
+            b.Property<string>("Title").IsRequired().HasMaxLength(200).HasColumnType("character varying(200)").HasColumnName("title");
+            b.Property<long>("UserId").HasColumnType("bigint").HasColumnName("user_id");
+            b.HasKey("Id");
+            b.HasAlternateKey("Id", "UserId");
+            b.HasIndex("UserId", "Status", "CreatedAt", "Id");
+            b.ToTable("projects", t => t.HasCheckConstraint("CK_projects_status_completed_at",
+                "(status = 0 AND completed_at IS NULL) OR (status = 1 AND completed_at IS NOT NULL)"));
+        });
+
+        modelBuilder.Entity("OwnDay.Domain.SomedayMaybes.SomedayMaybe", b =>
+        {
+            b.Property<long>("Id").ValueGeneratedOnAdd().HasColumnType("bigint").HasColumnName("id");
+            NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+            b.Property<DateTime?>("ArchivedAt").HasColumnType("timestamp with time zone").HasColumnName("archived_at");
+            b.Property<DateTime>("CreatedAt").HasColumnType("timestamp with time zone").HasColumnName("created_at");
+            b.Property<long?>("ProjectId").HasColumnType("bigint").HasColumnName("project_id");
+            b.Property<int>("Status").IsConcurrencyToken().HasColumnType("integer").HasColumnName("status");
+            b.Property<string>("Text").IsRequired().HasMaxLength(200).HasColumnType("character varying(200)").HasColumnName("text");
+            b.Property<long>("UserId").HasColumnType("bigint").HasColumnName("user_id");
+            b.HasKey("Id");
+            b.HasIndex("ProjectId", "UserId");
+            b.HasIndex("UserId", "Status", "CreatedAt", "Id");
+            b.ToTable("someday_maybes", t => t.HasCheckConstraint("CK_someday_maybes_status_archived_at",
+                "(status = 0 AND archived_at IS NULL) OR (status = 1 AND archived_at IS NOT NULL)"));
+        });
+
+        modelBuilder.Entity("OwnDay.Domain.References.Reference", b =>
+        {
+            b.Property<long>("Id").ValueGeneratedOnAdd().HasColumnType("bigint").HasColumnName("id");
+            NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+            b.Property<DateTime?>("ArchivedAt").HasColumnType("timestamp with time zone").HasColumnName("archived_at");
+            b.Property<DateTime>("CreatedAt").HasColumnType("timestamp with time zone").HasColumnName("created_at");
+            b.Property<long?>("ProjectId").HasColumnType("bigint").HasColumnName("project_id");
+            b.Property<int>("Status").IsConcurrencyToken().HasColumnType("integer").HasColumnName("status");
+            b.Property<string>("Text").IsRequired().HasMaxLength(200).HasColumnType("character varying(200)").HasColumnName("text");
+            b.Property<long>("UserId").HasColumnType("bigint").HasColumnName("user_id");
+            b.HasKey("Id");
+            b.HasIndex("ProjectId", "UserId");
+            b.HasIndex("UserId", "Status", "CreatedAt", "Id");
+            b.ToTable("references", t => t.HasCheckConstraint("CK_references_status_archived_at",
+                "(status = 0 AND archived_at IS NULL) OR (status = 1 AND archived_at IS NOT NULL)"));
+        });
+
+        modelBuilder.Entity("OwnDay.Domain.WaitingFors.WaitingFor", b =>
+        {
+            b.Property<long>("Id").ValueGeneratedOnAdd().HasColumnType("bigint").HasColumnName("id");
+            NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+            b.Property<DateTime>("CreatedAt").HasColumnType("timestamp with time zone").HasColumnName("created_at");
+            b.Property<string>("Description").IsRequired().HasMaxLength(200).HasColumnType("character varying(200)").HasColumnName("description");
+            b.Property<long?>("ProjectId").HasColumnType("bigint").HasColumnName("project_id");
+            b.Property<DateTime?>("ResolvedAt").HasColumnType("timestamp with time zone").HasColumnName("resolved_at");
+            b.Property<string>("Source").HasMaxLength(200).HasColumnType("character varying(200)").HasColumnName("source");
+            b.Property<int>("Status").IsConcurrencyToken().HasColumnType("integer").HasColumnName("status");
+            b.Property<long>("UserId").HasColumnType("bigint").HasColumnName("user_id");
+            b.Property<DateTime>("WaitingSince").HasColumnType("timestamp with time zone").HasColumnName("waiting_since");
+            b.HasKey("Id");
+            b.HasIndex("ProjectId", "UserId");
+            b.HasIndex("UserId", "Status", "CreatedAt", "Id");
+            b.ToTable("waiting_fors", t => t.HasCheckConstraint("CK_waiting_fors_status_resolved_at",
+                "(status = 0 AND resolved_at IS NULL) OR (status = 1 AND resolved_at IS NOT NULL)"));
+        });
+
+        modelBuilder.Entity("OwnDay.Domain.Actions.Action", b =>
+        {
+            b.HasOne("OwnDay.Domain.Projects.Project", null)
+                .WithMany()
+                .HasForeignKey("ProjectId", "UserId")
+                .HasPrincipalKey("Id", "UserId");
+        });
+
+        modelBuilder.Entity("OwnDay.Domain.SomedayMaybes.SomedayMaybe", b =>
+        {
+            b.HasOne("OwnDay.Domain.Projects.Project", null)
+                .WithMany()
+                .HasForeignKey("ProjectId", "UserId")
+                .HasPrincipalKey("Id", "UserId");
+        });
+
+        modelBuilder.Entity("OwnDay.Domain.References.Reference", b =>
+        {
+            b.HasOne("OwnDay.Domain.Projects.Project", null)
+                .WithMany()
+                .HasForeignKey("ProjectId", "UserId")
+                .HasPrincipalKey("Id", "UserId");
+        });
+
+        modelBuilder.Entity("OwnDay.Domain.WaitingFors.WaitingFor", b =>
+        {
+            b.HasOne("OwnDay.Domain.Projects.Project", null)
+                .WithMany()
+                .HasForeignKey("ProjectId", "UserId")
+                .HasPrincipalKey("Id", "UserId");
         });
 
         modelBuilder.Entity("OwnDay.Infrastructure.Persistence.ProcessedTelegramUpdate", b =>

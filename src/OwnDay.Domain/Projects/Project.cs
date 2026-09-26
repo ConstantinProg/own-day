@@ -1,31 +1,29 @@
 using OwnDay.Domain;
 
-namespace OwnDay.Domain.Actions;
+namespace OwnDay.Domain.Projects;
 
-public sealed class Action
+public sealed class Project
 {
     public const int MaxTitleLength = 200;
 
-    private Action() { }
+    private Project() { }
 
-    private Action(UserId userId, string title, DateTime createdAt, long? projectId)
+    private Project(UserId userId, string title, DateTime createdAt)
     {
         UserId = userId;
         Title = title;
         CreatedAt = createdAt;
-        Status = ActionStatus.Active;
-        ProjectId = projectId;
+        Status = ProjectStatus.Active;
     }
 
     public long Id { get; private set; }
     public UserId UserId { get; private set; }
     public string Title { get; private set; } = string.Empty;
-    public ActionStatus Status { get; private set; }
+    public ProjectStatus Status { get; private set; }
     public DateTime CreatedAt { get; private set; }
     public DateTime? CompletedAt { get; private set; }
-    public long? ProjectId { get; private set; }
 
-    public static Action Create(UserId userId, string title, DateTime createdAt, long? projectId = null)
+    public static Project Create(UserId userId, string title, DateTime createdAt)
     {
         if (!userId.IsValid)
         {
@@ -37,22 +35,17 @@ public sealed class Action
             throw new ArgumentException("Title must contain 1 to 200 characters.", nameof(title));
         }
 
-        if (projectId <= 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(projectId));
-        }
-
-        return new Action(userId, title.Trim(), createdAt, projectId);
+        return new Project(userId, title.Trim(), createdAt);
     }
 
     public bool Complete(DateTime completedAt)
     {
-        if (Status == ActionStatus.Completed)
+        if (Status == ProjectStatus.Completed)
         {
             return false;
         }
 
-        Status = ActionStatus.Completed;
+        Status = ProjectStatus.Completed;
         CompletedAt = completedAt;
         return true;
     }
