@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Options;
 using OwnDay.Application.Interactions;
-using OwnDay.Domain.Tasks;
+using OwnDay.Domain;
 using OwnDay.Infrastructure.Telegram.Commands;
 using OwnDay.Infrastructure.Telegram.Configuration;
 using Telegram.Bot.Types;

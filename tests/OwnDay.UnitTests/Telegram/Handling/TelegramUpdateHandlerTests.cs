@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Options;
 using OwnDay.Application.Interactions;
-using OwnDay.Application.Tasks;
+using OwnDay.Application.Actions;
 using OwnDay.Infrastructure.Persistence;
 using OwnDay.Infrastructure.Telegram.Commands;
 using OwnDay.Infrastructure.Telegram.Configuration;
@@ -131,7 +131,7 @@ public sealed class TelegramUpdateHandlerTests
             fixture.Handler.HandleAsync(CreateTextMessageUpdate("/add Buy groceries")));
 
         fixture.DbContext.ChangeTracker.Clear();
-        Assert.Empty(fixture.DbContext.Tasks);
+        Assert.Empty(fixture.DbContext.Actions);
         Assert.Empty(fixture.DbContext.ProcessedTelegramUpdates);
     }
 
@@ -189,7 +189,7 @@ public sealed class TelegramUpdateHandlerTests
             var handler = new TelegramUpdateHandler(
                 router,
                 new IncomingCommandHandler(),
-                new TelegramTaskCommandHandler(new TaskService(new EfTaskStore(dbContext), new FixedTimeProvider(Now))),
+                new TelegramActionCommandHandler(new ActionService(new EfActionStore(dbContext), new FixedTimeProvider(Now))),
                 dbContext,
                 new FixedTimeProvider(Now));
 

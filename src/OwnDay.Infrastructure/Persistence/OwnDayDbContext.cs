@@ -1,12 +1,14 @@
 using Microsoft.EntityFrameworkCore;
-using OwnDay.Domain.Tasks;
+using OwnDay.Domain;
+using OwnDay.Domain.Actions;
+using Action = OwnDay.Domain.Actions.Action;
 
 namespace OwnDay.Infrastructure.Persistence;
 
 public sealed class OwnDayDbContext(DbContextOptions<OwnDayDbContext> options)
     : DbContext(options)
 {
-    public DbSet<TaskItem> Tasks => Set<TaskItem>();
+    public DbSet<Action> Actions => Set<Action>();
 
     public DbSet<ProcessedTelegramUpdate> ProcessedTelegramUpdates =>
         Set<ProcessedTelegramUpdate>();
@@ -16,25 +18,25 @@ public sealed class OwnDayDbContext(DbContextOptions<OwnDayDbContext> options)
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        modelBuilder.Entity<TaskItem>(entity =>
+        modelBuilder.Entity<Action>(entity =>
         {
-            entity.ToTable("tasks", table => table.HasCheckConstraint(
-                "CK_tasks_status_completed_at",
+            entity.ToTable("actions", table => table.HasCheckConstraint(
+                "CK_actions_status_completed_at",
                 "(status = 0 AND completed_at IS NULL) OR (status = 1 AND completed_at IS NOT NULL)"));
-            entity.HasKey(task => task.Id);
-            entity.Property(task => task.Id).HasColumnName("id");
-            entity.Property(task => task.UserId)
+            entity.HasKey(action => action.Id);
+            entity.Property(action => action.Id).HasColumnName("id");
+            entity.Property(action => action.UserId)
                 .HasConversion(userId => userId.Value, value => new UserId(value))
                 .HasColumnName("user_id");
-            entity.Property(task => task.Title)
-                .HasMaxLength(TaskItem.MaxTitleLength)
+            entity.Property(action => action.Title)
+                .HasMaxLength(Action.MaxTitleLength)
                 .HasColumnName("title");
-            entity.Property(task => task.Status)
+            entity.Property(action => action.Status)
                 .IsConcurrencyToken()
                 .HasColumnName("status");
-            entity.Property(task => task.CreatedAt).HasColumnName("created_at");
-            entity.Property(task => task.CompletedAt).HasColumnName("completed_at");
-            entity.HasIndex(task => new { task.UserId, task.Status, task.CreatedAt, task.Id });
+            entity.Property(action => action.CreatedAt).HasColumnName("created_at");
+            entity.Property(action => action.CompletedAt).HasColumnName("completed_at");
+            entity.HasIndex(action => new { action.UserId, action.Status, action.CreatedAt, action.Id });
         });
 
         modelBuilder.Entity<ProcessedTelegramUpdate>(entity =>

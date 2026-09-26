@@ -2,7 +2,7 @@ using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using OwnDay.Application.Interactions;
-using OwnDay.Application.Tasks;
+using OwnDay.Application.Actions;
 using OwnDay.Host.Filters;
 using OwnDay.Infrastructure.Telegram;
 using OwnDay.Infrastructure.Telegram.Configuration;
@@ -23,8 +23,8 @@ builder.Services
         name: "postgresql",
         tags: ["ready"]);
 builder.Services.AddSingleton<IIncomingCommandHandler, IncomingCommandHandler>();
-builder.Services.AddScoped<TaskService>();
-builder.Services.AddScoped<ITaskStore, EfTaskStore>();
+builder.Services.AddScoped<ActionService>();
+builder.Services.AddScoped<IActionStore, EfActionStore>();
 builder.Services.AddDbContext<OwnDayDbContext>(options =>
     options.UseNpgsql(
         builder.Configuration.GetConnectionString("Default") ??

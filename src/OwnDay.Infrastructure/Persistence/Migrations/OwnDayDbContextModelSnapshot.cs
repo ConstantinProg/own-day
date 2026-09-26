@@ -19,7 +19,7 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
 
         NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
-        modelBuilder.Entity("OwnDay.Domain.Tasks.TaskItem", b =>
+        modelBuilder.Entity("OwnDay.Domain.Actions.Action", b =>
         {
             b.Property<long>("Id")
                 .ValueGeneratedOnAdd()
@@ -55,8 +55,8 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
 
             b.HasIndex("UserId", "Status", "CreatedAt", "Id");
 
-            b.ToTable("tasks", t => t.HasCheckConstraint(
-                "CK_tasks_status_completed_at",
+            b.ToTable("actions", t => t.HasCheckConstraint(
+                "CK_actions_status_completed_at",
                 "(status = 0 AND completed_at IS NULL) OR (status = 1 AND completed_at IS NOT NULL)"));
         });
 

@@ -1,4 +1,4 @@
-namespace OwnDay.Domain.Tasks;
+namespace OwnDay.Domain;
 
 public readonly record struct UserId(long Value)
 {

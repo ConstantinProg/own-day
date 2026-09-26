@@ -10,7 +10,7 @@ namespace OwnDay.Infrastructure.Telegram.Handling;
 public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
 {
     private readonly IIncomingCommandHandler _commandHandler;
-    private readonly TelegramTaskCommandHandler _taskCommandHandler;
+    private readonly TelegramActionCommandHandler _actionCommandHandler;
     private readonly OwnDayDbContext _dbContext;
     private readonly TelegramUpdateRouter _router;
     private readonly TimeProvider _timeProvider;
@@ -18,19 +18,19 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
     public TelegramUpdateHandler(
         TelegramUpdateRouter router,
         IIncomingCommandHandler commandHandler,
-        TelegramTaskCommandHandler taskCommandHandler,
+        TelegramActionCommandHandler actionCommandHandler,
         OwnDayDbContext dbContext,
         TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(router);
         ArgumentNullException.ThrowIfNull(commandHandler);
-        ArgumentNullException.ThrowIfNull(taskCommandHandler);
+        ArgumentNullException.ThrowIfNull(actionCommandHandler);
         ArgumentNullException.ThrowIfNull(dbContext);
         ArgumentNullException.ThrowIfNull(timeProvider);
 
         _router = router;
         _commandHandler = commandHandler;
-        _taskCommandHandler = taskCommandHandler;
+        _actionCommandHandler = actionCommandHandler;
         _dbContext = dbContext;
         _timeProvider = timeProvider;
     }
@@ -65,8 +65,8 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
             return;
         }
 
-        IReadOnlyList<string> replies = _taskCommandHandler.Handles(dispatch.Command.Name)
-            ? await _taskCommandHandler.HandleAsync(dispatch.Command, cancellationToken)
+        IReadOnlyList<string> replies = _actionCommandHandler.Handles(dispatch.Command.Name)
+            ? await _actionCommandHandler.HandleAsync(dispatch.Command, cancellationToken)
             : (await _commandHandler.HandleAsync(dispatch.Command, cancellationToken) is IncomingCommandResult.Reply reply
                 ? [reply.Text]
                 : []);

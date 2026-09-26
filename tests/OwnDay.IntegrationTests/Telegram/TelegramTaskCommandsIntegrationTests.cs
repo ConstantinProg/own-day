@@ -2,7 +2,9 @@ using System.Net;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using OwnDay.Domain.Tasks;
+using OwnDay.Domain;
+using OwnDay.Domain.Actions;
+using Action = OwnDay.Domain.Actions.Action;
 using OwnDay.Infrastructure.Persistence;
 using Xunit;
 
@@ -35,7 +37,7 @@ public sealed class TelegramTaskCommandsIntegrationTests
         Assert.Contains(replies, message => message.ChatId == 101 && message.Text == "Task #1 completed.");
         Assert.Contains(replies, message => message.ChatId == 101 && message.Text == "No active tasks.");
         Assert.Contains(replies, message => message.ChatId == 101 && message.Text == "Task #1 is already completed.");
-        Assert.Equal(2, await db.Tasks.CountAsync());
+        Assert.Equal(2, await db.Actions.CountAsync());
     }
 
     [Theory]
@@ -54,7 +56,7 @@ public sealed class TelegramTaskCommandsIntegrationTests
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
         Assert.Equal(expectedReply, Assert.Single(await db.TelegramOutboxMessages.ToListAsync()).Text);
-        Assert.Empty(await db.Tasks.ToListAsync());
+        Assert.Empty(await db.Actions.ToListAsync());
     }
 
     [Fact]
@@ -69,7 +71,7 @@ public sealed class TelegramTaskCommandsIntegrationTests
         var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
         Assert.Equal("Task title must be at most 200 characters.",
             Assert.Single(await db.TelegramOutboxMessages.ToListAsync()).Text);
-        Assert.Empty(await db.Tasks.ToListAsync());
+        Assert.Empty(await db.Actions.ToListAsync());
     }
 
     [Fact]
@@ -82,8 +84,8 @@ public sealed class TelegramTaskCommandsIntegrationTests
             var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
             for (var index = 0; index < 50; index++)
             {
-                db.Tasks.Add(TaskItem.Create(new UserId(101),
-                    new string('x', TaskItem.MaxTitleLength), DateTime.UtcNow));
+                db.Actions.Add(Action.Create(new UserId(101),
+                    new string('x', Action.MaxTitleLength), DateTime.UtcNow));
             }
 
             await db.SaveChangesAsync();
@@ -95,7 +97,7 @@ public sealed class TelegramTaskCommandsIntegrationTests
         var resultDb = resultScope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
         var messages = await resultDb.TelegramOutboxMessages
             .OrderBy(message => message.CreatedAt).ToListAsync();
-        var tasks = await resultDb.Tasks.OrderBy(task => task.Id).ToListAsync();
+        var tasks = await resultDb.Actions.OrderBy(task => task.Id).ToListAsync();
 
         Assert.True(messages.Count > 1);
         Assert.All(messages, message => Assert.InRange(message.Text.Length, 1, 4096));

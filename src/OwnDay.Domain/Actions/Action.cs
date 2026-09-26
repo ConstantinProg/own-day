@@ -1,27 +1,29 @@
-namespace OwnDay.Domain.Tasks;
+using OwnDay.Domain;
 
-public sealed class TaskItem
+namespace OwnDay.Domain.Actions;
+
+public sealed class Action
 {
     public const int MaxTitleLength = 200;
 
-    private TaskItem() { }
+    private Action() { }
 
-    private TaskItem(UserId userId, string title, DateTime createdAt)
+    private Action(UserId userId, string title, DateTime createdAt)
     {
         UserId = userId;
         Title = title;
         CreatedAt = createdAt;
-        Status = TaskItemStatus.Active;
+        Status = ActionStatus.Active;
     }
 
     public long Id { get; private set; }
     public UserId UserId { get; private set; }
     public string Title { get; private set; } = string.Empty;
-    public TaskItemStatus Status { get; private set; }
+    public ActionStatus Status { get; private set; }
     public DateTime CreatedAt { get; private set; }
     public DateTime? CompletedAt { get; private set; }
 
-    public static TaskItem Create(UserId userId, string title, DateTime createdAt)
+    public static Action Create(UserId userId, string title, DateTime createdAt)
     {
         if (!userId.IsValid)
         {
@@ -33,17 +35,17 @@ public sealed class TaskItem
             throw new ArgumentException("Title must contain 1 to 200 characters.", nameof(title));
         }
 
-        return new TaskItem(userId, title.Trim(), createdAt);
+        return new Action(userId, title.Trim(), createdAt);
     }
 
     public bool Complete(DateTime completedAt)
     {
-        if (Status == TaskItemStatus.Completed)
+        if (Status == ActionStatus.Completed)
         {
             return false;
         }
 
-        Status = TaskItemStatus.Completed;
+        Status = ActionStatus.Completed;
         CompletedAt = completedAt;
         return true;
     }

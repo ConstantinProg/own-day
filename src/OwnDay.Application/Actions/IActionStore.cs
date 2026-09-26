@@ -1,0 +1,13 @@
+using OwnDay.Domain;
+using OwnDay.Domain.Actions;
+using Action = OwnDay.Domain.Actions.Action;
+
+namespace OwnDay.Application.Actions;
+
+public interface IActionStore
+{
+    Task<Action> AddAsync(Action action, CancellationToken cancellationToken);
+    Task<IReadOnlyList<Action>> GetActiveAsync(UserId userId, CancellationToken cancellationToken);
+    Task<Action?> FindAsync(long actionId, CancellationToken cancellationToken);
+    Task SaveAsync(CancellationToken cancellationToken);
+}

@@ -1,4 +1,4 @@
-using OwnDay.Domain.Tasks;
+using OwnDay.Domain;
 
 namespace OwnDay.Application.Interactions;
 
