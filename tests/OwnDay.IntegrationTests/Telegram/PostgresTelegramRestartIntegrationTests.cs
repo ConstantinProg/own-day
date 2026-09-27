@@ -51,12 +51,15 @@ public sealed class PostgresTelegramRestartIntegrationTests
             using (var restartedHost = new PostgresHostFactory(scopedConnection))
             using (var restartedClient = restartedHost.CreateClient())
             {
-                await PostAsync(restartedClient, 2004, "edited");
-                await PostAsync(restartedClient, 2005, "да");
-                await PostAsync(restartedClient, 2005, "да");
+                await PostAsync(restartedClient, 2004, "/inbox");
+                await PostAsync(restartedClient, 2005, "edited");
+                await PostAsync(restartedClient, 2006, "да");
+                await PostAsync(restartedClient, 2006, "да");
             }
 
             await using var verify = new OwnDayDbContext(options);
+            Assert.Contains(await verify.TelegramOutboxMessages.ToListAsync(), message =>
+                message.Text.Contains("#1 original — /inbox 1", StringComparison.Ordinal));
             var inbox = await verify.InboxItems.SingleAsync();
             Assert.Equal(InboxItemStatus.Processed, inbox.Status);
             Assert.Equal("original", inbox.OriginalText);

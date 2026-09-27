@@ -24,7 +24,8 @@ public sealed class TelegramInboxFlow(
         {
             var stale = await db.TelegramInboxDrafts.SingleAsync(row => row.UserId == user.Value, token);
             db.TelegramInboxDrafts.Remove(stale);
-            return ["Черновик истёк. Запись осталась во входящих. Откройте /inbox для продолжения."];
+            await capture.CaptureAsync(user, text, token);
+            return ["Черновик истёк. Предыдущая запись осталась во входящих. Новое сообщение сохранено во входящие. Откройте /inbox для продолжения."];
         }
 
         var draft = await LoadAsync(user, token);

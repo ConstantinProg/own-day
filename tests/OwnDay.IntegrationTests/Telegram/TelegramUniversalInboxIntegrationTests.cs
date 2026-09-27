@@ -32,7 +32,16 @@ public sealed class TelegramUniversalInboxIntegrationTests
         Assert.Equal(kind == "Note" ? 1 : 0, await db.References.CountAsync());
         Assert.Equal(kind == "Waiting" ? 1 : 0, await db.WaitingFors.CountAsync());
         Assert.Empty(await db.InboxItems.ToListAsync());
-        Assert.Single(await db.TelegramOutboxMessages.ToListAsync());
+        var reply = Assert.Single(await db.TelegramOutboxMessages.ToListAsync());
+        Assert.Contains("one", reply.Text, StringComparison.Ordinal);
+        Assert.Equal(new UserId(101), kind switch
+        {
+            "Action" => (await db.Actions.SingleAsync()).UserId,
+            "Project" => (await db.Projects.SingleAsync()).UserId,
+            "Idea" => (await db.SomedayMaybes.SingleAsync()).UserId,
+            "Note" => (await db.References.SingleAsync()).UserId,
+            _ => (await db.WaitingFors.SingleAsync()).UserId
+        });
     }
 
     [Theory]
@@ -82,12 +91,14 @@ public sealed class TelegramUniversalInboxIntegrationTests
     {
         using var factory = new OwnDayHostFactory();
         using var client = factory.CreateClient();
+        var original = choice == 1 ? "позвонить сергею насчет договора" : "original";
+        var edited = choice == 1 ? "Позвонить Сергею по поводу договора" : "edited";
         await PostAsync(client, 1, 101, "/project Main");
-        await PostAsync(client, 2, 101, "original");
+        await PostAsync(client, 2, 101, original);
         await PostAsync(client, 3, 101, "/inbox");
         await PostAsync(client, 4, 101, "/inbox 1");
         await PostAsync(client, 5, 101, choice.ToString());
-        await PostAsync(client, 6, 101, "edited");
+        await PostAsync(client, 6, 101, edited);
         var next = 7L;
         if (choice == 5) await PostAsync(client, next++, 101, "source");
         if (choice != 2) await PostAsync(client, next++, 101, "1");
@@ -98,9 +109,12 @@ public sealed class TelegramUniversalInboxIntegrationTests
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
         var inbox = Assert.Single(await db.InboxItems.ToListAsync());
-        Assert.Equal("original", inbox.OriginalText);
+        Assert.Equal(original, inbox.OriginalText);
         Assert.Equal(InboxItemStatus.Processed, inbox.Status);
+        Assert.Equal((InboxTargetKind)(choice - 1), inbox.TargetKind);
         Assert.NotNull(inbox.TargetId);
+        Assert.NotNull(inbox.ProcessedAt);
+        Assert.True(inbox.ProcessedAt >= inbox.CapturedAt);
         Assert.Empty(await db.TelegramInboxDrafts.ToListAsync());
         Assert.Contains(await db.TelegramOutboxMessages.ToListAsync(), reply => reply.ChatId == 101 && reply.Text == "Входящие: пусто.");
         Assert.Equal(kind == "Action" ? 1 : 0, await db.Actions.CountAsync());
@@ -108,7 +122,13 @@ public sealed class TelegramUniversalInboxIntegrationTests
         Assert.Equal(kind == "Idea" ? 1 : 0, await db.SomedayMaybes.CountAsync());
         Assert.Equal(kind == "Note" ? 1 : 0, await db.References.CountAsync());
         Assert.Equal(kind == "Waiting" ? 1 : 0, await db.WaitingFors.CountAsync());
-        if (choice == 1) Assert.Equal(1, (await db.Actions.SingleAsync()).ProjectId);
+        if (choice == 1)
+        {
+            var action = await db.Actions.SingleAsync();
+            Assert.Equal(1, action.ProjectId);
+            Assert.Equal(edited, action.Title);
+            Assert.Equal(action.Id, inbox.TargetId);
+        }
         if (choice == 5) Assert.Equal("source", (await db.WaitingFors.SingleAsync()).Source);
     }
 
@@ -188,7 +208,11 @@ public sealed class TelegramUniversalInboxIntegrationTests
         await PostAsync(client, 4, 101, "/inbox 1");
         using var verifyScope = factory.Services.CreateScope();
         var verify = verifyScope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
-        Assert.Equal(InboxItemStatus.Active, (await verify.InboxItems.SingleAsync()).Status);
+        var inboxItems = await verify.InboxItems.OrderBy(item => item.Id).ToListAsync();
+        Assert.Equal(2, inboxItems.Count);
+        Assert.All(inboxItems, item => Assert.Equal(InboxItemStatus.Active, item.Status));
+        Assert.Equal("original", inboxItems[0].OriginalText);
+        Assert.Equal("1", inboxItems[1].OriginalText);
         Assert.Empty(await verify.Actions.ToListAsync());
         Assert.Equal(TelegramInboxDraftStep.Target, (await verify.TelegramInboxDrafts.SingleAsync()).Step);
         Assert.Contains(await verify.TelegramOutboxMessages.ToListAsync(), reply => reply.Text.Contains("истёк", StringComparison.Ordinal));

@@ -96,6 +96,8 @@ public sealed class PostgresActionPersistenceTests
                     });
 
                 var service = new ActionService(new EfActionStore(db), TimeProvider.System);
+                var newAction = await service.AddAsync(new UserId(101), "After migration", CancellationToken.None);
+                Assert.True(newAction.Id > 43);
                 Assert.Equal(CompleteActionResult.Completed,
                     await service.CompleteAsync(new UserId(101), 42, CancellationToken.None));
 

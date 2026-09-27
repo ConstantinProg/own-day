@@ -76,6 +76,40 @@ public sealed class InboxProcessingTests
         }
     }
 
+    [Theory]
+    [InlineData(InboxTargetKind.Action)]
+    [InlineData(InboxTargetKind.SomedayMaybe)]
+    [InlineData(InboxTargetKind.Reference)]
+    [InlineData(InboxTargetKind.WaitingFor)]
+    public async Task Process_WithoutProject_CreatesUnlinkedTarget(InboxTargetKind kind)
+    {
+        await using var connection = await OpenAsync();
+        var options = Options(connection);
+        long inboxId;
+        await using (var setup = new OwnDayDbContext(options))
+        {
+            inboxId = (await Capture(setup, new FixedClock(), Alice, "original")).Id;
+        }
+
+        await using var db = new OwnDayDbContext(options);
+        var result = await Processor(db, new FixedClock()).ProcessAsync(Alice,
+            new(inboxId, kind, "Edited"), CancellationToken.None);
+        Assert.Equal(ProcessInboxItemStatus.Processed, result.Status);
+        Assert.Empty(await db.Projects.ToListAsync());
+        var projectId = kind switch
+        {
+            InboxTargetKind.Action => (await db.Actions.SingleAsync()).ProjectId,
+            InboxTargetKind.SomedayMaybe => (await db.SomedayMaybes.SingleAsync()).ProjectId,
+            InboxTargetKind.Reference => (await db.References.SingleAsync()).ProjectId,
+            _ => (await db.WaitingFors.SingleAsync()).ProjectId
+        };
+        Assert.Null(projectId);
+        if (kind == InboxTargetKind.WaitingFor)
+        {
+            Assert.Null((await db.WaitingFors.SingleAsync()).Source);
+        }
+    }
+
     [Fact]
     public async Task Process_UnknownForeignAndTerminalItems_ReturnSafeOutcomes()
     {
