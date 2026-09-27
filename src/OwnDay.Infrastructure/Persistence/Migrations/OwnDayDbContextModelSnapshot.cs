@@ -19,6 +19,22 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
 
         NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+        modelBuilder.Entity("OwnDay.Infrastructure.Persistence.TelegramInboxDraft", b =>
+        {
+            b.Property<long>("UserId").ValueGeneratedNever().HasColumnType("bigint").HasColumnName("user_id");
+            b.Property<long>("InboxItemId").HasColumnType("bigint").HasColumnName("inbox_item_id");
+            b.Property<int>("Step").HasColumnType("integer").HasColumnName("step");
+            b.Property<int?>("TargetKind").HasColumnType("integer").HasColumnName("target_kind");
+            b.Property<string>("Text").HasColumnType("text").HasColumnName("text");
+            b.Property<string>("Source").HasColumnType("text").HasColumnName("source");
+            b.Property<long?>("ProjectId").HasColumnType("bigint").HasColumnName("project_id");
+            b.Property<long>("Version").IsConcurrencyToken().HasColumnType("bigint").HasColumnName("version");
+            b.Property<DateTime>("ExpiresAt").HasColumnType("timestamp with time zone").HasColumnName("expires_at");
+            b.HasKey("UserId");
+            b.HasIndex("ExpiresAt");
+            b.ToTable("telegram_inbox_drafts");
+        });
+
         modelBuilder.Entity("OwnDay.Domain.Inbox.InboxItem", b =>
         {
             b.Property<long>("Id").ValueGeneratedOnAdd().HasColumnType("bigint").HasColumnName("id");

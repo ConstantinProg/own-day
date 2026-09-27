@@ -11,6 +11,8 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
 {
     private readonly IIncomingCommandHandler _commandHandler;
     private readonly TelegramActionCommandHandler _actionCommandHandler;
+    private readonly TelegramStructuredCommandHandler _structuredCommandHandler;
+    private readonly TelegramInboxFlow _inboxFlow;
     private readonly OwnDayDbContext _dbContext;
     private readonly TelegramUpdateRouter _router;
     private readonly TimeProvider _timeProvider;
@@ -19,6 +21,8 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         TelegramUpdateRouter router,
         IIncomingCommandHandler commandHandler,
         TelegramActionCommandHandler actionCommandHandler,
+        TelegramStructuredCommandHandler structuredCommandHandler,
+        TelegramInboxFlow inboxFlow,
         OwnDayDbContext dbContext,
         TimeProvider timeProvider)
     {
@@ -31,6 +35,8 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         _router = router;
         _commandHandler = commandHandler;
         _actionCommandHandler = actionCommandHandler;
+        _structuredCommandHandler = structuredCommandHandler;
+        _inboxFlow = inboxFlow;
         _dbContext = dbContext;
         _timeProvider = timeProvider;
     }
@@ -42,7 +48,8 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         ArgumentNullException.ThrowIfNull(update);
         cancellationToken.ThrowIfCancellationRequested();
 
-        if (_router.Route(update) is not TelegramUpdateRouteResult.Dispatch dispatch)
+        var route = _router.Route(update);
+        if (route is TelegramUpdateRouteResult.Ignore)
         {
             return;
         }
@@ -65,18 +72,44 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
             return;
         }
 
-        IReadOnlyList<string> replies = _actionCommandHandler.Handles(dispatch.Command.Name)
-            ? await _actionCommandHandler.HandleAsync(dispatch.Command, cancellationToken)
-            : (await _commandHandler.HandleAsync(dispatch.Command, cancellationToken) is IncomingCommandResult.Reply reply
-                ? [reply.Text]
-                : []);
+        var userId = route is TelegramUpdateRouteResult.Text routedText
+            ? routedText.UserId.Value
+            : ((TelegramUpdateRouteResult.Dispatch)route).Command.UserId.Value;
+        if (_dbContext.Database.IsNpgsql())
+        {
+            await _dbContext.Database.ExecuteSqlInterpolatedAsync(
+                $"SELECT pg_advisory_xact_lock({userId})", cancellationToken);
+        }
+
+        IReadOnlyList<string> replies;
+        long chatId;
+        if (route is TelegramUpdateRouteResult.Text ordinary)
+        {
+            chatId = ordinary.ChatId;
+            replies = await _inboxFlow.CaptureOrContinueAsync(ordinary.UserId, ordinary.Value, cancellationToken);
+        }
+        else
+        {
+            var dispatch = (TelegramUpdateRouteResult.Dispatch)route;
+            chatId = dispatch.ChatId;
+            var command = dispatch.Command;
+            replies = command.Name switch
+            {
+                "inbox" => await _inboxFlow.OpenAsync(command.UserId, command.Arguments, cancellationToken),
+                "cancel" => await _inboxFlow.CancelAsync(command.UserId, cancellationToken),
+                "discard" => await _inboxFlow.DiscardAsync(command.UserId, command.Arguments, cancellationToken),
+                _ when _actionCommandHandler.Handles(command.Name) => await _actionCommandHandler.HandleAsync(command, cancellationToken),
+                _ when _structuredCommandHandler.Handles(command.Name) => await _structuredCommandHandler.HandleAsync(command, cancellationToken),
+                _ => await LegacyReplyAsync(command, cancellationToken)
+            };
+        }
 
         for (var index = 0; index < replies.Count; index++)
         {
             _dbContext.TelegramOutboxMessages.Add(new TelegramOutboxMessage
             {
                 Id = Guid.NewGuid(),
-                ChatId = dispatch.ChatId,
+                ChatId = chatId,
                 Text = replies[index],
                 Status = OutboxMessageStatus.Pending,
                 AttemptCount = 0,
@@ -94,4 +127,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         await _dbContext.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
     }
+
+    private async Task<IReadOnlyList<string>> LegacyReplyAsync(ProcessIncomingCommand command, CancellationToken token) =>
+        await _commandHandler.HandleAsync(command, token) is IncomingCommandResult.Reply reply ? [reply.Text] : [];
 }

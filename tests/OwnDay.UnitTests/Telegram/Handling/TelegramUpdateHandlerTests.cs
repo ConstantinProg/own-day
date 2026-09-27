@@ -4,6 +4,8 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Options;
 using OwnDay.Application.Interactions;
 using OwnDay.Application.Actions;
+using OwnDay.Application.Inbox;
+using OwnDay.Application.StructuredItems;
 using OwnDay.Infrastructure.Persistence;
 using OwnDay.Infrastructure.Telegram.Commands;
 using OwnDay.Infrastructure.Telegram.Configuration;
@@ -20,7 +22,7 @@ public sealed class TelegramUpdateHandlerTests
     private static readonly DateTime Now = new(2026, 9, 17, 12, 0, 0, DateTimeKind.Utc);
 
     [Theory]
-    [InlineData("hello", ChatType.Private)]
+    [InlineData("/", ChatType.Private)]
     [InlineData("/ping@OtherBot", ChatType.Private)]
     [InlineData("/ping", ChatType.Group)]
     public async Task HandleAsync_IgnoredMessage_DoesNotAccessDatabase(string text, ChatType chatType)
@@ -190,6 +192,15 @@ public sealed class TelegramUpdateHandlerTests
                 router,
                 new IncomingCommandHandler(),
                 new TelegramActionCommandHandler(new ActionService(new EfActionStore(dbContext), new FixedTimeProvider(Now))),
+                new TelegramStructuredCommandHandler(new StructuredItemService(new EfStructuredItemStore(dbContext), new FixedTimeProvider(Now))),
+                new TelegramInboxFlow(dbContext,
+                    new InboxCaptureService(new EfInboxItemStore(dbContext), new FixedTimeProvider(Now)),
+                    new InboxProcessingService(new EfInboxProcessingStore(dbContext),
+                        new ActionService(new EfActionStore(dbContext), new FixedTimeProvider(Now)),
+                        new StructuredItemService(new EfStructuredItemStore(dbContext), new FixedTimeProvider(Now)),
+                        new FixedTimeProvider(Now)),
+                    new StructuredItemService(new EfStructuredItemStore(dbContext), new FixedTimeProvider(Now)),
+                    new FixedTimeProvider(Now)),
                 dbContext,
                 new FixedTimeProvider(Now));
 

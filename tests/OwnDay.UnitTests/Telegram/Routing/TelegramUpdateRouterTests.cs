@@ -94,12 +94,18 @@ public sealed class TelegramUpdateRouterTests
     [Theory]
     [InlineData("")]
     [InlineData("   ")]
-    [InlineData("hello")]
     public void Route_NonCommandText_ReturnsIgnore(string text)
     {
         var result = _router.Route(CreateTextMessageUpdate(text));
 
         Assert.IsType<TelegramUpdateRouteResult.Ignore>(result);
+    }
+
+    [Fact]
+    public void Route_OrdinaryText_ReturnsText()
+    {
+        var result = Assert.IsType<TelegramUpdateRouteResult.Text>(_router.Route(CreateTextMessageUpdate("hello")));
+        Assert.Equal("hello", result.Value);
     }
 
     [Fact]

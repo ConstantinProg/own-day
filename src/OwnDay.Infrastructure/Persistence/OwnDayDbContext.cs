@@ -19,6 +19,7 @@ public sealed class OwnDayDbContext(DbContextOptions<OwnDayDbContext> options)
     public DbSet<Reference> References => Set<Reference>();
     public DbSet<WaitingFor> WaitingFors => Set<WaitingFor>();
     public DbSet<InboxItem> InboxItems => Set<InboxItem>();
+    public DbSet<TelegramInboxDraft> TelegramInboxDrafts => Set<TelegramInboxDraft>();
 
     public DbSet<ProcessedTelegramUpdate> ProcessedTelegramUpdates =>
         Set<ProcessedTelegramUpdate>();
@@ -28,6 +29,22 @@ public sealed class OwnDayDbContext(DbContextOptions<OwnDayDbContext> options)
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<TelegramInboxDraft>(entity =>
+        {
+            entity.ToTable("telegram_inbox_drafts");
+            entity.HasKey(draft => draft.UserId);
+            entity.Property(draft => draft.UserId).ValueGeneratedNever().HasColumnName("user_id");
+            entity.Property(draft => draft.InboxItemId).HasColumnName("inbox_item_id");
+            entity.Property(draft => draft.Step).HasColumnName("step");
+            entity.Property(draft => draft.TargetKind).HasColumnName("target_kind");
+            entity.Property(draft => draft.Text).HasColumnType("text").HasColumnName("text");
+            entity.Property(draft => draft.Source).HasColumnType("text").HasColumnName("source");
+            entity.Property(draft => draft.ProjectId).HasColumnName("project_id");
+            entity.Property(draft => draft.Version).IsConcurrencyToken().HasColumnName("version");
+            entity.Property(draft => draft.ExpiresAt).HasColumnName("expires_at");
+            entity.HasIndex(draft => draft.ExpiresAt);
+        });
+
         modelBuilder.Entity<InboxItem>(entity =>
         {
             entity.ToTable("inbox_items", table => table.HasCheckConstraint(

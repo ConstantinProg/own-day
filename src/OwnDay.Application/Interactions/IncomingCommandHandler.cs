@@ -7,13 +7,12 @@ public sealed class IncomingCommandHandler : IIncomingCommandHandler
 
     private const string HelpResponse =
         """
-        Available commands:
-        /start — start OwnDay
-        /help — show this help
-        /ping — check bot availability
-        /add <title> — save a task
-        /tasks — list active tasks
-        /done <id> — complete a task
+        Сохранить: обычный текст — во входящие.
+        /add <текст> — задача; /project <текст> — проект.
+        /idea <текст> — идея; /note <текст> — заметка; /wait <текст> — ожидание.
+        Списки: /list, /inbox, /tasks, /projects, /ideas, /notes, /waiting.
+        Обработка: /inbox <id>, /cancel, /discard [id].
+        Дополнительно: /done <id> — завершить задачу; /start, /help, /ping.
         """;
 
     private const string PingResponse = "pong";

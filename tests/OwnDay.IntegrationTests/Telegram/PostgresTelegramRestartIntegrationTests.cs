@@ -7,12 +7,71 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using OwnDay.Infrastructure.Persistence;
+using OwnDay.Domain.Inbox;
 using Xunit;
 
 namespace OwnDay.IntegrationTests.Telegram;
 
 public sealed class PostgresTelegramRestartIntegrationTests
 {
+    [Fact]
+    [Trait("Requires", "PostgreSQL via OWNDAY_TEST_POSTGRES_CONNECTION")]
+    public async Task Post_InboxDraftAcrossHostRestart_ProcessesExactlyOnce()
+    {
+        var connectionString = Environment.GetEnvironmentVariable("OWNDAY_TEST_POSTGRES_CONNECTION");
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            throw new InvalidOperationException("OWNDAY_TEST_POSTGRES_CONNECTION is required for this test.");
+        }
+
+        var schema = "ownday_test_" + Guid.NewGuid().ToString("N");
+        await using var admin = new OwnDayDbContext(new DbContextOptionsBuilder<OwnDayDbContext>()
+            .UseNpgsql(connectionString).Options);
+#pragma warning disable EF1003 // Schema name is generated from a GUID.
+        await admin.Database.ExecuteSqlRawAsync("CREATE SCHEMA " + schema);
+#pragma warning restore EF1003
+        try
+        {
+            var scopedConnection = connectionString + ";Search Path=" + schema;
+            var options = new DbContextOptionsBuilder<OwnDayDbContext>()
+                .UseNpgsql(scopedConnection).Options;
+            await using (var setup = new OwnDayDbContext(options))
+            {
+                await setup.Database.MigrateAsync();
+            }
+
+            using (var firstHost = new PostgresHostFactory(scopedConnection))
+            using (var firstClient = firstHost.CreateClient())
+            {
+                await PostAsync(firstClient, 2001, "original");
+                await PostAsync(firstClient, 2002, "/inbox 1");
+                await PostAsync(firstClient, 2003, "2");
+            }
+
+            using (var restartedHost = new PostgresHostFactory(scopedConnection))
+            using (var restartedClient = restartedHost.CreateClient())
+            {
+                await PostAsync(restartedClient, 2004, "edited");
+                await PostAsync(restartedClient, 2005, "да");
+                await PostAsync(restartedClient, 2005, "да");
+            }
+
+            await using var verify = new OwnDayDbContext(options);
+            var inbox = await verify.InboxItems.SingleAsync();
+            Assert.Equal(InboxItemStatus.Processed, inbox.Status);
+            Assert.Equal("original", inbox.OriginalText);
+            Assert.Equal("edited", (await verify.Projects.SingleAsync()).Title);
+            Assert.Empty(await verify.Actions.ToListAsync());
+            Assert.Empty(await verify.TelegramInboxDrafts.ToListAsync());
+        }
+        finally
+        {
+#pragma warning disable EF1003 // Same GUID-derived schema name.
+            await admin.Database.ExecuteSqlRawAsync("DROP SCHEMA " + schema + " CASCADE");
+#pragma warning restore EF1003
+        }
+    }
+
     [Fact]
     [Trait("Requires", "PostgreSQL via OWNDAY_TEST_POSTGRES_CONNECTION")]
     public async Task Post_TaskCommandsAcrossHostRestart_RetainsAndCompletesTasks()

@@ -42,7 +42,9 @@ public sealed class TelegramUpdateRouter
 
         if (!parseResult.IsCommand)
         {
-            return new TelegramUpdateRouteResult.Ignore();
+            return message.Text.AsSpan().TrimStart().StartsWith('/') || string.IsNullOrWhiteSpace(message.Text)
+                ? new TelegramUpdateRouteResult.Ignore()
+                : new TelegramUpdateRouteResult.Text(new UserId(message.From.Id), message.Chat.Id, message.Text);
         }
 
         var command = parseResult.Command!;
