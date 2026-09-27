@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using OwnDay.Infrastructure.Persistence;
+using OwnDay.Infrastructure.Telegram.Cleanup;
 using OwnDay.Infrastructure.Telegram.Delivery;
 using Xunit;
 
@@ -52,6 +53,47 @@ public sealed class TelegramWebhookPingIntegrationTests
         var processed = Assert.Single(await dbContext.ProcessedTelegramUpdates.ToListAsync());
         Assert.Equal(100001, processed.UpdateId);
         Assert.NotNull(processed.ProcessedAt);
+    }
+
+    [Fact]
+    public async Task Post_PrivateText_CapturesAndRequestsMessageDeletion()
+    {
+        var cleaner = new RecordingTelegramMessageCleaner();
+        using var host = new OwnDayHostFactory();
+        using var factory = CreateFactory(host, new RecordingTelegramMessageSender(), cleaner);
+        using var client = factory.CreateClient();
+        using var request = CreateRequest(ValidWebhookSecret, "buy milk");
+
+        using var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal((ChatId, 42), Assert.Single(cleaner.Deletions));
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
+        Assert.Single(await db.InboxItems.ToListAsync());
+        Assert.Single(await db.TelegramOutboxMessages.ToListAsync());
+    }
+
+    [Fact]
+    public async Task Post_DeletionFails_ReturnsOkWithReplyStillQueued()
+    {
+        var cleaner = new RecordingTelegramMessageCleaner
+        {
+            Failure = new InvalidOperationException("Telegram rejected deletion")
+        };
+        using var host = new OwnDayHostFactory();
+        using var factory = CreateFactory(host, new RecordingTelegramMessageSender(), cleaner);
+        using var client = factory.CreateClient();
+        using var request = CreateRequest(ValidWebhookSecret, "buy milk");
+
+        using var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal((ChatId, 42), Assert.Single(cleaner.Deletions));
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
+        Assert.Single(await db.InboxItems.ToListAsync());
+        Assert.Equal(OutboxMessageStatus.Pending, Assert.Single(await db.TelegramOutboxMessages.ToListAsync()).Status);
     }
 
     [Fact]
@@ -106,7 +148,8 @@ public sealed class TelegramWebhookPingIntegrationTests
 
     private static WebApplicationFactory<Program> CreateFactory(
         OwnDayHostFactory host,
-        ITelegramMessageSender messageSender)
+        ITelegramMessageSender messageSender,
+        ITelegramMessageCleaner? cleaner = null)
     {
         return host.WithWebHostBuilder(builder =>
         {
@@ -115,6 +158,11 @@ public sealed class TelegramWebhookPingIntegrationTests
                 services.RemoveAll<ITelegramMessageSender>();
 
                 services.AddSingleton(messageSender);
+                if (cleaner is not null)
+                {
+                    services.RemoveAll<ITelegramMessageCleaner>();
+                    services.AddSingleton(cleaner);
+                }
             });
         });
     }
@@ -182,4 +230,22 @@ public sealed class TelegramWebhookPingIntegrationTests
         long ChatId,
         string Text,
         CancellationToken CancellationToken);
+
+    private sealed class RecordingTelegramMessageCleaner : ITelegramMessageCleaner
+    {
+        public List<(long ChatId, int MessageId)> Deletions { get; } = [];
+
+        public Exception? Failure { get; set; }
+
+        public Task DeleteMessageAsync(long chatId, int messageId, CancellationToken cancellationToken)
+        {
+            Deletions.Add((chatId, messageId));
+            if (Failure is not null)
+            {
+                throw Failure;
+            }
+
+            return Task.CompletedTask;
+        }
+    }
 }

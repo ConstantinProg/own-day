@@ -6,8 +6,9 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
-using OwnDay.Infrastructure.Persistence;
 using OwnDay.Domain.Inbox;
+using OwnDay.Infrastructure.Persistence;
+using OwnDay.Infrastructure.Telegram.Cleanup;
 using Xunit;
 
 namespace OwnDay.IntegrationTests.Telegram;
@@ -173,7 +174,12 @@ public sealed class PostgresTelegramRestartIntegrationTests
             builder.UseSetting("Telegram:BotToken", "123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi");
             builder.UseSetting("Telegram:BotUsername", "OwnDayBot");
             builder.UseSetting("Telegram:WebhookSecret", "integration-test-webhook-secret");
-            builder.ConfigureServices(services => services.RemoveAll<IHostedService>());
+            builder.ConfigureServices(services =>
+            {
+                services.RemoveAll<IHostedService>();
+                services.RemoveAll<ITelegramMessageCleaner>();
+                services.AddSingleton<ITelegramMessageCleaner, NoOpTelegramMessageCleaner>();
+            });
         }
 
         private static string GetHostContentRoot()
@@ -190,6 +196,12 @@ public sealed class PostgresTelegramRestartIntegrationTests
             }
 
             return Path.Combine(directory.FullName, "src", "OwnDay.Host");
+        }
+
+        private sealed class NoOpTelegramMessageCleaner : ITelegramMessageCleaner
+        {
+            public Task DeleteMessageAsync(long chatId, int messageId, CancellationToken cancellationToken) =>
+                Task.CompletedTask;
         }
     }
 }

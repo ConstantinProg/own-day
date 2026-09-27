@@ -33,6 +33,7 @@ public sealed class TelegramUpdateRouter
         if (message is null ||
             message.Chat.Type is not ChatType.Private ||
             message.From is null ||
+            message.From.IsBot ||
             message.Text is null)
         {
             return new TelegramUpdateRouteResult.Ignore();

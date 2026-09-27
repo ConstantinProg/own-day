@@ -1,6 +1,8 @@
-using OwnDay.Application.Interactions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using OwnDay.Application.Interactions;
 using OwnDay.Infrastructure.Persistence;
+using OwnDay.Infrastructure.Telegram.Cleanup;
 using OwnDay.Infrastructure.Telegram.Commands;
 using OwnDay.Infrastructure.Telegram.Routing;
 using Telegram.Bot.Types;
@@ -16,6 +18,8 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
     private readonly OwnDayDbContext _dbContext;
     private readonly TelegramUpdateRouter _router;
     private readonly TimeProvider _timeProvider;
+    private readonly ITelegramMessageCleaner _messageCleaner;
+    private readonly ILogger<TelegramUpdateHandler> _logger;
 
     public TelegramUpdateHandler(
         TelegramUpdateRouter router,
@@ -24,13 +28,17 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         TelegramStructuredCommandHandler structuredCommandHandler,
         TelegramInboxFlow inboxFlow,
         OwnDayDbContext dbContext,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        ITelegramMessageCleaner messageCleaner,
+        ILogger<TelegramUpdateHandler> logger)
     {
         ArgumentNullException.ThrowIfNull(router);
         ArgumentNullException.ThrowIfNull(commandHandler);
         ArgumentNullException.ThrowIfNull(actionCommandHandler);
         ArgumentNullException.ThrowIfNull(dbContext);
         ArgumentNullException.ThrowIfNull(timeProvider);
+        ArgumentNullException.ThrowIfNull(messageCleaner);
+        ArgumentNullException.ThrowIfNull(logger);
 
         _router = router;
         _commandHandler = commandHandler;
@@ -39,6 +47,8 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         _inboxFlow = inboxFlow;
         _dbContext = dbContext;
         _timeProvider = timeProvider;
+        _messageCleaner = messageCleaner;
+        _logger = logger;
     }
 
     public async Task HandleAsync(
@@ -126,6 +136,17 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
 
         await _dbContext.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
+
+        try
+        {
+            await _messageCleaner.DeleteMessageAsync(chatId, update.Message!.Id, cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException && !cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning(exception,
+                "Could not delete processed Telegram message {MessageId} from chat {ChatId}.",
+                update.Message!.Id, chatId);
+        }
     }
 
     private async Task<IReadOnlyList<string>> LegacyReplyAsync(ProcessIncomingCommand command, CancellationToken token) =>
