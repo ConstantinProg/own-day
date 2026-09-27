@@ -1,0 +1,243 @@
+<?xml version='1.0' encoding='utf-8'?>
+<root>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms</value>
+  </resheader>
+  <data name="action.add.created" xml:space="preserve">
+    <value>Задача #{0} добавлена: {1}</value>
+  </data>
+  <data name="action.add.too_long" xml:space="preserve">
+    <value>Название задачи должно быть не длиннее {0} символов.</value>
+  </data>
+  <data name="action.add.usage" xml:space="preserve">
+    <value>Используйте /add &lt;название&gt;.</value>
+  </data>
+  <data name="action.done.already" xml:space="preserve">
+    <value>Задача #{0} уже завершена.</value>
+  </data>
+  <data name="action.done.completed" xml:space="preserve">
+    <value>Задача #{0} завершена.</value>
+  </data>
+  <data name="action.done.not_found" xml:space="preserve">
+    <value>Задача не найдена.</value>
+  </data>
+  <data name="action.done.usage" xml:space="preserve">
+    <value>Используйте /done &lt;id задачи&gt;.</value>
+  </data>
+  <data name="action.list.empty" xml:space="preserve">
+    <value>Активных задач нет.</value>
+  </data>
+  <data name="action.list.usage" xml:space="preserve">
+    <value>Используйте /tasks без аргументов.</value>
+  </data>
+  <data name="common.none" xml:space="preserve">
+    <value>нет</value>
+  </data>
+  <data name="inbox.cancel.done" xml:space="preserve">
+    <value>Выбор отменён. Запись осталась во входящих.</value>
+  </data>
+  <data name="inbox.cancel.none" xml:space="preserve">
+    <value>Нет активного выбора. Откройте /inbox.</value>
+  </data>
+  <data name="inbox.captured" xml:space="preserve">
+    <value>Сохранено во входящие. Откройте /inbox для обработки.</value>
+  </data>
+  <data name="inbox.confirm.invalid" xml:space="preserve">
+    <value>Отправьте «да» для создания. /cancel — отмена; /discard — удалить из входящих.</value>
+  </data>
+  <data name="inbox.data.invalid" xml:space="preserve">
+    <value>Некорректные данные. Введите новый текст от 1 до 200 символов.</value>
+  </data>
+  <data name="inbox.discard.already" xml:space="preserve">
+    <value>Запись уже удалена из входящих.</value>
+  </data>
+  <data name="inbox.discard.done" xml:space="preserve">
+    <value>Входящее #{0} удалено.</value>
+  </data>
+  <data name="inbox.discard.not_found" xml:space="preserve">
+    <value>Входящее не найдено.</value>
+  </data>
+  <data name="inbox.discard.processed" xml:space="preserve">
+    <value>Запись уже обработана.</value>
+  </data>
+  <data name="inbox.discard.usage" xml:space="preserve">
+    <value>Используйте /discard &lt;id&gt; или откройте /inbox &lt;id&gt;.</value>
+  </data>
+  <data name="inbox.draft.expired" xml:space="preserve">
+    <value>Срок черновика истёк. Предыдущая запись осталась во входящих. Новое сообщение сохранено. Откройте /inbox, чтобы продолжить.</value>
+  </data>
+  <data name="inbox.draft.unavailable" xml:space="preserve">
+    <value>Запись больше недоступна. Черновик закрыт. Откройте /inbox.</value>
+  </data>
+  <data name="inbox.open.not_found" xml:space="preserve">
+    <value>Активное входящее не найдено.</value>
+  </data>
+  <data name="inbox.open.usage" xml:space="preserve">
+    <value>Используйте /inbox &lt;id&gt;.</value>
+  </data>
+  <data name="inbox.processed" xml:space="preserve">
+    <value>Входящее #{0} обработано. Создано: {1} #{2}.</value>
+  </data>
+  <data name="inbox.processed.unavailable" xml:space="preserve">
+    <value>Запись уже обработана или недоступна. Черновик закрыт.</value>
+  </data>
+  <data name="inbox.project.not_found" xml:space="preserve">
+    <value>Проект не найден. Введите его ID или 0, если проект не нужен.</value>
+  </data>
+  <data name="inbox.project.prompt" xml:space="preserve">
+    <value>Выберите проект: 0 — без проекта</value>
+  </data>
+  <data name="inbox.project.unavailable" xml:space="preserve">
+    <value>Выбранный проект недоступен. Введите другой ID или 0, если проект не нужен.</value>
+  </data>
+  <data name="inbox.source.invalid" xml:space="preserve">
+    <value>Источник должен быть не длиннее 200 символов. Отправьте точку, если источника нет.</value>
+  </data>
+  <data name="inbox.source.prompt" xml:space="preserve">
+    <value>Источник ожидания: введите до 200 символов или отправьте точку, если источника нет.</value>
+  </data>
+  <data name="inbox.summary" xml:space="preserve">
+    <value>Подтвердите создание: {0}.
+Исходный текст: {1}
+Итоговый текст: {2}
+Проект: {3}{4}
+Отправьте «да» для обработки, /cancel для отмены или /discard для удаления из входящих.</value>
+  </data>
+  <data name="inbox.summary.source" xml:space="preserve">
+    <value>
+Источник: {0}</value>
+  </data>
+  <data name="inbox.target.invalid" xml:space="preserve">
+    <value>Выберите тип числом от 1 до 5. /cancel — отмена; /discard — удалить из входящих.</value>
+  </data>
+  <data name="inbox.target.prompt" xml:space="preserve">
+    <value>Входящее #{0}: {1}
+Выберите тип:
+1 — Задача
+2 — Проект
+3 — Идея
+4 — Заметка
+5 — Ожидание
+/cancel — отмена; /discard — удалить из входящих.</value>
+  </data>
+  <data name="inbox.text.invalid" xml:space="preserve">
+    <value>Введите от 1 до 200 символов или отправьте точку, чтобы оставить исходный текст.</value>
+  </data>
+  <data name="inbox.text.prompt" xml:space="preserve">
+    <value>Тип: {0}. Исходный текст: {1}
+Введите итоговый текст (до 200 символов) или отправьте точку, чтобы оставить исходный.</value>
+  </data>
+  <data name="inbox.title" xml:space="preserve">
+    <value>Входящие</value>
+  </data>
+  <data name="kind.idea" xml:space="preserve">
+    <value>Идея</value>
+  </data>
+  <data name="kind.note" xml:space="preserve">
+    <value>Заметка</value>
+  </data>
+  <data name="kind.project" xml:space="preserve">
+    <value>Проект</value>
+  </data>
+  <data name="kind.task" xml:space="preserve">
+    <value>Задача</value>
+  </data>
+  <data name="kind.waiting" xml:space="preserve">
+    <value>Ожидание</value>
+  </data>
+  <data name="language.canceled" xml:space="preserve">
+    <value>Выбор языка отменён.</value>
+  </data>
+  <data name="language.changed" xml:space="preserve">
+    <value>Язык изменён на русский.</value>
+  </data>
+  <data name="language.menu" xml:space="preserve">
+    <value>Выберите язык:
+1 — English
+2 — Русский
+/cancel — отмена</value>
+  </data>
+  <data name="legacy.help" xml:space="preserve">
+    <value>Сохранение: отправьте обычный текст во входящие.
+/add &lt;текст&gt; — задача; /project &lt;текст&gt; — проект.
+/idea &lt;текст&gt; — идея; /note &lt;текст&gt; — заметка; /wait &lt;текст&gt; — ожидание.
+Списки: /list, /inbox, /tasks, /projects, /ideas, /notes, /waiting.
+Обработка: /inbox &lt;id&gt;, /cancel, /discard [id].
+Дополнительно: /done &lt;id&gt; — завершить задачу; /start, /help, /ping, /language.</value>
+  </data>
+  <data name="legacy.ping" xml:space="preserve">
+    <value>pong</value>
+  </data>
+  <data name="legacy.start" xml:space="preserve">
+    <value>OwnDay работает. Отправьте /help, чтобы увидеть команды.</value>
+  </data>
+  <data name="legacy.unknown" xml:space="preserve">
+    <value>Неизвестная команда. Отправьте /help.</value>
+  </data>
+  <data name="list.empty" xml:space="preserve">
+    <value>{0}: пусто.</value>
+  </data>
+  <data name="structured.idea.created" xml:space="preserve">
+    <value>Идея #{0} создана: {1}</value>
+  </data>
+  <data name="structured.idea.usage" xml:space="preserve">
+    <value>Используйте /idea &lt;текст&gt; (до 200 символов).</value>
+  </data>
+  <data name="structured.ideas.title" xml:space="preserve">
+    <value>Идеи</value>
+  </data>
+  <data name="structured.list.navigation" xml:space="preserve">
+    <value>Списки:
+/inbox — Входящие
+/tasks — Задачи
+/projects — Проекты
+/ideas — Идеи
+/notes — Заметки
+/waiting — Ожидания</value>
+  </data>
+  <data name="structured.list.no_arguments" xml:space="preserve">
+    <value>Используйте /{0} без аргументов.</value>
+  </data>
+  <data name="structured.note.created" xml:space="preserve">
+    <value>Заметка #{0} создана: {1}</value>
+  </data>
+  <data name="structured.note.usage" xml:space="preserve">
+    <value>Используйте /note &lt;текст&gt; (до 200 символов).</value>
+  </data>
+  <data name="structured.notes.title" xml:space="preserve">
+    <value>Заметки</value>
+  </data>
+  <data name="structured.project.created" xml:space="preserve">
+    <value>Проект #{0} создан: {1}</value>
+  </data>
+  <data name="structured.project.usage" xml:space="preserve">
+    <value>Используйте /project &lt;текст&gt; (до 200 символов).</value>
+  </data>
+  <data name="structured.projects.title" xml:space="preserve">
+    <value>Проекты</value>
+  </data>
+  <data name="structured.wait.created" xml:space="preserve">
+    <value>Ожидание #{0} создано: {1}</value>
+  </data>
+  <data name="structured.wait.usage" xml:space="preserve">
+    <value>Используйте /wait &lt;текст&gt; (до 200 символов).</value>
+  </data>
+  <data name="structured.waiting.project" xml:space="preserve">
+    <value>; проект #{0}</value>
+  </data>
+  <data name="structured.waiting.source" xml:space="preserve">
+    <value>; источник: {0}</value>
+  </data>
+  <data name="structured.waiting.title" xml:space="preserve">
+    <value>Ожидания</value>
+  </data>
+</root>

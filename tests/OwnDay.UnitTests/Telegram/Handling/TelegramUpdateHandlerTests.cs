@@ -48,7 +48,6 @@ public sealed class TelegramUpdateHandlerTests
 
         await fixture.Handler.HandleAsync(CreateTextMessageUpdate("/ping", chatId: 123456789));
 
-        Assert.DoesNotContain(fixture.DatabaseCommands, command => command.Contains("SELECT", StringComparison.OrdinalIgnoreCase));
         var processedUpdate = Assert.Single(fixture.DbContext.ProcessedTelegramUpdates);
         Assert.Equal(Now, processedUpdate.ReceivedAt);
         Assert.Equal(Now, processedUpdate.ProcessedAt);
@@ -204,16 +203,153 @@ public sealed class TelegramUpdateHandlerTests
         Assert.Single(fixture.Cleaner.Deletions);
     }
 
-    private static Update CreateTextMessageUpdate(string text, long chatId = 1) =>
+    [Theory]
+    [InlineData("/language")]
+    [InlineData("/language wrong")]
+    [InlineData("/language ru")]
+    public async Task HandleAsync_LanguageCommand_ShowsNumberedOptions(string command)
+    {
+        await using var fixture = await HandlerFixture.CreateAsync();
+
+        await fixture.Handler.HandleAsync(CreateTextMessageUpdate(command));
+
+        Assert.Equal("Choose a language:\n1 — English\n2 — Русский\n/cancel — cancel",
+            Assert.Single(fixture.DbContext.TelegramOutboxMessages).Text);
+        Assert.NotNull(Assert.Single(fixture.DbContext.TelegramUserLanguages).SelectionExpiresAt);
+    }
+
+    [Fact]
+    public async Task HandleAsync_LanguageNumber_ChangesPreferenceAndLocalizesConfirmation()
+    {
+        await using var fixture = await HandlerFixture.CreateAsync();
+        await fixture.Handler.HandleAsync(CreateTextMessageUpdate("/language"));
+
+        await fixture.Handler.HandleAsync(CreateTextMessageUpdate("2", updateId: 2));
+        await fixture.Handler.HandleAsync(CreateTextMessageUpdate("/help", updateId: 3));
+
+        var preference = Assert.Single(fixture.DbContext.TelegramUserLanguages);
+        Assert.Equal("ru", preference.Locale);
+        Assert.Null(preference.SelectionExpiresAt);
+        var replies = fixture.DbContext.TelegramOutboxMessages.ToArray();
+        Assert.Contains(replies, reply => reply.Text == "Язык изменён на русский.");
+        Assert.Contains(replies, reply => reply.Text.StartsWith("Сохранение:", StringComparison.Ordinal));
+        Assert.Empty(fixture.DbContext.InboxItems);
+    }
+
+    [Fact]
+    public async Task HandleAsync_InvalidLanguageNumber_RepeatsMenuWithoutCapturingInboxItem()
+    {
+        await using var fixture = await HandlerFixture.CreateAsync();
+        await fixture.Handler.HandleAsync(CreateTextMessageUpdate("/language"));
+
+        await fixture.Handler.HandleAsync(CreateTextMessageUpdate("3", updateId: 2));
+
+        Assert.Null(Assert.Single(fixture.DbContext.TelegramUserLanguages).Locale);
+        Assert.NotNull(Assert.Single(fixture.DbContext.TelegramUserLanguages).SelectionExpiresAt);
+        Assert.Empty(fixture.DbContext.InboxItems);
+        Assert.Equal(2, fixture.DbContext.TelegramOutboxMessages.Count());
+        Assert.All(fixture.DbContext.TelegramOutboxMessages,
+            reply => Assert.StartsWith("Choose a language:", reply.Text, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task HandleAsync_TelegramRussianLanguage_UsesRussianUntilPreferenceIsChanged()
+    {
+        await using var fixture = await HandlerFixture.CreateAsync();
+
+        await fixture.Handler.HandleAsync(CreateTextMessageUpdate("/start", languageCode: "ru-RU"));
+        await fixture.Handler.HandleAsync(CreateTextMessageUpdate("/language", updateId: 2, languageCode: "ru-RU"));
+        await fixture.Handler.HandleAsync(CreateTextMessageUpdate("1", updateId: 3, languageCode: "ru-RU"));
+        await fixture.Handler.HandleAsync(CreateTextMessageUpdate("/start", updateId: 4, languageCode: "ru-RU"));
+
+        var replies = fixture.DbContext.TelegramOutboxMessages.ToArray();
+        Assert.Contains(replies, reply => reply.Text.StartsWith("OwnDay работает", StringComparison.Ordinal));
+        Assert.Contains(replies, reply => reply.Text.StartsWith("Выберите язык:", StringComparison.Ordinal));
+        Assert.Contains(replies, reply => reply.Text == "Language changed to English.");
+        Assert.Contains(replies, reply => reply.Text.StartsWith("OwnDay is running", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task HandleAsync_SelectedRussianLanguage_LocalizesTaskAndInboxReplies()
+    {
+        await using var fixture = await HandlerFixture.CreateAsync();
+        await fixture.Handler.HandleAsync(CreateTextMessageUpdate("/language"));
+        await fixture.Handler.HandleAsync(CreateTextMessageUpdate("2", updateId: 2));
+
+        await fixture.Handler.HandleAsync(CreateTextMessageUpdate("/add Купить молоко", updateId: 3));
+        await fixture.Handler.HandleAsync(CreateTextMessageUpdate("входящий текст", updateId: 4));
+        await fixture.Handler.HandleAsync(CreateTextMessageUpdate("/inbox", updateId: 5));
+
+        var replies = fixture.DbContext.TelegramOutboxMessages.ToArray();
+        Assert.Contains(replies, reply => reply.Text == "Задача #1 добавлена: Купить молоко");
+        Assert.Contains(replies, reply => reply.Text == "Сохранено во входящие. Откройте /inbox для обработки.");
+        Assert.Contains(replies, reply => reply.Text.StartsWith("Входящие\n", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task HandleAsync_LanguageSelection_TakesPriorityOverInboxDraft()
+    {
+        await using var fixture = await HandlerFixture.CreateAsync();
+        await fixture.Handler.HandleAsync(CreateTextMessageUpdate("buy milk"));
+        await fixture.Handler.HandleAsync(CreateTextMessageUpdate("/inbox 1", updateId: 2));
+        await fixture.Handler.HandleAsync(CreateTextMessageUpdate("/language", updateId: 3));
+
+        await fixture.Handler.HandleAsync(CreateTextMessageUpdate("2", updateId: 4));
+
+        Assert.Equal("ru", Assert.Single(fixture.DbContext.TelegramUserLanguages).Locale);
+        Assert.Equal(TelegramInboxDraftStep.Target, Assert.Single(fixture.DbContext.TelegramInboxDrafts).Step);
+        Assert.Single(fixture.DbContext.InboxItems);
+        await fixture.Handler.HandleAsync(CreateTextMessageUpdate("1", updateId: 5));
+        Assert.Equal(TelegramInboxDraftStep.Text, Assert.Single(fixture.DbContext.TelegramInboxDrafts).Step);
+    }
+
+    [Fact]
+    public async Task HandleAsync_CancelLanguageSelection_PreservesInboxDraft()
+    {
+        await using var fixture = await HandlerFixture.CreateAsync();
+        await fixture.Handler.HandleAsync(CreateTextMessageUpdate("buy milk"));
+        await fixture.Handler.HandleAsync(CreateTextMessageUpdate("/inbox 1", updateId: 2));
+        await fixture.Handler.HandleAsync(CreateTextMessageUpdate("/language", updateId: 3));
+
+        await fixture.Handler.HandleAsync(CreateTextMessageUpdate("/cancel", updateId: 4));
+
+        Assert.Null(Assert.Single(fixture.DbContext.TelegramUserLanguages).SelectionExpiresAt);
+        Assert.Equal(TelegramInboxDraftStep.Target, Assert.Single(fixture.DbContext.TelegramInboxDrafts).Step);
+        Assert.Contains(fixture.DbContext.TelegramOutboxMessages,
+            reply => reply.Text == "Language selection canceled.");
+    }
+
+    [Fact]
+    public async Task HandleAsync_LanguageConfirmationSaveFails_RollsBackPreference()
+    {
+        await using var fixture = await HandlerFixture.CreateAsync();
+        await fixture.Handler.HandleAsync(CreateTextMessageUpdate("/language"));
+        await fixture.DbContext.Database.ExecuteSqlRawAsync(
+            """
+            CREATE TRIGGER reject_language_reply BEFORE INSERT ON telegram_outbox_messages
+            BEGIN SELECT RAISE(ABORT, 'Simulated storage failure'); END;
+            """);
+
+        await Assert.ThrowsAsync<DbUpdateException>(() =>
+            fixture.Handler.HandleAsync(CreateTextMessageUpdate("2", updateId: 2)));
+
+        fixture.DbContext.ChangeTracker.Clear();
+        var row = Assert.Single(fixture.DbContext.TelegramUserLanguages);
+        Assert.Null(row.Locale);
+        Assert.NotNull(row.SelectionExpiresAt);
+        Assert.Single(fixture.DbContext.ProcessedTelegramUpdates);
+    }
+
+    private static Update CreateTextMessageUpdate(string text, long chatId = 1, int updateId = 1, string? languageCode = null) =>
         new()
         {
-            Id = 1,
+            Id = updateId,
             Message = new Message
             {
-                Id = 1,
+                Id = updateId,
                 Date = Now,
                 Chat = new Chat { Id = chatId, Type = ChatType.Private },
-                From = new User { Id = chatId, IsBot = false, FirstName = "Test" },
+                From = new User { Id = chatId, IsBot = false, FirstName = "Test", LanguageCode = languageCode },
                 Text = text
             }
         };
@@ -273,6 +409,7 @@ public sealed class TelegramUpdateHandlerTests
                         new FixedTimeProvider(Now)),
                     new StructuredItemService(new EfStructuredItemStore(dbContext), new FixedTimeProvider(Now)),
                     new FixedTimeProvider(Now)),
+                new TelegramLanguageFlow(dbContext, new FixedTimeProvider(Now)),
                 dbContext,
                 new FixedTimeProvider(Now),
                 cleaner,

@@ -20,6 +20,7 @@ public sealed class OwnDayDbContext(DbContextOptions<OwnDayDbContext> options)
     public DbSet<WaitingFor> WaitingFors => Set<WaitingFor>();
     public DbSet<InboxItem> InboxItems => Set<InboxItem>();
     public DbSet<TelegramInboxDraft> TelegramInboxDrafts => Set<TelegramInboxDraft>();
+    public DbSet<TelegramUserLanguage> TelegramUserLanguages => Set<TelegramUserLanguage>();
 
     public DbSet<ProcessedTelegramUpdate> ProcessedTelegramUpdates =>
         Set<ProcessedTelegramUpdate>();
@@ -29,6 +30,19 @@ public sealed class OwnDayDbContext(DbContextOptions<OwnDayDbContext> options)
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<TelegramUserLanguage>(entity =>
+        {
+            entity.ToTable("telegram_user_languages", table =>
+            {
+                table.HasCheckConstraint("CK_telegram_user_languages_user", "user_id > 0");
+                table.HasCheckConstraint("CK_telegram_user_languages_locale", "locale IS NULL OR locale IN ('en', 'ru')");
+            });
+            entity.HasKey(preference => preference.UserId);
+            entity.Property(preference => preference.UserId).ValueGeneratedNever().HasColumnName("user_id");
+            entity.Property(preference => preference.Locale).HasMaxLength(2).HasColumnName("locale");
+            entity.Property(preference => preference.SelectionExpiresAt).HasColumnName("selection_expires_at");
+        });
+
         modelBuilder.Entity<TelegramInboxDraft>(entity =>
         {
             entity.ToTable("telegram_inbox_drafts");

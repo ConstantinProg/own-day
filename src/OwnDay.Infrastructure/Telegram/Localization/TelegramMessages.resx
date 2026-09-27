@@ -1,0 +1,243 @@
+<?xml version='1.0' encoding='utf-8'?>
+<root>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms</value>
+  </resheader>
+  <data name="action.add.created" xml:space="preserve">
+    <value>Task #{0} added: {1}</value>
+  </data>
+  <data name="action.add.too_long" xml:space="preserve">
+    <value>Task title must be at most {0} characters.</value>
+  </data>
+  <data name="action.add.usage" xml:space="preserve">
+    <value>Usage: /add &lt;title&gt;</value>
+  </data>
+  <data name="action.done.already" xml:space="preserve">
+    <value>Task #{0} is already completed.</value>
+  </data>
+  <data name="action.done.completed" xml:space="preserve">
+    <value>Task #{0} completed.</value>
+  </data>
+  <data name="action.done.not_found" xml:space="preserve">
+    <value>Task not found.</value>
+  </data>
+  <data name="action.done.usage" xml:space="preserve">
+    <value>Usage: /done &lt;task-id&gt;</value>
+  </data>
+  <data name="action.list.empty" xml:space="preserve">
+    <value>No active tasks.</value>
+  </data>
+  <data name="action.list.usage" xml:space="preserve">
+    <value>Usage: /tasks</value>
+  </data>
+  <data name="common.none" xml:space="preserve">
+    <value>none</value>
+  </data>
+  <data name="inbox.cancel.done" xml:space="preserve">
+    <value>Selection canceled. The item remains in your inbox.</value>
+  </data>
+  <data name="inbox.cancel.none" xml:space="preserve">
+    <value>No active selection. Open /inbox.</value>
+  </data>
+  <data name="inbox.captured" xml:space="preserve">
+    <value>Saved to your inbox. Open /inbox to process it.</value>
+  </data>
+  <data name="inbox.confirm.invalid" xml:space="preserve">
+    <value>Send 'yes' to create it. /cancel — cancel; /discard — remove from inbox.</value>
+  </data>
+  <data name="inbox.data.invalid" xml:space="preserve">
+    <value>Invalid data. Enter new text from 1 to 200 characters.</value>
+  </data>
+  <data name="inbox.discard.already" xml:space="preserve">
+    <value>This item was already discarded.</value>
+  </data>
+  <data name="inbox.discard.done" xml:space="preserve">
+    <value>Inbox item #{0} discarded.</value>
+  </data>
+  <data name="inbox.discard.not_found" xml:space="preserve">
+    <value>Inbox item not found.</value>
+  </data>
+  <data name="inbox.discard.processed" xml:space="preserve">
+    <value>This item was already processed.</value>
+  </data>
+  <data name="inbox.discard.usage" xml:space="preserve">
+    <value>Use /discard &lt;id&gt; or open /inbox &lt;id&gt;.</value>
+  </data>
+  <data name="inbox.draft.expired" xml:space="preserve">
+    <value>Your draft expired. The previous item is still in your inbox. Your new message was saved to the inbox. Open /inbox to continue.</value>
+  </data>
+  <data name="inbox.draft.unavailable" xml:space="preserve">
+    <value>This item is no longer available. The draft was closed. Open /inbox.</value>
+  </data>
+  <data name="inbox.open.not_found" xml:space="preserve">
+    <value>Active inbox item not found.</value>
+  </data>
+  <data name="inbox.open.usage" xml:space="preserve">
+    <value>Use /inbox &lt;id&gt;.</value>
+  </data>
+  <data name="inbox.processed" xml:space="preserve">
+    <value>Inbox item #{0} processed. Created {1} #{2}.</value>
+  </data>
+  <data name="inbox.processed.unavailable" xml:space="preserve">
+    <value>This item was already processed or is unavailable. The draft was closed.</value>
+  </data>
+  <data name="inbox.project.not_found" xml:space="preserve">
+    <value>Project not found. Enter its ID, or 0 for no project.</value>
+  </data>
+  <data name="inbox.project.prompt" xml:space="preserve">
+    <value>Choose a project: 0 — no project</value>
+  </data>
+  <data name="inbox.project.unavailable" xml:space="preserve">
+    <value>The selected project is unavailable. Enter another ID, or 0 for no project.</value>
+  </data>
+  <data name="inbox.source.invalid" xml:space="preserve">
+    <value>The source must be at most 200 characters. Send a period for no source.</value>
+  </data>
+  <data name="inbox.source.prompt" xml:space="preserve">
+    <value>Waiting source: enter up to 200 characters, or send a period for no source.</value>
+  </data>
+  <data name="inbox.summary" xml:space="preserve">
+    <value>Confirm creation of {0}.
+Original text: {1}
+Final text: {2}
+Project: {3}{4}
+Send 'yes' to process it, /cancel to cancel, or /discard to remove it from your inbox.</value>
+  </data>
+  <data name="inbox.summary.source" xml:space="preserve">
+    <value>
+Source: {0}</value>
+  </data>
+  <data name="inbox.target.invalid" xml:space="preserve">
+    <value>Choose a type with a number from 1 to 5. /cancel — cancel; /discard — remove from inbox.</value>
+  </data>
+  <data name="inbox.target.prompt" xml:space="preserve">
+    <value>Inbox item #{0}: {1}
+Choose a type:
+1 — Task
+2 — Project
+3 — Idea
+4 — Note
+5 — Waiting
+/cancel — cancel; /discard — remove from inbox.</value>
+  </data>
+  <data name="inbox.text.invalid" xml:space="preserve">
+    <value>Enter 1 to 200 characters, or send a period to keep the original text.</value>
+  </data>
+  <data name="inbox.text.prompt" xml:space="preserve">
+    <value>Type: {0}. Original text: {1}
+Enter the final text (up to 200 characters), or send a period to keep the original.</value>
+  </data>
+  <data name="inbox.title" xml:space="preserve">
+    <value>Inbox</value>
+  </data>
+  <data name="kind.idea" xml:space="preserve">
+    <value>Idea</value>
+  </data>
+  <data name="kind.note" xml:space="preserve">
+    <value>Note</value>
+  </data>
+  <data name="kind.project" xml:space="preserve">
+    <value>Project</value>
+  </data>
+  <data name="kind.task" xml:space="preserve">
+    <value>Task</value>
+  </data>
+  <data name="kind.waiting" xml:space="preserve">
+    <value>Waiting item</value>
+  </data>
+  <data name="language.canceled" xml:space="preserve">
+    <value>Language selection canceled.</value>
+  </data>
+  <data name="language.changed" xml:space="preserve">
+    <value>Language changed to English.</value>
+  </data>
+  <data name="language.menu" xml:space="preserve">
+    <value>Choose a language:
+1 — English
+2 — Русский
+/cancel — cancel</value>
+  </data>
+  <data name="legacy.help" xml:space="preserve">
+    <value>Save: send plain text to add it to your inbox.
+/add &lt;text&gt; — task; /project &lt;text&gt; — project.
+/idea &lt;text&gt; — idea; /note &lt;text&gt; — note; /wait &lt;text&gt; — waiting item.
+Lists: /list, /inbox, /tasks, /projects, /ideas, /notes, /waiting.
+Process: /inbox &lt;id&gt;, /cancel, /discard [id].
+More: /done &lt;id&gt; — complete a task; /start, /help, /ping, /language.</value>
+  </data>
+  <data name="legacy.ping" xml:space="preserve">
+    <value>pong</value>
+  </data>
+  <data name="legacy.start" xml:space="preserve">
+    <value>OwnDay is running. Use /help to see available commands.</value>
+  </data>
+  <data name="legacy.unknown" xml:space="preserve">
+    <value>Unknown command. Use /help.</value>
+  </data>
+  <data name="list.empty" xml:space="preserve">
+    <value>{0}: empty.</value>
+  </data>
+  <data name="structured.idea.created" xml:space="preserve">
+    <value>Idea #{0} created: {1}</value>
+  </data>
+  <data name="structured.idea.usage" xml:space="preserve">
+    <value>Use /idea &lt;text&gt; (up to 200 characters).</value>
+  </data>
+  <data name="structured.ideas.title" xml:space="preserve">
+    <value>Ideas</value>
+  </data>
+  <data name="structured.list.navigation" xml:space="preserve">
+    <value>Lists:
+/inbox — Inbox
+/tasks — Tasks
+/projects — Projects
+/ideas — Ideas
+/notes — Notes
+/waiting — Waiting</value>
+  </data>
+  <data name="structured.list.no_arguments" xml:space="preserve">
+    <value>Use /{0} without arguments.</value>
+  </data>
+  <data name="structured.note.created" xml:space="preserve">
+    <value>Note #{0} created: {1}</value>
+  </data>
+  <data name="structured.note.usage" xml:space="preserve">
+    <value>Use /note &lt;text&gt; (up to 200 characters).</value>
+  </data>
+  <data name="structured.notes.title" xml:space="preserve">
+    <value>Notes</value>
+  </data>
+  <data name="structured.project.created" xml:space="preserve">
+    <value>Project #{0} created: {1}</value>
+  </data>
+  <data name="structured.project.usage" xml:space="preserve">
+    <value>Use /project &lt;text&gt; (up to 200 characters).</value>
+  </data>
+  <data name="structured.projects.title" xml:space="preserve">
+    <value>Projects</value>
+  </data>
+  <data name="structured.wait.created" xml:space="preserve">
+    <value>Waiting item #{0} created: {1}</value>
+  </data>
+  <data name="structured.wait.usage" xml:space="preserve">
+    <value>Use /wait &lt;text&gt; (up to 200 characters).</value>
+  </data>
+  <data name="structured.waiting.project" xml:space="preserve">
+    <value>; project #{0}</value>
+  </data>
+  <data name="structured.waiting.source" xml:space="preserve">
+    <value>; source: {0}</value>
+  </data>
+  <data name="structured.waiting.title" xml:space="preserve">
+    <value>Waiting</value>
+  </data>
+</root>

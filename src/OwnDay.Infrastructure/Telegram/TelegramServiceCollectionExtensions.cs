@@ -39,6 +39,7 @@ public static class TelegramServiceCollectionExtensions
         services.AddScoped<TelegramActionCommandHandler>();
         services.AddScoped<TelegramStructuredCommandHandler>();
         services.AddScoped<TelegramInboxFlow>();
+        services.AddScoped<TelegramLanguageFlow>();
         services.AddSingleton<TelegramUpdateRouter>();
 
         services.AddScoped<TelegramUpdateHandler>();

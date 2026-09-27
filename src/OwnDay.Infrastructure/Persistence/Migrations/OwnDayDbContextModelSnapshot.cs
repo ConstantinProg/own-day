@@ -35,6 +35,19 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
             b.ToTable("telegram_inbox_drafts");
         });
 
+        modelBuilder.Entity("OwnDay.Infrastructure.Persistence.TelegramUserLanguage", b =>
+        {
+            b.Property<long>("UserId").ValueGeneratedNever().HasColumnType("bigint").HasColumnName("user_id");
+            b.Property<string>("Locale").HasMaxLength(2).HasColumnType("character varying(2)").HasColumnName("locale");
+            b.Property<DateTime?>("SelectionExpiresAt").HasColumnType("timestamp with time zone").HasColumnName("selection_expires_at");
+            b.HasKey("UserId");
+            b.ToTable("telegram_user_languages", t =>
+            {
+                t.HasCheckConstraint("CK_telegram_user_languages_user", "user_id > 0");
+                t.HasCheckConstraint("CK_telegram_user_languages_locale", "locale IS NULL OR locale IN ('en', 'ru')");
+            });
+        });
+
         modelBuilder.Entity("OwnDay.Domain.Inbox.InboxItem", b =>
         {
             b.Property<long>("Id").ValueGeneratedOnAdd().HasColumnType("bigint").HasColumnName("id");

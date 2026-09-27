@@ -12,7 +12,7 @@ public sealed class IncomingCommandHandler : IIncomingCommandHandler
         /idea <text> — idea; /note <text> — note; /wait <text> — waiting item.
         Lists: /list, /inbox, /tasks, /projects, /ideas, /notes, /waiting.
         Process: /inbox <id>, /cancel, /discard [id].
-        More: /done <id> — complete a task; /start, /help, /ping.
+        More: /done <id> — complete a task; /start, /help, /ping, /language.
         """;
 
     private const string PingResponse = "pong";

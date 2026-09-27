@@ -1,4 +1,5 @@
 using System.Text;
+using OwnDay.Infrastructure.Telegram.Localization;
 
 namespace OwnDay.Infrastructure.Telegram.Handling;
 
@@ -6,11 +7,11 @@ public static class TelegramTextLists
 {
     private const int Limit = 4096;
 
-    public static IReadOnlyList<string> Render<T>(string heading, IReadOnlyList<T> items, Func<T, string> format)
+    public static IReadOnlyList<string> Render<T>(string heading, IReadOnlyList<T> items, Func<T, string> format, string locale)
     {
         if (items.Count == 0)
         {
-            return [$"{heading}: empty."];
+            return [TelegramTexts.Get(locale, "list.empty", heading)];
         }
 
         var messages = new List<string>();

@@ -5,6 +5,7 @@ using OwnDay.Application.StructuredItems;
 using OwnDay.Domain;
 using OwnDay.Domain.Inbox;
 using OwnDay.Infrastructure.Persistence;
+using OwnDay.Infrastructure.Telegram.Localization;
 
 namespace OwnDay.Infrastructure.Telegram.Handling;
 
@@ -17,7 +18,7 @@ public sealed class TelegramInboxFlow(
 {
     private static readonly TimeSpan Lifetime = TimeSpan.FromHours(24);
 
-    public async Task<IReadOnlyList<string>> CaptureOrContinueAsync(UserId user, string text, CancellationToken token)
+    public async Task<IReadOnlyList<string>> CaptureOrContinueAsync(UserId user, string text, string locale, CancellationToken token)
     {
         var expired = await db.TelegramInboxDrafts.AnyAsync(row => row.UserId == user.Value && row.ExpiresAt <= Now(), token);
         if (expired)
@@ -25,21 +26,21 @@ public sealed class TelegramInboxFlow(
             var stale = await db.TelegramInboxDrafts.SingleAsync(row => row.UserId == user.Value, token);
             db.TelegramInboxDrafts.Remove(stale);
             await capture.CaptureAsync(user, text, token);
-            return ["Your draft expired. The previous item is still in your inbox. Your new message was saved to the inbox. Open /inbox to continue."];
+            return [TelegramTexts.Get(locale, "inbox.draft.expired")];
         }
 
         var draft = await LoadAsync(user, token);
         if (draft is null)
         {
             await capture.CaptureAsync(user, text, token);
-            return ["Saved to your inbox. Open /inbox to process it."];
+            return [TelegramTexts.Get(locale, "inbox.captured")];
         }
 
         var item = await capture.FindAsync(user, draft.InboxItemId, token);
         if (item?.Status != InboxItemStatus.Active)
         {
             db.TelegramInboxDrafts.Remove(draft);
-            return ["This item is no longer available. The draft was closed. Open /inbox."];
+            return [TelegramTexts.Get(locale, "inbox.draft.unavailable")];
         }
 
         var value = text.Trim();
@@ -48,7 +49,7 @@ public sealed class TelegramInboxFlow(
             case TelegramInboxDraftStep.Target:
                 if (!int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var choice) || choice is < 1 or > 5)
                 {
-                    return ["Choose a type with a number from 1 to 5. /cancel — cancel; /discard — remove from inbox."];
+                    return [TelegramTexts.Get(locale, "inbox.target.invalid")];
                 }
 
                 draft.TargetKind = (InboxTargetKind)(choice - 1);
@@ -59,7 +60,7 @@ public sealed class TelegramInboxFlow(
                 var edited = value == "." ? draft.Text : value;
                 if (string.IsNullOrWhiteSpace(edited) || edited.Trim().Length > 200)
                 {
-                    return ["Enter 1 to 200 characters, or send a period to keep the original text."];
+                    return [TelegramTexts.Get(locale, "inbox.text.invalid")];
                 }
 
                 draft.Text = edited.Trim();
@@ -72,7 +73,7 @@ public sealed class TelegramInboxFlow(
             case TelegramInboxDraftStep.Source:
                 if (value != "." && value.Length > 200)
                 {
-                    return ["The source must be at most 200 characters. Send a period for no source."];
+                    return [TelegramTexts.Get(locale, "inbox.source.invalid")];
                 }
 
                 draft.Source = value == "." ? null : value;
@@ -90,7 +91,7 @@ public sealed class TelegramInboxFlow(
                 }
                 else
                 {
-                    return ["Project not found. Enter its ID, or 0 for no project."];
+                    return [TelegramTexts.Get(locale, "inbox.project.not_found")];
                 }
 
                 draft.Step = TelegramInboxDraftStep.Confirm;
@@ -99,7 +100,7 @@ public sealed class TelegramInboxFlow(
                 if (!value.Equals("yes", StringComparison.OrdinalIgnoreCase) &&
                     !value.Equals("да", StringComparison.OrdinalIgnoreCase))
                 {
-                    return ["Send 'yes' to create it. /cancel — cancel; /discard — remove from inbox."];
+                    return [TelegramTexts.Get(locale, "inbox.confirm.invalid")];
                 }
 
                 var result = await processing.ProcessAsync(user, new ProcessInboxItem(
@@ -107,50 +108,50 @@ public sealed class TelegramInboxFlow(
                 if (result.Status == ProcessInboxItemStatus.InvalidProject)
                 {
                     draft.Step = TelegramInboxDraftStep.Project;
-                    return ["The selected project is unavailable. Enter another ID, or 0 for no project."];
+                    return [TelegramTexts.Get(locale, "inbox.project.unavailable")];
                 }
 
                 if (result.Status == ProcessInboxItemStatus.InvalidTargetData)
                 {
                     draft.Step = TelegramInboxDraftStep.Text;
-                    return ["Invalid data. Enter new text from 1 to 200 characters."];
+                    return [TelegramTexts.Get(locale, "inbox.data.invalid")];
                 }
 
                 db.TelegramInboxDrafts.Remove(draft);
                 return result.Status == ProcessInboxItemStatus.Processed
-                    ? [$"Inbox item #{draft.InboxItemId} processed. Created {Label(draft.TargetKind.Value)} #{result.TargetId}."]
-                    : ["This item was already processed or is unavailable. The draft was closed."];
+                    ? [TelegramTexts.Get(locale, "inbox.processed", draft.InboxItemId, Label(draft.TargetKind.Value, locale), result.TargetId)]
+                    : [TelegramTexts.Get(locale, "inbox.processed.unavailable")];
         }
 
         draft.Version++;
         draft.ExpiresAt = Now().Add(Lifetime);
         return draft.Step switch
         {
-            TelegramInboxDraftStep.Text => [$"Type: {Label(draft.TargetKind!.Value)}. Original text: {Short(item.OriginalText)}\nEnter the final text (up to 200 characters), or send a period to keep the original."],
-            TelegramInboxDraftStep.Source => ["Waiting source: enter up to 200 characters, or send a period for no source."],
-            TelegramInboxDraftStep.Project => await ProjectPromptAsync(user, token),
-            _ => [await SummaryAsync(user, item.OriginalText, draft, token)]
+            TelegramInboxDraftStep.Text => [TelegramTexts.Get(locale, "inbox.text.prompt", Label(draft.TargetKind!.Value, locale), Short(item.OriginalText))],
+            TelegramInboxDraftStep.Source => [TelegramTexts.Get(locale, "inbox.source.prompt")],
+            TelegramInboxDraftStep.Project => await ProjectPromptAsync(user, locale, token),
+            _ => [await SummaryAsync(user, item.OriginalText, draft, locale, token)]
         };
     }
 
-    public async Task<IReadOnlyList<string>> OpenAsync(UserId user, string argument, CancellationToken token)
+    public async Task<IReadOnlyList<string>> OpenAsync(UserId user, string argument, string locale, CancellationToken token)
     {
         if (string.IsNullOrWhiteSpace(argument))
         {
             var items = await capture.GetActiveAsync(user, token);
-            return TelegramTextLists.Render("Inbox", items,
-                item => $"#{item.Id} {Short(item.OriginalText)} — /inbox {item.Id}");
+            return TelegramTextLists.Render(TelegramTexts.Get(locale, "inbox.title"), items,
+                item => $"#{item.Id} {Short(item.OriginalText)} — /inbox {item.Id}", locale);
         }
 
         if (!long.TryParse(argument, NumberStyles.None, CultureInfo.InvariantCulture, out var id) || id <= 0)
         {
-            return ["Use /inbox <id>."];
+            return [TelegramTexts.Get(locale, "inbox.open.usage")];
         }
 
         var item = await capture.FindAsync(user, id, token);
         if (item?.Status != InboxItemStatus.Active)
         {
-            return ["Active inbox item not found."];
+            return [TelegramTexts.Get(locale, "inbox.open.not_found")];
         }
 
         var current = await LoadAsync(user, token);
@@ -167,29 +168,29 @@ public sealed class TelegramInboxFlow(
             Step = TelegramInboxDraftStep.Target,
             ExpiresAt = Now().Add(Lifetime)
         });
-        return [$"Inbox item #{id}: {Short(item.OriginalText)}\nChoose a type:\n1 — Task\n2 — Project\n3 — Idea\n4 — Note\n5 — Waiting\n/cancel — cancel; /discard — remove from inbox."];
+        return [TelegramTexts.Get(locale, "inbox.target.prompt", id, Short(item.OriginalText))];
     }
 
-    public async Task<IReadOnlyList<string>> CancelAsync(UserId user, CancellationToken token)
+    public async Task<IReadOnlyList<string>> CancelAsync(UserId user, string locale, CancellationToken token)
     {
         var draft = await LoadAsync(user, token);
         if (draft is null)
         {
-            return ["No active selection. Open /inbox."];
+            return [TelegramTexts.Get(locale, "inbox.cancel.none")];
         }
 
         db.TelegramInboxDrafts.Remove(draft);
-        return ["Selection canceled. The item remains in your inbox."];
+        return [TelegramTexts.Get(locale, "inbox.cancel.done")];
     }
 
-    public async Task<IReadOnlyList<string>> DiscardAsync(UserId user, string argument, CancellationToken token)
+    public async Task<IReadOnlyList<string>> DiscardAsync(UserId user, string argument, string locale, CancellationToken token)
     {
         var draft = await LoadAsync(user, token);
         var id = long.TryParse(argument, NumberStyles.None, CultureInfo.InvariantCulture, out var parsed) && parsed > 0
             ? parsed : string.IsNullOrWhiteSpace(argument) ? draft?.InboxItemId : null;
         if (id is null)
         {
-            return ["Use /discard <id> or open /inbox <id>."];
+            return [TelegramTexts.Get(locale, "inbox.discard.usage")];
         }
 
         var result = await processing.DiscardAsync(user, id.Value, token);
@@ -200,10 +201,10 @@ public sealed class TelegramInboxFlow(
 
         return result switch
         {
-            DiscardInboxItemResult.Discarded => [$"Inbox item #{id} discarded."],
-            DiscardInboxItemResult.AlreadyProcessed => ["This item was already processed."],
-            DiscardInboxItemResult.AlreadyDiscarded => ["This item was already discarded."],
-            _ => ["Inbox item not found."]
+            DiscardInboxItemResult.Discarded => [TelegramTexts.Get(locale, "inbox.discard.done", id)],
+            DiscardInboxItemResult.AlreadyProcessed => [TelegramTexts.Get(locale, "inbox.discard.processed")],
+            DiscardInboxItemResult.AlreadyDiscarded => [TelegramTexts.Get(locale, "inbox.discard.already")],
+            _ => [TelegramTexts.Get(locale, "inbox.discard.not_found")]
         };
     }
 
@@ -220,28 +221,30 @@ public sealed class TelegramInboxFlow(
         return draft;
     }
 
-    private async Task<IReadOnlyList<string>> ProjectPromptAsync(UserId user, CancellationToken token)
+    private async Task<IReadOnlyList<string>> ProjectPromptAsync(UserId user, string locale, CancellationToken token)
     {
         var projects = await structured.GetActiveProjectsAsync(user, token);
-        return TelegramTextLists.Render("Choose a project: 0 — no project", projects,
-            project => $"#{project.Id} {project.Title}");
+        return TelegramTextLists.Render(TelegramTexts.Get(locale, "inbox.project.prompt"), projects,
+            project => $"#{project.Id} {project.Title}", locale);
     }
 
-    private async Task<string> SummaryAsync(UserId user, string original, TelegramInboxDraft draft, CancellationToken token)
+    private async Task<string> SummaryAsync(UserId user, string original, TelegramInboxDraft draft, string locale, CancellationToken token)
     {
         var project = draft.ProjectId is long id ? await structured.FindProjectAsync(user, id, token) : null;
-        return $"Confirm creation of {Label(draft.TargetKind!.Value)}.\nOriginal text: {Short(original)}\nFinal text: {draft.Text}\nProject: {(project is null ? "none" : $"#{project.Id} {project.Title}")}" +
-            (draft.TargetKind == InboxTargetKind.WaitingFor ? $"\nSource: {draft.Source ?? "none"}" : "") +
-            "\nSend 'yes' to process it, /cancel to cancel, or /discard to remove it from your inbox.";
+        var projectText = project is null ? TelegramTexts.Get(locale, "common.none") : $"#{project.Id} {project.Title}";
+        var sourceText = draft.TargetKind == InboxTargetKind.WaitingFor
+            ? TelegramTexts.Get(locale, "inbox.summary.source", draft.Source ?? TelegramTexts.Get(locale, "common.none"))
+            : string.Empty;
+        return TelegramTexts.Get(locale, "inbox.summary", Label(draft.TargetKind!.Value, locale), Short(original), draft.Text, projectText, sourceText);
     }
 
-    private static string Label(InboxTargetKind kind) => kind switch
+    private static string Label(InboxTargetKind kind, string locale) => kind switch
     {
-        InboxTargetKind.Action => "Task",
-        InboxTargetKind.Project => "Project",
-        InboxTargetKind.SomedayMaybe => "Idea",
-        InboxTargetKind.Reference => "Note",
-        _ => "Waiting item"
+        InboxTargetKind.Action => TelegramTexts.Get(locale, "kind.task"),
+        InboxTargetKind.Project => TelegramTexts.Get(locale, "kind.project"),
+        InboxTargetKind.SomedayMaybe => TelegramTexts.Get(locale, "kind.idea"),
+        InboxTargetKind.Reference => TelegramTexts.Get(locale, "kind.note"),
+        _ => TelegramTexts.Get(locale, "kind.waiting")
     };
 
     private static string Short(string text) => text.Length <= 500 ? text : text[..500] + "…";

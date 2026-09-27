@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using OwnDay.Application.Actions;
 using OwnDay.Application.Interactions;
+using OwnDay.Infrastructure.Telegram.Localization;
 using Action = OwnDay.Domain.Actions.Action;
 
 namespace OwnDay.Infrastructure.Telegram.Commands;
@@ -14,54 +15,56 @@ public sealed class TelegramActionCommandHandler(ActionService actionService)
 
     public async Task<IReadOnlyList<string>> HandleAsync(
         ProcessIncomingCommand command,
+        string locale,
         CancellationToken cancellationToken)
     {
         if (command.Name is "tasks")
         {
-            return await ListAsync(command, cancellationToken);
+            return await ListAsync(command, locale, cancellationToken);
         }
 
-        return [await HandleSingleAsync(command, cancellationToken)];
+        return [await HandleSingleAsync(command, locale, cancellationToken)];
     }
 
-    private Task<string> HandleSingleAsync(ProcessIncomingCommand command, CancellationToken cancellationToken) =>
+    private Task<string> HandleSingleAsync(ProcessIncomingCommand command, string locale, CancellationToken cancellationToken) =>
         command.Name switch
         {
-            "add" => AddAsync(command, cancellationToken),
-            "done" => CompleteAsync(command, cancellationToken),
+            "add" => AddAsync(command, locale, cancellationToken),
+            "done" => CompleteAsync(command, locale, cancellationToken),
             _ => throw new ArgumentOutOfRangeException(nameof(command))
         };
 
-    private async Task<string> AddAsync(ProcessIncomingCommand command, CancellationToken cancellationToken)
+    private async Task<string> AddAsync(ProcessIncomingCommand command, string locale, CancellationToken cancellationToken)
     {
         var title = command.Arguments.Trim();
         if (title.Length is 0)
         {
-            return "Usage: /add <title>";
+            return TelegramTexts.Get(locale, "action.add.usage");
         }
 
         if (title.Length > Action.MaxTitleLength)
         {
-            return $"Task title must be at most {Action.MaxTitleLength} characters.";
+            return TelegramTexts.Get(locale, "action.add.too_long", Action.MaxTitleLength);
         }
 
         var action = await actionService.AddAsync(command.UserId, title, cancellationToken);
-        return $"Task #{action.Id} added: {action.Title}";
+        return TelegramTexts.Get(locale, "action.add.created", action.Id, action.Title);
     }
 
     private async Task<IReadOnlyList<string>> ListAsync(
         ProcessIncomingCommand command,
+        string locale,
         CancellationToken cancellationToken)
     {
         if (command.Arguments.Length > 0)
         {
-            return ["Usage: /tasks"];
+            return [TelegramTexts.Get(locale, "action.list.usage")];
         }
 
         var actions = await actionService.GetActiveAsync(command.UserId, cancellationToken);
         if (actions.Count is 0)
         {
-            return ["No active tasks."];
+            return [TelegramTexts.Get(locale, "action.list.empty")];
         }
 
         var messages = new List<string>();
@@ -87,19 +90,19 @@ public sealed class TelegramActionCommandHandler(ActionService actionService)
         return messages;
     }
 
-    private async Task<string> CompleteAsync(ProcessIncomingCommand command, CancellationToken cancellationToken)
+    private async Task<string> CompleteAsync(ProcessIncomingCommand command, string locale, CancellationToken cancellationToken)
     {
         if (!long.TryParse(command.Arguments, NumberStyles.None, CultureInfo.InvariantCulture, out var id) || id <= 0)
         {
-            return "Usage: /done <task-id>";
+            return TelegramTexts.Get(locale, "action.done.usage");
         }
 
         var result = await actionService.CompleteAsync(command.UserId, id, cancellationToken);
         return result switch
         {
-            CompleteActionResult.Completed => $"Task #{id} completed.",
-            CompleteActionResult.AlreadyCompleted => $"Task #{id} is already completed.",
-            _ => "Task not found."
+            CompleteActionResult.Completed => TelegramTexts.Get(locale, "action.done.completed", id),
+            CompleteActionResult.AlreadyCompleted => TelegramTexts.Get(locale, "action.done.already", id),
+            _ => TelegramTexts.Get(locale, "action.done.not_found")
         };
     }
 }

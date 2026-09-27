@@ -97,6 +97,34 @@ public sealed class TelegramWebhookPingIntegrationTests
     }
 
     [Fact]
+    public async Task Post_LanguageDialog_UsesTelegramLanguageThenPersistsSelectedLanguage()
+    {
+        using var host = new OwnDayHostFactory();
+        using var factory = CreateFactory(host, new RecordingTelegramMessageSender());
+        using var client = factory.CreateClient();
+        foreach (var (id, command) in new[]
+        {
+            (100001, "/language"),
+            (100002, "1"),
+            (100003, "/help")
+        })
+        {
+            using var request = CreateRequest(ValidWebhookSecret, command, id, "ru");
+            using var response = await client.SendAsync(request);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        }
+
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
+        Assert.Equal("en", Assert.Single(await db.TelegramUserLanguages.ToListAsync()).Locale);
+        var replies = await db.TelegramOutboxMessages.ToListAsync();
+        Assert.Contains(replies, reply => reply.Text.StartsWith("Выберите язык:", StringComparison.Ordinal));
+        Assert.Contains(replies, reply => reply.Text == "Language changed to English.");
+        Assert.Contains(replies, reply => reply.Text.StartsWith("Save: send plain text", StringComparison.Ordinal));
+        Assert.Empty(await db.InboxItems.ToListAsync());
+    }
+
+    [Fact]
     public async Task Post_PingWithInvalidSecret_ReturnsUnauthorizedAndDoesNotSend()
     {
         var messageSender = new RecordingTelegramMessageSender();
@@ -172,15 +200,17 @@ public sealed class TelegramWebhookPingIntegrationTests
 
     private static HttpRequestMessage CreateRequest(
         string webhookSecret,
-        string command)
+        string command,
+        int updateId = 100001,
+        string languageCode = "en")
     {
         var json = $$"""
             {
-              "update_id": 100001,
+              "update_id": {{updateId}},
               "message": {
                 "message_id": 42,
                 "date": 1788728400,
-                "from": { "id": {{ChatId}}, "is_bot": false, "first_name": "Test" },
+                "from": { "id": {{ChatId}}, "is_bot": false, "first_name": "Test", "language_code": "{{languageCode}}" },
                 "chat": {
                   "id": {{ChatId}},
                   "type": "private"
