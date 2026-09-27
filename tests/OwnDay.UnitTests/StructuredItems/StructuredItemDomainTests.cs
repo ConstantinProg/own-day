@@ -100,6 +100,8 @@ public sealed class StructuredItemDomainTests
         Assert.Throws<ArgumentException>(() => WaitingFor.Create(Owner, new string('x', 201), null, CreatedAt));
         Assert.Throws<ArgumentException>(() => WaitingFor.Create(Owner, "Reply", " ", CreatedAt));
         Assert.Throws<ArgumentOutOfRangeException>(() => WaitingFor.Create(Owner, "Reply", null, CreatedAt, 0));
+        Assert.Throws<ArgumentException>(() => WaitingFor.Create(Owner, "Reply", null,
+            DateTime.SpecifyKind(CreatedAt, DateTimeKind.Unspecified)));
     }
 
     [Fact]

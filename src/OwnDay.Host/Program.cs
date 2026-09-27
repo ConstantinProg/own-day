@@ -31,6 +31,8 @@ builder.Services.AddScoped<StructuredItemService>();
 builder.Services.AddScoped<IStructuredItemStore, EfStructuredItemStore>();
 builder.Services.AddScoped<InboxCaptureService>();
 builder.Services.AddScoped<IInboxItemStore, EfInboxItemStore>();
+builder.Services.AddScoped<InboxProcessingService>();
+builder.Services.AddScoped<IInboxProcessingStore, EfInboxProcessingStore>();
 builder.Services.AddDbContext<OwnDayDbContext>(options =>
     options.UseNpgsql(
         builder.Configuration.GetConnectionString("Default") ??

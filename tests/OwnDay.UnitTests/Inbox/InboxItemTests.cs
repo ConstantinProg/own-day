@@ -68,6 +68,8 @@ public sealed class InboxItemTests
         Assert.Null(item.ProcessedAt);
         Assert.Equal(Now.AddSeconds(1), item.DiscardedAt);
         Assert.False(item.Process(InboxTargetKind.Action, 1, Now.AddSeconds(2)));
+        Assert.False(item.Discard(Now.AddSeconds(2)));
+        Assert.Equal(Now.AddSeconds(1), item.DiscardedAt);
     }
 
     [Fact]

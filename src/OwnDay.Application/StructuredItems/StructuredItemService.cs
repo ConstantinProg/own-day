@@ -66,9 +66,12 @@ public sealed class StructuredItemService
         return await _store.AddAsync(item, cancellationToken);
     }
 
-    public async Task<WaitingFor> CreateWaitingForAsync(UserId userId, string description, string? source, long? projectId, CancellationToken cancellationToken)
+    public Task<WaitingFor> CreateWaitingForAsync(UserId userId, string description, string? source, long? projectId, CancellationToken cancellationToken) =>
+        CreateWaitingForAsync(userId, description, source, null, projectId, cancellationToken);
+
+    public async Task<WaitingFor> CreateWaitingForAsync(UserId userId, string description, string? source, DateTime? waitingSince, long? projectId, CancellationToken cancellationToken)
     {
-        var item = WaitingFor.Create(userId, description, source, Now(), projectId);
+        var item = WaitingFor.Create(userId, description, source, waitingSince ?? Now(), projectId);
         await ValidateProjectAsync(userId, projectId, cancellationToken);
         return await _store.AddAsync(item, cancellationToken);
     }

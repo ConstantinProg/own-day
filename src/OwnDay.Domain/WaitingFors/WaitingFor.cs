@@ -52,6 +52,11 @@ public sealed class WaitingFor
             throw new ArgumentOutOfRangeException(nameof(projectId));
         }
 
+        if (waitingSince.Kind != DateTimeKind.Utc)
+        {
+            throw new ArgumentException("Waiting start must be UTC.", nameof(waitingSince));
+        }
+
         return new WaitingFor(userId, description.Trim(), source?.Trim(), waitingSince, projectId);
     }
 
