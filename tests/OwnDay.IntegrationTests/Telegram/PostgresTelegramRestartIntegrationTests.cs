@@ -53,8 +53,8 @@ public sealed class PostgresTelegramRestartIntegrationTests
             {
                 await PostAsync(restartedClient, 2004, "/inbox");
                 await PostAsync(restartedClient, 2005, "edited");
-                await PostAsync(restartedClient, 2006, "да");
-                await PostAsync(restartedClient, 2006, "да");
+                await PostAsync(restartedClient, 2006, "yes");
+                await PostAsync(restartedClient, 2006, "yes");
             }
 
             await using var verify = new OwnDayDbContext(options);

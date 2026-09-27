@@ -10,7 +10,7 @@ public static class TelegramTextLists
     {
         if (items.Count == 0)
         {
-            return [$"{heading}: пусто."];
+            return [$"{heading}: empty."];
         }
 
         var messages = new List<string>();

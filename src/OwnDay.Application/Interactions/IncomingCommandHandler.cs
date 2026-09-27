@@ -7,12 +7,12 @@ public sealed class IncomingCommandHandler : IIncomingCommandHandler
 
     private const string HelpResponse =
         """
-        Сохранить: обычный текст — во входящие.
-        /add <текст> — задача; /project <текст> — проект.
-        /idea <текст> — идея; /note <текст> — заметка; /wait <текст> — ожидание.
-        Списки: /list, /inbox, /tasks, /projects, /ideas, /notes, /waiting.
-        Обработка: /inbox <id>, /cancel, /discard [id].
-        Дополнительно: /done <id> — завершить задачу; /start, /help, /ping.
+        Save: send plain text to add it to your inbox.
+        /add <text> — task; /project <text> — project.
+        /idea <text> — idea; /note <text> — note; /wait <text> — waiting item.
+        Lists: /list, /inbox, /tasks, /projects, /ideas, /notes, /waiting.
+        Process: /inbox <id>, /cancel, /discard [id].
+        More: /done <id> — complete a task; /start, /help, /ping.
         """;
 
     private const string PingResponse = "pong";
