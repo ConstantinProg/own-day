@@ -59,8 +59,7 @@ public sealed class PostgresInboxConcurrencyTests
             {
                 var clock = new FixedClock(capturedAt.AddSeconds(-1));
                 var processor = new InboxProcessingService(new EfInboxProcessingStore(failing),
-                    new ActionService(new EfActionStore(failing), clock),
-                    new StructuredItemService(new EfStructuredItemStore(failing), clock), clock);
+                    new EfActionStore(failing), new EfStructuredItemStore(failing), clock);
                 await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => processor.ProcessAsync(
                     Owner, new(inboxId, InboxTargetKind.Action, "Action"), CancellationToken.None));
             }
@@ -124,18 +123,11 @@ public sealed class PostgresInboxConcurrencyTests
                         await firstProcessor.DiscardAsync(Owner, inboxId, CancellationToken.None));
                 }
 
-                var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                var contender = Task.Run(async () =>
-                {
-                    started.SetResult();
-                    return second == SecondOperation.Process
-                        ? (object)await secondProcessor.ProcessAsync(Owner,
-                            new(inboxId, InboxTargetKind.Project, "Second project"), CancellationToken.None)
-                        : await secondProcessor.DiscardAsync(Owner, inboxId, CancellationToken.None);
-                });
-                await started.Task;
-                await Task.Delay(150);
-                Assert.False(contender.IsCompleted);
+                await secondDb.Database.OpenConnectionAsync();
+                var contenderProcessId = ((Npgsql.NpgsqlConnection)secondDb.Database.GetDbConnection()).ProcessID;
+                var blockerProcessId = ((Npgsql.NpgsqlConnection)firstDb.Database.GetDbConnection()).ProcessID;
+                var contender = RunContenderAsync();
+                await WaitForBlockAsync(admin, contenderProcessId, blockerProcessId, contender);
                 await firstTransaction.CommitAsync();
 
                 var outcome = await contender.WaitAsync(TimeSpan.FromSeconds(10));
@@ -151,6 +143,11 @@ public sealed class PostgresInboxConcurrencyTests
                     Assert.Equal(DiscardInboxItemResult.AlreadyProcessed,
                         Assert.IsType<DiscardInboxItemResult>(outcome));
                 }
+
+                async Task<object> RunContenderAsync() => second == SecondOperation.Process
+                    ? await secondProcessor.ProcessAsync(Owner,
+                        new(inboxId, InboxTargetKind.Project, "Second project"), CancellationToken.None)
+                    : await secondProcessor.DiscardAsync(Owner, inboxId, CancellationToken.None);
             }
 
             await using (var verify = new OwnDayDbContext(options))
@@ -185,9 +182,28 @@ public sealed class PostgresInboxConcurrencyTests
         }
     }
 
+    private static async Task WaitForBlockAsync(
+        OwnDayDbContext observer, int contenderProcessId, int blockerProcessId, Task contender)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        while (true)
+        {
+            var blocked = await observer.Database.SqlQuery<bool>(
+                $"SELECT {blockerProcessId} = ANY(pg_blocking_pids({contenderProcessId})) AS \"Value\"")
+                .SingleAsync(timeout.Token);
+            if (blocked)
+            {
+                return;
+            }
+
+            Assert.False(contender.IsCompleted, "Contender completed without waiting for the first transaction's lock.");
+            await Task.Delay(TimeSpan.FromMilliseconds(20), timeout.Token);
+        }
+    }
+
     private static InboxProcessingService Processor(OwnDayDbContext db) =>
-        new(new EfInboxProcessingStore(db), new ActionService(new EfActionStore(db), TimeProvider.System),
-            new StructuredItemService(new EfStructuredItemStore(db), TimeProvider.System), TimeProvider.System);
+        new(new EfInboxProcessingStore(db), new EfActionStore(db),
+            new EfStructuredItemStore(db), TimeProvider.System);
 
     private sealed class FixedClock(DateTime now) : TimeProvider
     {

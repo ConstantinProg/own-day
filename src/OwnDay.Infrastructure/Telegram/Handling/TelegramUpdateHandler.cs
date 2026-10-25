@@ -12,7 +12,6 @@ namespace OwnDay.Infrastructure.Telegram.Handling;
 
 public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
 {
-    private readonly IIncomingCommandHandler _commandHandler;
     private readonly TelegramActionCommandHandler _actionCommandHandler;
     private readonly TelegramStructuredCommandHandler _structuredCommandHandler;
     private readonly TelegramInboxFlow _inboxFlow;
@@ -25,7 +24,6 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
 
     public TelegramUpdateHandler(
         TelegramUpdateRouter router,
-        IIncomingCommandHandler commandHandler,
         TelegramActionCommandHandler actionCommandHandler,
         TelegramStructuredCommandHandler structuredCommandHandler,
         TelegramInboxFlow inboxFlow,
@@ -36,7 +34,6 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         ILogger<TelegramUpdateHandler> logger)
     {
         ArgumentNullException.ThrowIfNull(router);
-        ArgumentNullException.ThrowIfNull(commandHandler);
         ArgumentNullException.ThrowIfNull(actionCommandHandler);
         ArgumentNullException.ThrowIfNull(languageFlow);
         ArgumentNullException.ThrowIfNull(dbContext);
@@ -45,7 +42,6 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         ArgumentNullException.ThrowIfNull(logger);
 
         _router = router;
-        _commandHandler = commandHandler;
         _actionCommandHandler = actionCommandHandler;
         _structuredCommandHandler = structuredCommandHandler;
         _inboxFlow = inboxFlow;
@@ -128,7 +124,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
                 "discard" => await _inboxFlow.DiscardAsync(command.UserId, command.Arguments, locale, cancellationToken),
                 _ when _actionCommandHandler.Handles(command.Name) => await _actionCommandHandler.HandleAsync(command, locale, cancellationToken),
                 _ when _structuredCommandHandler.Handles(command.Name) => await _structuredCommandHandler.HandleAsync(command, locale, cancellationToken),
-                _ => await LegacyReplyAsync(command, locale, cancellationToken)
+                _ => ServiceReply(command, locale)
             };
         }
 
@@ -167,14 +163,8 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         }
     }
 
-    private async Task<IReadOnlyList<string>> LegacyReplyAsync(ProcessIncomingCommand command, string locale, CancellationToken token)
+    private static IReadOnlyList<string> ServiceReply(ProcessIncomingCommand command, string locale)
     {
-        var result = await _commandHandler.HandleAsync(command, token);
-        if (result is not IncomingCommandResult.Reply)
-        {
-            return [];
-        }
-
         var key = command.Name switch
         {
             "start" => "legacy.start",

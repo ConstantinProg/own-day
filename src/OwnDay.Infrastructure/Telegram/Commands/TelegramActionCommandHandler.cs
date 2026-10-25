@@ -1,5 +1,5 @@
 using System.Globalization;
-using System.Text;
+using OwnDay.Infrastructure.Telegram.Handling;
 using OwnDay.Application.Actions;
 using OwnDay.Application.Interactions;
 using OwnDay.Infrastructure.Telegram.Localization;
@@ -9,8 +9,6 @@ namespace OwnDay.Infrastructure.Telegram.Commands;
 
 public sealed class TelegramActionCommandHandler(ActionService actionService)
 {
-    private const int MaximumMessageLength = 4096;
-
     public bool Handles(string name) => name is "add" or "tasks" or "done";
 
     public async Task<IReadOnlyList<string>> HandleAsync(
@@ -67,27 +65,7 @@ public sealed class TelegramActionCommandHandler(ActionService actionService)
             return [TelegramTexts.Get(locale, "action.list.empty")];
         }
 
-        var messages = new List<string>();
-        var current = new StringBuilder();
-        foreach (var action in actions)
-        {
-            var line = $"#{action.Id} {action.Title}";
-            if (current.Length > 0 && current.Length + 1 + line.Length > MaximumMessageLength)
-            {
-                messages.Add(current.ToString());
-                current.Clear();
-            }
-
-            if (current.Length > 0)
-            {
-                current.Append('\n');
-            }
-
-            current.Append(line);
-        }
-
-        messages.Add(current.ToString());
-        return messages;
+        return TelegramTextLists.Split(actions.Select(action => $"#{action.Id} {action.Title}"));
     }
 
     private async Task<string> CompleteAsync(ProcessIncomingCommand command, string locale, CancellationToken cancellationToken)

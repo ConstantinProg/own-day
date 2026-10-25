@@ -42,6 +42,7 @@ public sealed class Reference
             throw new ArgumentOutOfRangeException(nameof(projectId));
         }
 
+        DomainTime.RequireUtc(createdAt, nameof(createdAt));
         return new Reference(userId, text.Trim(), createdAt, projectId);
     }
 
@@ -51,6 +52,8 @@ public sealed class Reference
         {
             return false;
         }
+
+        DomainTime.RequireNotBefore(archivedAt, CreatedAt, nameof(archivedAt));
 
         Status = ReferenceStatus.Archived;
         ArchivedAt = archivedAt;

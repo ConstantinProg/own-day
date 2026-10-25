@@ -42,6 +42,7 @@ public sealed class Action
             throw new ArgumentOutOfRangeException(nameof(projectId));
         }
 
+        DomainTime.RequireUtc(createdAt, nameof(createdAt));
         return new Action(userId, title.Trim(), createdAt, projectId);
     }
 
@@ -51,6 +52,8 @@ public sealed class Action
         {
             return false;
         }
+
+        DomainTime.RequireNotBefore(completedAt, CreatedAt, nameof(completedAt));
 
         Status = ActionStatus.Completed;
         CompletedAt = completedAt;

@@ -52,10 +52,7 @@ public sealed class WaitingFor
             throw new ArgumentOutOfRangeException(nameof(projectId));
         }
 
-        if (waitingSince.Kind != DateTimeKind.Utc)
-        {
-            throw new ArgumentException("Waiting start must be UTC.", nameof(waitingSince));
-        }
+        DomainTime.RequireUtc(waitingSince, nameof(waitingSince));
 
         return new WaitingFor(userId, description.Trim(), source?.Trim(), waitingSince, projectId);
     }
@@ -66,6 +63,8 @@ public sealed class WaitingFor
         {
             return false;
         }
+
+        DomainTime.RequireNotBefore(resolvedAt, CreatedAt, nameof(resolvedAt));
 
         Status = WaitingForStatus.Resolved;
         ResolvedAt = resolvedAt;

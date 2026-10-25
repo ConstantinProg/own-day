@@ -1,5 +1,6 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using OwnDay.Application.Actions;
 using OwnDay.Application.Inbox;
 using OwnDay.Application.StructuredItems;
@@ -15,6 +16,41 @@ public sealed class InboxProcessingTests
     private static readonly UserId Alice = new(101);
     private static readonly UserId Bob = new(102);
     private static readonly DateTime Now = new(2026, 9, 27, 10, 0, 0, DateTimeKind.Utc);
+
+    [Theory]
+    [InlineData(InboxTargetKind.Action)]
+    [InlineData(InboxTargetKind.Project)]
+    public async Task Process_StorageThrowsArgumentException_PropagatesFailureAndPreservesInbox(InboxTargetKind kind)
+    {
+        await using var connection = await OpenAsync();
+        long itemId;
+        await using (var setup = new OwnDayDbContext(Options(connection)))
+        {
+            itemId = (await Capture(setup, new FixedClock(), Alice, "original")).Id;
+        }
+
+        var failure = new ArgumentException("Simulated persistence implementation error.");
+        var options = new DbContextOptionsBuilder<OwnDayDbContext>().UseSqlite(connection)
+            .AddInterceptors(new FailingSaveInterceptor(failure)).Options;
+        await using (var failing = new OwnDayDbContext(options))
+        {
+            var exception = await Assert.ThrowsAsync<ArgumentException>(() => Processor(failing, new FixedClock())
+                .ProcessAsync(Alice, new(itemId, kind, "Target"), CancellationToken.None));
+            Assert.Same(failure, exception);
+        }
+
+        await using var verify = new OwnDayDbContext(Options(connection));
+        Assert.Equal(InboxItemStatus.Active, (await verify.InboxItems.SingleAsync()).Status);
+        Assert.Empty(await verify.Actions.ToListAsync());
+        Assert.Empty(await verify.Projects.ToListAsync());
+    }
+
+    private sealed class FailingSaveInterceptor(ArgumentException failure) : SaveChangesInterceptor
+    {
+        public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
+            DbContextEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default) =>
+            throw failure;
+    }
 
     [Theory]
     [InlineData(InboxTargetKind.Action)]
@@ -255,8 +291,8 @@ public sealed class InboxProcessingTests
         new(new EfStructuredItemStore(db), clock);
 
     private static InboxProcessingService Processor(OwnDayDbContext db, TimeProvider clock) =>
-        new(new EfInboxProcessingStore(db), new ActionService(new EfActionStore(db), clock),
-            Structured(db, clock), clock);
+        new(new EfInboxProcessingStore(db), new EfActionStore(db),
+            new EfStructuredItemStore(db), clock);
 
     private static Task<int> TargetCountAsync(OwnDayDbContext db, InboxTargetKind kind) => kind switch
     {

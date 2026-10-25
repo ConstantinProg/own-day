@@ -36,7 +36,7 @@ public sealed class InboxItem
             throw new ArgumentException("Original text is required.", nameof(originalText));
         }
 
-        RequireUtc(capturedAt, nameof(capturedAt));
+        DomainTime.RequireUtc(capturedAt, nameof(capturedAt));
         return new InboxItem(userId, originalText, capturedAt);
     }
 
@@ -57,11 +57,7 @@ public sealed class InboxItem
             throw new ArgumentOutOfRangeException(nameof(targetId));
         }
 
-        RequireUtc(processedAt, nameof(processedAt));
-        if (processedAt < CapturedAt)
-        {
-            throw new ArgumentOutOfRangeException(nameof(processedAt));
-        }
+        DomainTime.RequireNotBefore(processedAt, CapturedAt, nameof(processedAt));
 
         TargetKind = targetKind;
         TargetId = targetId;
@@ -77,22 +73,10 @@ public sealed class InboxItem
             return false;
         }
 
-        RequireUtc(discardedAt, nameof(discardedAt));
-        if (discardedAt < CapturedAt)
-        {
-            throw new ArgumentOutOfRangeException(nameof(discardedAt));
-        }
+        DomainTime.RequireNotBefore(discardedAt, CapturedAt, nameof(discardedAt));
 
         DiscardedAt = discardedAt;
         Status = InboxItemStatus.Discarded;
         return true;
-    }
-
-    private static void RequireUtc(DateTime value, string name)
-    {
-        if (value.Kind != DateTimeKind.Utc)
-        {
-            throw new ArgumentException("Timestamp must be UTC.", name);
-        }
     }
 }

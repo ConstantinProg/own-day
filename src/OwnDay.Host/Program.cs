@@ -1,7 +1,6 @@
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
-using OwnDay.Application.Interactions;
 using OwnDay.Application.Actions;
 using OwnDay.Application.StructuredItems;
 using OwnDay.Application.Inbox;
@@ -24,7 +23,6 @@ builder.Services
     .AddDbContextCheck<OwnDayDbContext>(
         name: "postgresql",
         tags: ["ready"]);
-builder.Services.AddSingleton<IIncomingCommandHandler, IncomingCommandHandler>();
 builder.Services.AddScoped<ActionService>();
 builder.Services.AddScoped<IActionStore, EfActionStore>();
 builder.Services.AddScoped<StructuredItemService>();
@@ -32,6 +30,8 @@ builder.Services.AddScoped<IStructuredItemStore, EfStructuredItemStore>();
 builder.Services.AddScoped<InboxCaptureService>();
 builder.Services.AddScoped<IInboxItemStore, EfInboxItemStore>();
 builder.Services.AddScoped<InboxProcessingService>();
+builder.Services.AddScoped<InboxDraftService>();
+builder.Services.AddScoped<IInboxDraftStore, EfInboxDraftStore>();
 builder.Services.AddScoped<IInboxProcessingStore, EfInboxProcessingStore>();
 builder.Services.AddDbContext<OwnDayDbContext>(options =>
     options.UseNpgsql(

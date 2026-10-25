@@ -1,10 +1,11 @@
 using System.Net;
-using System.Text;
 using System.Text.Json;
+using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using OwnDay.Domain;
+using OwnDay.Application.Inbox;
 using OwnDay.Domain.Inbox;
+using OwnDay.Domain;
 using OwnDay.Infrastructure.Persistence;
 using Xunit;
 
@@ -12,6 +13,64 @@ namespace OwnDay.IntegrationTests.Telegram;
 
 public sealed class TelegramUniversalInboxIntegrationTests
 {
+    [Fact]
+    public async Task Post_ReopenDraft_ResetsPreviousChoicesAndKeepsInboxItemsActive()
+    {
+        using var factory = new OwnDayHostFactory();
+        using var client = factory.CreateClient();
+        await PostAsync(client, 1, 101, "first");
+        await PostAsync(client, 2, 101, "second");
+        await PostAsync(client, 3, 101, "/inbox 1");
+        await PostAsync(client, 4, 101, "5");
+        await PostAsync(client, 5, 101, "edited");
+        await PostAsync(client, 6, 101, "source");
+        await PostAsync(client, 7, 101, "0");
+        await PostAsync(client, 8, 101, "/inbox 2");
+
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
+        var draft = await db.TelegramInboxDrafts.SingleAsync();
+        Assert.Equal(2, draft.InboxItemId);
+        Assert.Equal(InboxDraftStep.Target, draft.Step);
+        Assert.Null(draft.TargetKind);
+        Assert.Null(draft.Text);
+        Assert.Null(draft.Source);
+        Assert.Null(draft.ProjectId);
+        Assert.All(await db.InboxItems.ToListAsync(), item => Assert.Equal(InboxItemStatus.Active, item.Status));
+        Assert.Empty(await db.WaitingFors.ToListAsync());
+    }
+
+    [Fact]
+    public async Task Post_ReopenReplySaveFails_RollsBackDraftChangesAndDeduplication()
+    {
+        using var factory = new OwnDayHostFactory();
+        using var client = factory.CreateClient();
+        await PostAsync(client, 1, 101, "first");
+        await PostAsync(client, 2, 101, "second");
+        await PostAsync(client, 3, 101, "/inbox 1");
+        await PostAsync(client, 4, 101, "1");
+        using (var setupScope = factory.Services.CreateScope())
+        {
+            var setup = setupScope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
+            await setup.Database.ExecuteSqlRawAsync("""
+                CREATE TRIGGER reject_outbox BEFORE INSERT ON telegram_outbox_messages
+                BEGIN SELECT RAISE(ABORT, 'Simulated storage failure'); END;
+                """);
+        }
+
+        await PostAsync(client, 5, 101, "/inbox 2", expectedStatus: HttpStatusCode.InternalServerError);
+
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
+        var draft = await db.TelegramInboxDrafts.SingleAsync();
+        Assert.Equal(1, draft.InboxItemId);
+        Assert.Equal(InboxDraftStep.Text, draft.Step);
+        Assert.Equal(InboxTargetKind.Action, draft.TargetKind);
+        Assert.Equal("first", draft.Text);
+        Assert.False(await db.ProcessedTelegramUpdates.AnyAsync(update => update.UpdateId == 5));
+        Assert.Equal(4, await db.TelegramOutboxMessages.CountAsync());
+    }
+
     [Theory]
     [InlineData("/add one", "Action")]
     [InlineData("/project one", "Project")]
@@ -82,12 +141,12 @@ public sealed class TelegramUniversalInboxIntegrationTests
     }
 
     [Theory]
-    [InlineData(1, "Action")]
-    [InlineData(2, "Project")]
-    [InlineData(3, "Idea")]
-    [InlineData(4, "Note")]
-    [InlineData(5, "Waiting")]
-    public async Task Post_InboxFlow_ProcessesChosenTargetWithProvenance(int choice, string kind)
+    [InlineData(1, "Action", InboxTargetKind.Action)]
+    [InlineData(2, "Project", InboxTargetKind.Project)]
+    [InlineData(3, "Idea", InboxTargetKind.SomedayMaybe)]
+    [InlineData(4, "Note", InboxTargetKind.Reference)]
+    [InlineData(5, "Waiting", InboxTargetKind.WaitingFor)]
+    public async Task Post_InboxFlow_ProcessesChosenTargetWithProvenance(int choice, string kind, InboxTargetKind expectedTarget)
     {
         using var factory = new OwnDayHostFactory();
         using var client = factory.CreateClient();
@@ -112,7 +171,7 @@ public sealed class TelegramUniversalInboxIntegrationTests
         var inbox = Assert.Single(await db.InboxItems.ToListAsync());
         Assert.Equal(original, inbox.OriginalText);
         Assert.Equal(InboxItemStatus.Processed, inbox.Status);
-        Assert.Equal((InboxTargetKind)(choice - 1), inbox.TargetKind);
+        Assert.Equal(expectedTarget, inbox.TargetKind);
         Assert.NotNull(inbox.TargetId);
         Assert.NotNull(inbox.ProcessedAt);
         Assert.True(inbox.ProcessedAt >= inbox.CapturedAt);
@@ -166,7 +225,7 @@ public sealed class TelegramUniversalInboxIntegrationTests
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
         Assert.Equal("direct", (await db.Actions.SingleAsync()).Title);
-        Assert.Equal(TelegramInboxDraftStep.Text, (await db.TelegramInboxDrafts.SingleAsync()).Step);
+        Assert.Equal(InboxDraftStep.Text, (await db.TelegramInboxDrafts.SingleAsync()).Step);
         Assert.Equal(InboxItemStatus.Active, (await db.InboxItems.SingleAsync()).Status);
     }
 
@@ -181,7 +240,7 @@ public sealed class TelegramUniversalInboxIntegrationTests
         using (var scope = factory.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
-            Assert.Equal(TelegramInboxDraftStep.Text, (await db.TelegramInboxDrafts.AsNoTracking().SingleAsync()).Step);
+            Assert.Equal(InboxDraftStep.Text, (await db.TelegramInboxDrafts.AsNoTracking().SingleAsync()).Step);
         }
 
         await PostAsync(client, 4, 101, "edited");
@@ -216,7 +275,7 @@ public sealed class TelegramUniversalInboxIntegrationTests
         Assert.Equal("original", inboxItems[0].OriginalText);
         Assert.Equal("1", inboxItems[1].OriginalText);
         Assert.Empty(await verify.Actions.ToListAsync());
-        Assert.Equal(TelegramInboxDraftStep.Target, (await verify.TelegramInboxDrafts.SingleAsync()).Step);
+        Assert.Equal(InboxDraftStep.Target, (await verify.TelegramInboxDrafts.SingleAsync()).Step);
         Assert.Contains(await verify.TelegramOutboxMessages.ToListAsync(), reply => reply.Text.Contains("draft expired", StringComparison.Ordinal));
     }
 
@@ -276,7 +335,7 @@ public sealed class TelegramUniversalInboxIntegrationTests
         await PostAsync(client, 8, 101, "1");
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
-        Assert.Equal(TelegramInboxDraftStep.Project, (await db.TelegramInboxDrafts.SingleAsync()).Step);
+        Assert.Equal(InboxDraftStep.Project, (await db.TelegramInboxDrafts.SingleAsync()).Step);
         Assert.Equal(InboxItemStatus.Active, (await db.InboxItems.SingleAsync(item => item.UserId == new UserId(101))).Status);
         Assert.Contains(await db.TelegramOutboxMessages.ToListAsync(), reply => reply.ChatId == 101 && reply.Text.Contains("Project not found", StringComparison.Ordinal));
     }
@@ -301,7 +360,8 @@ public sealed class TelegramUniversalInboxIntegrationTests
         Assert.Contains("#30", string.Join('\n', listReplies.Select(reply => reply.Text)), StringComparison.Ordinal);
     }
 
-    private static async Task PostAsync(HttpClient client, long updateId, long userId, string text, string chatType = "private")
+    private static async Task PostAsync(HttpClient client, long updateId, long userId, string text,
+        string chatType = "private", HttpStatusCode expectedStatus = HttpStatusCode.OK)
     {
         var json = JsonSerializer.Serialize(new
         {
@@ -319,6 +379,6 @@ public sealed class TelegramUniversalInboxIntegrationTests
         request.Headers.TryAddWithoutValidation("X-Telegram-Bot-Api-Secret-Token", "integration-test-webhook-secret");
         request.Content = new StringContent(json, Encoding.UTF8, "application/json");
         using var response = await client.SendAsync(request);
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(expectedStatus, response.StatusCode);
     }
 }

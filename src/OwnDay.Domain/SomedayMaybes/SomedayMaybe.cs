@@ -42,6 +42,7 @@ public sealed class SomedayMaybe
             throw new ArgumentOutOfRangeException(nameof(projectId));
         }
 
+        DomainTime.RequireUtc(createdAt, nameof(createdAt));
         return new SomedayMaybe(userId, text.Trim(), createdAt, projectId);
     }
 
@@ -51,6 +52,8 @@ public sealed class SomedayMaybe
         {
             return false;
         }
+
+        DomainTime.RequireNotBefore(archivedAt, CreatedAt, nameof(archivedAt));
 
         Status = SomedayMaybeStatus.Archived;
         ArchivedAt = archivedAt;

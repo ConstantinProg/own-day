@@ -7,34 +7,45 @@ public static class TelegramTextLists
 {
     private const int Limit = 4096;
 
-    public static IReadOnlyList<string> Render<T>(string heading, IReadOnlyList<T> items, Func<T, string> format, string locale)
+    public static IReadOnlyList<string> Render<T>(string heading, IReadOnlyList<T> items, Func<T, string> format, string locale) =>
+        items.Count == 0
+            ? [TelegramTexts.Get(locale, "list.empty", heading)]
+            : Split(items.Select(format), heading);
+
+    public static IReadOnlyList<string> Split(IEnumerable<string> lines, string heading = "")
     {
-        if (items.Count == 0)
+        if (heading.Length >= Limit - 1)
         {
-            return [TelegramTexts.Get(locale, "list.empty", heading)];
+            throw new ArgumentException("Heading must leave room for list items.", nameof(heading));
         }
 
         var messages = new List<string>();
         var current = new StringBuilder(heading);
-        foreach (var item in items)
+        var maximumLineLength = Limit - (heading.Length == 0 ? 0 : heading.Length + 1);
+        foreach (var value in lines)
         {
-            var line = format(item);
-            if (line.Length > Limit - 32)
-            {
-                line = line[..(Limit - 33)] + "…";
-            }
-
-            if (current.Length + line.Length + 1 > Limit)
+            var line = value.Length <= maximumLineLength
+                ? value
+                : value[..(maximumLineLength - 1)] + "…";
+            if (current.Length + (current.Length == 0 ? 0 : 1) + line.Length > Limit)
             {
                 messages.Add(current.ToString());
-                current.Clear();
-                current.Append(heading);
+                current.Clear().Append(heading);
             }
 
-            current.Append('\n').Append(line);
+            if (current.Length > 0)
+            {
+                current.Append('\n');
+            }
+
+            current.Append(line);
         }
 
-        messages.Add(current.ToString());
+        if (current.Length > 0)
+        {
+            messages.Add(current.ToString());
+        }
+
         return messages;
     }
 }

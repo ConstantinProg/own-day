@@ -35,6 +35,7 @@ public sealed class Project
             throw new ArgumentException("Title must contain 1 to 200 characters.", nameof(title));
         }
 
+        DomainTime.RequireUtc(createdAt, nameof(createdAt));
         return new Project(userId, title.Trim(), createdAt);
     }
 
@@ -44,6 +45,8 @@ public sealed class Project
         {
             return false;
         }
+
+        DomainTime.RequireNotBefore(completedAt, CreatedAt, nameof(completedAt));
 
         Status = ProjectStatus.Completed;
         CompletedAt = completedAt;

@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using OwnDay.Application.Inbox;
 using OwnDay.Infrastructure.Persistence;
 using Xunit;
 
@@ -29,11 +30,11 @@ public sealed class PostgresTelegramInboxDraftTests
             await using (var setup = new OwnDayDbContext(options))
             {
                 await setup.Database.MigrateAsync();
-                setup.TelegramInboxDrafts.Add(new TelegramInboxDraft
+                setup.TelegramInboxDrafts.Add(new InboxDraft
                 {
                     UserId = 101,
                     InboxItemId = 5,
-                    Step = TelegramInboxDraftStep.Target,
+                    Step = InboxDraftStep.Target,
                     ExpiresAt = DateTime.UtcNow.AddHours(24)
                 });
                 await setup.SaveChangesAsync();
@@ -43,15 +44,15 @@ public sealed class PostgresTelegramInboxDraftTests
             await using var stale = new OwnDayDbContext(options);
             var current = await first.TelegramInboxDrafts.SingleAsync();
             var old = await stale.TelegramInboxDrafts.SingleAsync();
-            Assert.Equal(TelegramInboxDraftStep.Target, current.Step);
-            current.Step = TelegramInboxDraftStep.Text;
+            Assert.Equal(InboxDraftStep.Target, current.Step);
+            current.Step = InboxDraftStep.Text;
             current.Version++;
             await first.SaveChangesAsync();
-            old.Step = TelegramInboxDraftStep.Confirm;
+            old.Step = InboxDraftStep.Confirm;
             old.Version++;
             await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() => stale.SaveChangesAsync());
             await using var verify = new OwnDayDbContext(options);
-            Assert.Equal(TelegramInboxDraftStep.Text, (await verify.TelegramInboxDrafts.SingleAsync()).Step);
+            Assert.Equal(InboxDraftStep.Text, (await verify.TelegramInboxDrafts.SingleAsync()).Step);
         }
         finally
         {

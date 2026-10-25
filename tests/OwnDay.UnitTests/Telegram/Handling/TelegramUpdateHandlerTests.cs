@@ -5,7 +5,6 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using OwnDay.Application.Actions;
 using OwnDay.Application.Inbox;
-using OwnDay.Application.Interactions;
 using OwnDay.Application.StructuredItems;
 using OwnDay.Infrastructure.Persistence;
 using OwnDay.Infrastructure.Telegram.Cleanup;
@@ -22,6 +21,39 @@ namespace OwnDay.UnitTests.Telegram.Handling;
 public sealed class TelegramUpdateHandlerTests
 {
     private static readonly DateTime Now = new(2026, 9, 17, 12, 0, 0, DateTimeKind.Utc);
+
+    [Theory]
+    [InlineData("/start", "en", "OwnDay is running. Use /help to see available commands.")]
+    [InlineData("/ping", "en", "pong")]
+    [InlineData("/unknown", "en", "Unknown command. Use /help.")]
+    [InlineData("/start", "ru", "OwnDay работает. Отправьте /help, чтобы увидеть команды.")]
+    [InlineData("/ping", "ru", "pong")]
+    [InlineData("/unknown", "ru", "Неизвестная команда. Отправьте /help.")]
+    public async Task HandleAsync_ServiceCommand_QueuesLocalizedReply(string command, string locale, string expected)
+    {
+        await using var fixture = await HandlerFixture.CreateAsync();
+
+        await fixture.Handler.HandleAsync(CreateTextMessageUpdate(command, languageCode: locale));
+
+        Assert.Equal(expected, Assert.Single(fixture.DbContext.TelegramOutboxMessages).Text);
+        Assert.Empty(fixture.DbContext.InboxItems);
+    }
+
+    [Theory]
+    [InlineData("en", "Save:")]
+    [InlineData("ru", "Сохранение:")]
+    public async Task HandleAsync_HelpCommand_QueuesLocalizedCommandInstructions(string locale, string expectedPrefix)
+    {
+        await using var fixture = await HandlerFixture.CreateAsync();
+
+        await fixture.Handler.HandleAsync(CreateTextMessageUpdate("/help", languageCode: locale));
+
+        var text = Assert.Single(fixture.DbContext.TelegramOutboxMessages).Text;
+        Assert.StartsWith(expectedPrefix, text, StringComparison.Ordinal);
+        Assert.Contains("/inbox", text, StringComparison.Ordinal);
+        Assert.Contains("/done", text, StringComparison.Ordinal);
+        Assert.Contains("/language", text, StringComparison.Ordinal);
+    }
 
     [Theory]
     [InlineData("/", ChatType.Private)]
@@ -297,10 +329,10 @@ public sealed class TelegramUpdateHandlerTests
         await fixture.Handler.HandleAsync(CreateTextMessageUpdate("2", updateId: 4));
 
         Assert.Equal("ru", Assert.Single(fixture.DbContext.TelegramUserLanguages).Locale);
-        Assert.Equal(TelegramInboxDraftStep.Target, Assert.Single(fixture.DbContext.TelegramInboxDrafts).Step);
+        Assert.Equal(InboxDraftStep.Target, Assert.Single(fixture.DbContext.TelegramInboxDrafts).Step);
         Assert.Single(fixture.DbContext.InboxItems);
         await fixture.Handler.HandleAsync(CreateTextMessageUpdate("1", updateId: 5));
-        Assert.Equal(TelegramInboxDraftStep.Text, Assert.Single(fixture.DbContext.TelegramInboxDrafts).Step);
+        Assert.Equal(InboxDraftStep.Text, Assert.Single(fixture.DbContext.TelegramInboxDrafts).Step);
     }
 
     [Fact]
@@ -314,7 +346,7 @@ public sealed class TelegramUpdateHandlerTests
         await fixture.Handler.HandleAsync(CreateTextMessageUpdate("/cancel", updateId: 4));
 
         Assert.Null(Assert.Single(fixture.DbContext.TelegramUserLanguages).SelectionExpiresAt);
-        Assert.Equal(TelegramInboxDraftStep.Target, Assert.Single(fixture.DbContext.TelegramInboxDrafts).Step);
+        Assert.Equal(InboxDraftStep.Target, Assert.Single(fixture.DbContext.TelegramInboxDrafts).Step);
         Assert.Contains(fixture.DbContext.TelegramOutboxMessages,
             reply => reply.Text == "Language selection canceled.");
     }
@@ -398,17 +430,17 @@ public sealed class TelegramUpdateHandlerTests
             var cleaner = new RecordingMessageCleaner();
             var handler = new TelegramUpdateHandler(
                 router,
-                new IncomingCommandHandler(),
                 new TelegramActionCommandHandler(new ActionService(new EfActionStore(dbContext), new FixedTimeProvider(Now))),
                 new TelegramStructuredCommandHandler(new StructuredItemService(new EfStructuredItemStore(dbContext), new FixedTimeProvider(Now))),
-                new TelegramInboxFlow(dbContext,
-                    new InboxCaptureService(new EfInboxItemStore(dbContext), new FixedTimeProvider(Now)),
-                    new InboxProcessingService(new EfInboxProcessingStore(dbContext),
-                        new ActionService(new EfActionStore(dbContext), new FixedTimeProvider(Now)),
+                new TelegramInboxFlow(
+                    new InboxDraftService(new EfInboxDraftStore(dbContext),
+                        new InboxCaptureService(new EfInboxItemStore(dbContext), new FixedTimeProvider(Now)),
+                        new InboxProcessingService(new EfInboxProcessingStore(dbContext),
+                            new EfActionStore(dbContext), new EfStructuredItemStore(dbContext), new FixedTimeProvider(Now)),
                         new StructuredItemService(new EfStructuredItemStore(dbContext), new FixedTimeProvider(Now)),
                         new FixedTimeProvider(Now)),
-                    new StructuredItemService(new EfStructuredItemStore(dbContext), new FixedTimeProvider(Now)),
-                    new FixedTimeProvider(Now)),
+                    new InboxCaptureService(new EfInboxItemStore(dbContext), new FixedTimeProvider(Now)),
+                    new TelegramInboxPresenter(new StructuredItemService(new EfStructuredItemStore(dbContext), new FixedTimeProvider(Now)))),
                 new TelegramLanguageFlow(dbContext, new FixedTimeProvider(Now)),
                 dbContext,
                 new FixedTimeProvider(Now),

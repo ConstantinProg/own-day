@@ -1,11 +1,12 @@
 using Microsoft.EntityFrameworkCore;
-using OwnDay.Domain;
+using OwnDay.Application.Inbox;
 using OwnDay.Domain.Actions;
-using OwnDay.Domain.Projects;
-using OwnDay.Domain.SomedayMaybes;
-using OwnDay.Domain.References;
-using OwnDay.Domain.WaitingFors;
 using OwnDay.Domain.Inbox;
+using OwnDay.Domain.Projects;
+using OwnDay.Domain.References;
+using OwnDay.Domain.SomedayMaybes;
+using OwnDay.Domain.WaitingFors;
+using OwnDay.Domain;
 using Action = OwnDay.Domain.Actions.Action;
 
 namespace OwnDay.Infrastructure.Persistence;
@@ -19,7 +20,7 @@ public sealed class OwnDayDbContext(DbContextOptions<OwnDayDbContext> options)
     public DbSet<Reference> References => Set<Reference>();
     public DbSet<WaitingFor> WaitingFors => Set<WaitingFor>();
     public DbSet<InboxItem> InboxItems => Set<InboxItem>();
-    public DbSet<TelegramInboxDraft> TelegramInboxDrafts => Set<TelegramInboxDraft>();
+    public DbSet<InboxDraft> TelegramInboxDrafts => Set<InboxDraft>();
     public DbSet<TelegramUserLanguage> TelegramUserLanguages => Set<TelegramUserLanguage>();
 
     public DbSet<ProcessedTelegramUpdate> ProcessedTelegramUpdates =>
@@ -43,7 +44,7 @@ public sealed class OwnDayDbContext(DbContextOptions<OwnDayDbContext> options)
             entity.Property(preference => preference.SelectionExpiresAt).HasColumnName("selection_expires_at");
         });
 
-        modelBuilder.Entity<TelegramInboxDraft>(entity =>
+        modelBuilder.Entity<InboxDraft>(entity =>
         {
             entity.ToTable("telegram_inbox_drafts");
             entity.HasKey(draft => draft.UserId);

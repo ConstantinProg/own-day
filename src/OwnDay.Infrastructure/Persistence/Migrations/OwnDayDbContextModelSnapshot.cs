@@ -19,7 +19,7 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
 
         NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
-        modelBuilder.Entity("OwnDay.Infrastructure.Persistence.TelegramInboxDraft", b =>
+        modelBuilder.Entity("OwnDay.Application.Inbox.InboxDraft", b =>
         {
             b.Property<long>("UserId").ValueGeneratedNever().HasColumnType("bigint").HasColumnName("user_id");
             b.Property<long>("InboxItemId").HasColumnType("bigint").HasColumnName("inbox_item_id");
