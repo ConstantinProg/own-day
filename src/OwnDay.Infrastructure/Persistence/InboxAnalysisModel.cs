@@ -10,6 +10,34 @@ internal static class InboxAnalysisModel
     public static void Configure(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<InboxItem>().HasAlternateKey(item => new { item.Id, item.UserId });
+        modelBuilder.Entity<InboxAnalysisJob>(entity =>
+        {
+            entity.ToTable("inbox_analysis_jobs", table =>
+            {
+                table.HasCheckConstraint("CK_inbox_analysis_jobs_attempts", "attempt_count >= 0");
+                table.HasCheckConstraint("CK_inbox_analysis_jobs_lifecycle",
+                    "(status = 1 AND lease_token IS NOT NULL AND lease_until IS NOT NULL) OR " +
+                    "(status IN (0, 2, 3, 4) AND lease_token IS NULL AND lease_until IS NULL)");
+            });
+            entity.HasKey(row => row.Id);
+            entity.Property(row => row.Id).ValueGeneratedNever().HasColumnName("id");
+            entity.Property(row => row.InboxItemId).HasColumnName("inbox_item_id");
+            entity.Property(row => row.UserId).HasConversion(id => id.Value, value => new UserId(value)).HasColumnName("user_id");
+            entity.Property(row => row.AnalysisId).HasColumnName("analysis_id");
+            entity.Property(row => row.Status).HasColumnName("status");
+            entity.Property(row => row.AttemptCount).HasColumnName("attempt_count");
+            entity.Property(row => row.AvailableAt).HasColumnName("available_at");
+            entity.Property(row => row.CreatedAt).HasColumnName("created_at");
+            entity.Property(row => row.LeaseToken).HasColumnName("lease_token");
+            entity.Property(row => row.LeaseUntil).HasColumnName("lease_until");
+            entity.Property(row => row.LastCode).HasMaxLength(50).HasColumnName("last_code");
+            entity.HasIndex(row => row.InboxItemId).IsUnique();
+            entity.HasIndex(row => row.AnalysisId).IsUnique();
+            entity.HasIndex(row => new { row.AvailableAt, row.Id }).HasFilter("status IN (0, 1)");
+            entity.HasOne(row => row.Item).WithMany().HasForeignKey(row => new { row.InboxItemId, row.UserId })
+                .HasPrincipalKey(item => new { item.Id, item.UserId }).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<InboxAnalysis>().WithMany().HasForeignKey(row => row.AnalysisId).OnDelete(DeleteBehavior.Restrict);
+        });
         modelBuilder.Entity<InboxAnalysis>(entity =>
         {
             entity.ToTable("inbox_analyses", table =>

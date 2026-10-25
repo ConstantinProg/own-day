@@ -22,6 +22,7 @@ public sealed class OwnDayDbContext(DbContextOptions<OwnDayDbContext> options)
     public DbSet<WaitingFor> WaitingFors => Set<WaitingFor>();
     public DbSet<InboxItem> InboxItems => Set<InboxItem>();
     public DbSet<InboxAnalysis> InboxAnalyses => Set<InboxAnalysis>();
+    public DbSet<InboxAnalysisJob> InboxAnalysisJobs => Set<InboxAnalysisJob>();
     public DbSet<InboxDraft> TelegramInboxDrafts => Set<InboxDraft>();
     public DbSet<TelegramUserLanguage> TelegramUserLanguages => Set<TelegramUserLanguage>();
 

@@ -1,5 +1,8 @@
 # Phase 4 — Milestone 1: AI Analysis Foundation
 
+This document describes the original foundation. Automatic scheduling, retry/recovery, updated missing-key behavior
+and the current worker are documented in [durable background processing](Phase4-Milestone2-Durable-Background-Processing.md).
+
 Implemented against the existing Inbox/Action/Project/WaitingFor/Reference/SomedayMaybe model.
 The older MVP documents describe a proposed execution model; they do not replace these implemented entities.
 
@@ -34,13 +37,13 @@ The default model is `gpt-4.1-mini`. Configure:
 | Configuration key / environment variable | Default |
 | --- | --- |
 | `InboxAnalysis__OpenAI__Enabled` | `false` |
-| `InboxAnalysis__OpenAI__ApiKey` | unset; required when enabled |
+| `InboxAnalysis__OpenAI__ApiKey` | unset; missing key pauses background analysis |
 | `InboxAnalysis__OpenAI__Model` | `gpt-4.1-mini` |
 | `InboxAnalysis__OpenAI__MaxOutputTokens` | `4096` (256–16384) |
 | `InboxAnalysis__OpenAI__TimeoutSeconds` | `60` (1–300) |
 
 Supply the API key through environment variables or a runtime secret store. Do not put it in source-controlled
-settings, command arguments or logs. Enabled configuration is validated on host startup and on direct use.
+settings, command arguments or logs. Model/token/timeout limits are validated on host startup and on direct use.
 With analysis disabled the existing host and tests require no OpenAI key. SDK retries are disabled for this milestone.
 
 Apply migrations using the repository's normal EF tooling, for example with `dotnet-ef` installed:
@@ -110,9 +113,9 @@ Diagnostics contain only fixed failure codes and, for returned responses, comple
 Full rejected provider replies, exception messages, API keys and original user text are not logged or copied into diagnostics.
 Stable analysis/proposal IDs and immutable version history allow later confirmation, audit and application references.
 
-Cancellation propagates to persistence and the SDK. If cancellation/process termination occurs after the initial
-commit, the attempt can remain `Pending`; it is historical evidence of an interrupted attempt, not a queued job.
-A new explicit analysis creates a new version. There is no retry/recovery worker or automatic resumption.
+Cancellation propagates to persistence and the SDK. A new explicit analysis creates a new version.
+Interrupted manual attempts are now recovered by background maintenance; automatic attempts are owned by durable
+jobs and reuse the same version. See the durable processing document for recovery and lease semantics.
 Concurrent successful completions do not supersede or apply one another; all versions remain available.
 
 ## Verification and next milestone
@@ -127,7 +130,6 @@ dotnet build OwnDay.slnx --configuration Release --no-restore
 dotnet test OwnDay.slnx --configuration Release --no-build -m:1
 ```
 
-Milestone 2 can introduce the authorized Telegram trigger and presentation around this service, with an explicit
-decision about durable scheduling outside webhook transactions. Any later application must validate current
+Durable background scheduling now runs after Inbox capture, without waiting for AI in the webhook. Any later application must validate current
 context, enforce policy/confirmation and invoke existing domain/application transitions atomically with reply intent.
 This milestone adds no automation policy, target mutations, confirmation UI, undo, quotas or alternate provider.

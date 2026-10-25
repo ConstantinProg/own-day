@@ -436,6 +436,91 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
             {
                 b.Navigation("Proposals");
             });
+
+        modelBuilder.Entity("OwnDay.Application.Inbox.Analysis.InboxAnalysisJob", b =>
+            {
+                b.Property<Guid>("Id")
+                    .HasColumnType("uuid")
+                    .HasColumnName("id");
+
+                b.Property<Guid?>("AnalysisId")
+                    .HasColumnType("uuid")
+                    .HasColumnName("analysis_id");
+
+                b.Property<int>("AttemptCount")
+                    .HasColumnType("integer")
+                    .HasColumnName("attempt_count");
+
+                b.Property<DateTime>("AvailableAt")
+                    .HasColumnType("timestamp with time zone")
+                    .HasColumnName("available_at");
+
+                b.Property<DateTime>("CreatedAt")
+                    .HasColumnType("timestamp with time zone")
+                    .HasColumnName("created_at");
+
+                b.Property<long>("InboxItemId")
+                    .HasColumnType("bigint")
+                    .HasColumnName("inbox_item_id");
+
+                b.Property<string>("LastCode")
+                    .HasMaxLength(50)
+                    .HasColumnType("character varying(50)")
+                    .HasColumnName("last_code");
+
+                b.Property<Guid?>("LeaseToken")
+                    .HasColumnType("uuid")
+                    .HasColumnName("lease_token");
+
+                b.Property<DateTime?>("LeaseUntil")
+                    .HasColumnType("timestamp with time zone")
+                    .HasColumnName("lease_until");
+
+                b.Property<int>("Status")
+                    .HasColumnType("integer")
+                    .HasColumnName("status");
+
+                b.Property<long>("UserId")
+                    .HasColumnType("bigint")
+                    .HasColumnName("user_id");
+
+                b.HasKey("Id");
+
+                b.HasIndex("AnalysisId")
+                    .IsUnique();
+
+                b.HasIndex("InboxItemId")
+                    .IsUnique();
+
+                b.HasIndex("AvailableAt", "Id")
+                    .HasFilter("status IN (0, 1)");
+
+                b.HasIndex("InboxItemId", "UserId");
+
+                b.ToTable("inbox_analysis_jobs", null, t =>
+                    {
+                        t.HasCheckConstraint("CK_inbox_analysis_jobs_attempts", "attempt_count >= 0");
+
+                        t.HasCheckConstraint("CK_inbox_analysis_jobs_lifecycle", "(status = 1 AND lease_token IS NOT NULL AND lease_until IS NOT NULL) OR (status IN (0, 2, 3, 4) AND lease_token IS NULL AND lease_until IS NULL)");
+                    });
+            });
+
+        modelBuilder.Entity("OwnDay.Application.Inbox.Analysis.InboxAnalysisJob", b =>
+            {
+                b.HasOne("OwnDay.Application.Inbox.Analysis.InboxAnalysis", null)
+                    .WithMany()
+                    .HasForeignKey("AnalysisId")
+                    .OnDelete(DeleteBehavior.Restrict);
+
+                b.HasOne("OwnDay.Domain.Inbox.InboxItem", "Item")
+                    .WithMany()
+                    .HasForeignKey("InboxItemId", "UserId")
+                    .HasPrincipalKey("Id", "UserId")
+                    .OnDelete(DeleteBehavior.Restrict)
+                    .IsRequired();
+
+                b.Navigation("Item");
+            });
 #pragma warning restore 612, 618
     }
 }

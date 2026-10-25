@@ -10,6 +10,10 @@ public sealed class EfInboxItemStore(OwnDayDbContext dbContext) : IInboxItemStor
     public async Task<InboxItem> AddAsync(InboxItem item, CancellationToken cancellationToken)
     {
         dbContext.InboxItems.Add(item);
+        dbContext.InboxAnalysisJobs.Add(new()
+        {
+            Item = item, UserId = item.UserId, CreatedAt = item.CapturedAt, AvailableAt = item.CapturedAt
+        });
         await dbContext.SaveChangesAsync(cancellationToken);
         return item;
     }

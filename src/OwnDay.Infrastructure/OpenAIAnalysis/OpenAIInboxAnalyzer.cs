@@ -33,9 +33,9 @@ public sealed class OpenAIInboxAnalyzer(ChatClient client, IOptions<OpenAIInboxA
                 [new SystemChatMessage(OpenAIInboxAnalysisFormat.SystemPrompt), new UserChatMessage(input)],
                 completionOptions, cancellationToken);
         }
-        catch (ClientResultException)
+        catch (ClientResultException exception)
         {
-            throw new InboxAnalyzerException("provider_failure");
+            throw new InboxAnalyzerException(Classify(exception));
         }
         catch (HttpRequestException)
         {
@@ -43,7 +43,7 @@ public sealed class OpenAIInboxAnalyzer(ChatClient client, IOptions<OpenAIInboxA
         }
         catch (JsonException)
         {
-            throw new InboxAnalyzerException("provider_failure");
+            throw new InboxAnalyzerException("invalid_response");
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
@@ -63,5 +63,40 @@ public sealed class OpenAIInboxAnalyzer(ChatClient client, IOptions<OpenAIInboxA
 
         return new(completion.Content[0].Text, completion.Model, completion.Id,
             completion.Usage?.InputTokenCount, completion.Usage?.OutputTokenCount);
+    }
+
+    private static string Classify(ClientResultException exception)
+    {
+        if (exception.Status == 429)
+        {
+            // Inspect only a known error code. Never retain or log the provider's body/message.
+            try
+            {
+                var content = exception.GetRawResponse()?.Content;
+                if (content is not null)
+                {
+                    using var json = JsonDocument.Parse(content);
+                    if (json.RootElement.ValueKind == JsonValueKind.Object &&
+                        json.RootElement.TryGetProperty("error", out var error) &&
+                        error.ValueKind == JsonValueKind.Object && error.TryGetProperty("code", out var code) &&
+                        code.ValueKind == JsonValueKind.String &&
+                        code.GetString() is "insufficient_quota" or "billing_hard_limit_reached")
+                    {
+                        return "budget_limit";
+                    }
+                }
+            }
+            catch (JsonException) { }
+
+            return "rate_limit";
+        }
+
+        return exception.Status switch
+        {
+            401 or 403 => "configuration",
+            0 or 408 or 409 => "provider_failure",
+            >= 500 => "provider_failure",
+            _ => "permanent_failure"
+        };
     }
 }

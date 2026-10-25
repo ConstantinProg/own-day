@@ -16,8 +16,6 @@ public static class InboxAnalysisServiceCollectionExtensions
     {
         services.AddOptions<OpenAIInboxAnalysisOptions>()
             .BindConfiguration(OpenAIInboxAnalysisOptions.SectionName)
-            .Validate(options => !options.Enabled || !string.IsNullOrWhiteSpace(options.ApiKey),
-                "InboxAnalysis:OpenAI:ApiKey is required when enabled.")
             .Validate(options => !string.IsNullOrWhiteSpace(options.Model) && options.Model.Length <= 200,
                 "InboxAnalysis:OpenAI:Model is required (at most 200 characters).")
             .Validate(options => options.MaxOutputTokens is >= 256 and <= 16_384,
@@ -26,14 +24,26 @@ public static class InboxAnalysisServiceCollectionExtensions
                 "InboxAnalysis:OpenAI:TimeoutSeconds must be between 1 and 300.")
             .ValidateOnStart();
 
+        services.AddOptions<InboxAnalysisProcessingOptions>()
+            .BindConfiguration(InboxAnalysisProcessingOptions.SectionName)
+            .Validate(options => options.Parallelism is >= 1 and <= 8 && options.PollSeconds is >= 1 and <= 300 &&
+                options.TimeoutSeconds is >= 1 and <= 300 && options.LeaseSeconds >= options.TimeoutSeconds + 30 &&
+                options.LeaseSeconds <= 3600 && options.MaxAttempts is >= 1 and <= 10 &&
+                options.InitialBackoffSeconds is >= 1 and <= 3600 &&
+                options.MaxBackoffSeconds >= options.InitialBackoffSeconds && options.MaxBackoffSeconds <= 86400,
+                "Invalid InboxAnalysis:Background limits; lease must exceed timeout by at least 30 seconds.")
+            .ValidateOnStart();
+
         services.TryAddSingleton<TimeProvider>(TimeProvider.System);
         services.AddScoped<InboxAnalysisService>();
         services.AddSingleton<InboxAnalysisValidator>();
         services.AddScoped<IInboxAnalysisStore, EfInboxAnalysisStore>();
+        services.AddScoped<IInboxAnalysisJobStore, EfInboxAnalysisJobStore>();
+        services.AddHostedService<InboxAnalysisWorker>();
         services.AddSingleton<ChatClient>(provider =>
         {
             var options = provider.GetRequiredService<IOptions<OpenAIInboxAnalysisOptions>>().Value;
-            if (!options.Enabled)
+            if (!options.Enabled || string.IsNullOrWhiteSpace(options.ApiKey))
             {
                 throw new InvalidOperationException("OpenAI Inbox analysis is disabled. Enable it in configuration before invoking analysis.");
             }
