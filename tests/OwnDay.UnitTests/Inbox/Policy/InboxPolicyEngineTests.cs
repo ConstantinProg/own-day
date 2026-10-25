@@ -173,9 +173,9 @@ public sealed class InboxPolicyEngineTests
     {
         var snapshot = Snapshot(Proposal());
         Assert.Contains(InboxPolicyReason.OwnershipMismatch,
-            new InboxPolicyEngine().Evaluate(new UserId(42), 7, snapshot.Analysis.Id, snapshot, InboxPolicyEngine.Version).Reasons);
+            new InboxPolicyEngine().Evaluate(new UserId(42), 7, snapshot.Analysis.Id, snapshot, InboxPolicyEngine.LegacyVersion).Reasons);
         Assert.Contains(InboxPolicyReason.AnalysisUnavailable,
-            new InboxPolicyEngine().Evaluate(Owner, 7, Guid.NewGuid(), null, InboxPolicyEngine.Version).Reasons);
+            new InboxPolicyEngine().Evaluate(Owner, 7, Guid.NewGuid(), null, InboxPolicyEngine.LegacyVersion).Reasons);
         Assert.Contains(InboxPolicyReason.AnalysisSuperseded,
             Evaluate(snapshot with { LatestAnalysisVersion = 2 }).Reasons);
         Assert.Contains(InboxPolicyReason.InputChanged, Evaluate(Snapshot(Proposal(), inputHash: "stale")).Reasons);
@@ -193,12 +193,12 @@ public sealed class InboxPolicyEngineTests
         var before = JsonSerializer.Serialize(snapshot, InboxAnalysisJson.Options);
         var first = Evaluate(snapshot);
         var second = Evaluate(snapshot);
-        var changedVersion = new InboxPolicyEngine().Evaluate(Owner, 7, snapshot.Analysis.Id, snapshot, "inbox-policy-v2");
+        var changedVersion = new InboxPolicyEngine().Evaluate(Owner, 7, snapshot.Analysis.Id, snapshot, "inbox-policy-unknown");
 
         Assert.Equal(JsonSerializer.Serialize(first, InboxAnalysisJson.Options), JsonSerializer.Serialize(second, InboxAnalysisJson.Options));
         Assert.Equal(before, JsonSerializer.Serialize(snapshot, InboxAnalysisJson.Options));
-        Assert.Equal(InboxPolicyEngine.Version, first.PolicyVersion);
-        Assert.Equal("inbox-policy-v2", changedVersion.PolicyVersion);
+        Assert.Equal(InboxPolicyEngine.LegacyVersion, first.PolicyVersion);
+        Assert.Equal("inbox-policy-unknown", changedVersion.PolicyVersion);
         Assert.Equal(InboxPolicyRoute.KeepInInbox, changedVersion.Route);
         Assert.Contains(InboxPolicyReason.PolicyVersionUnsupported, changedVersion.Reasons);
         Assert.Contains(InboxPolicyReason.ProjectLinkRequiresReview, first.Reasons);
@@ -280,6 +280,67 @@ public sealed class InboxPolicyEngineTests
     }
 
     private static InboxPolicyDecision Evaluate(InboxPolicySnapshot snapshot) =>
+        new InboxPolicyEngine().Evaluate(Owner, 7, snapshot.Analysis.Id, snapshot, InboxPolicyEngine.LegacyVersion);
+
+    [Theory]
+    [MemberData(nameof(Kinds))]
+    public void EvaluateV2_AllKindsIncludingAmbiguitiesAndExtraDescription_AutoApplies(InboxTargetKind kind, bool ambiguous)
+    {
+        var snapshot = Snapshot(Proposal(kind) with
+        {
+            Description = "Extra detail preserved in audit", Ambiguities = ambiguous ? ["Uncertain interpretation"] : [],
+            Properties = Empty
+        });
+        var result = EvaluateV2(snapshot);
+        Assert.Equal(InboxPolicyRoute.AutoApply, result.Route);
+        Assert.Equal(InboxPolicyRoute.AutoApply, Assert.Single(result.Proposals).Route);
+        Assert.Equal("inbox-policy-v2", result.PolicyVersion);
+    }
+
+    [Theory]
+    [InlineData("absent")]
+    [InlineData("current")]
+    [InlineData("ambiguous")]
+    [InlineData("stale")]
+    [InlineData("truncated")]
+    public void EvaluateV2_OptionalProjectContext_DoesNotPreventCreation(string scenario)
+    {
+        var proposal = Proposal() with
+        {
+            ProjectIds = scenario switch { "current" or "stale" => [1], "ambiguous" => [1, 2], _ => [] },
+            Ambiguities = ["Context uncertain"], Properties = Empty with { UnresolvedDateText = "завтра" }
+        };
+        var snapshot = Snapshot(proposal, context: new(null,
+            [new(1, "Project", CapturedAt), new(2, "Other", CapturedAt)], scenario == "truncated"));
+        if (scenario == "stale")
+        {
+            snapshot = snapshot with { ActiveOwnedProjects = [] };
+        }
+        Assert.Equal(InboxPolicyRoute.AutoApply, EvaluateV2(snapshot).Route);
+    }
+
+    [Fact]
+    public void EvaluateV2_Composite_AutoAppliesAllOrBlocksAll()
+    {
+        var snapshot = Snapshot(proposals: [Proposal(), Proposal(), Proposal(InboxTargetKind.SomedayMaybe)]);
+        Assert.Equal(InboxPolicyRoute.AutoApply, EvaluateV2(snapshot).Route);
+        snapshot = Snapshot(proposals: [Proposal(), Proposal() with { Title = " " }]);
+        Assert.Equal(InboxPolicyRoute.KeepInInbox, EvaluateV2(snapshot).Route);
+        Assert.Contains(InboxPolicyReason.InvalidProposal, EvaluateV2(snapshot).Reasons);
+    }
+
+    [Fact]
+    public void EvaluateV2_StaleInputAnalysisAndInactiveInbox_FailsClosed()
+    {
+        var snapshot = Snapshot(Proposal());
+        Assert.Contains(InboxPolicyReason.AnalysisSuperseded, EvaluateV2(snapshot with { LatestAnalysisVersion = 2 }).Reasons);
+        Assert.Contains(InboxPolicyReason.InputChanged, EvaluateV2(Snapshot(Proposal(), inputHash: "old")).Reasons);
+        snapshot.Item.Discard(CapturedAt);
+        Assert.Contains(InboxPolicyReason.InboxInactive, EvaluateV2(snapshot).Reasons);
+        Assert.Contains(InboxPolicyReason.InvalidContext, EvaluateV2(Snapshot(Proposal(), contextJson: "{}")).Reasons);
+    }
+
+    private static InboxPolicyDecision EvaluateV2(InboxPolicySnapshot snapshot) =>
         new InboxPolicyEngine().Evaluate(Owner, 7, snapshot.Analysis.Id, snapshot, InboxPolicyEngine.Version);
 
     private static InboxProposal Proposal(InboxTargetKind kind = InboxTargetKind.Action) => new()

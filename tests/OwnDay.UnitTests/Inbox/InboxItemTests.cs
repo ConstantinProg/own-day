@@ -9,6 +9,29 @@ public sealed class InboxItemTests
     private static readonly DateTime Now = new(2026, 9, 27, 10, 0, 0, DateTimeKind.Utc);
 
     [Fact]
+    public void ProcessMany_ValidBatch_PreservesEveryTargetAndLegacyFirstTarget()
+    {
+        var item = InboxItem.Capture(new UserId(7), "raw", Now);
+        Assert.True(item.ProcessMany([new(InboxTargetKind.Action, 1), new(InboxTargetKind.SomedayMaybe, 1)], Now));
+        Assert.Equal(2, item.Targets.Count);
+        Assert.Equal(InboxTargetKind.Action, item.TargetKind);
+        Assert.Equal(1, item.TargetId);
+        Assert.False(item.Process(InboxTargetKind.Action, 2, Now));
+        Assert.Equal(2, item.Targets.Count);
+    }
+
+    [Fact]
+    public void ProcessMany_EmptyDuplicateOrInvalidTime_LeavesItemActive()
+    {
+        var item = InboxItem.Capture(new UserId(7), "raw", Now);
+        Assert.Throws<ArgumentException>(() => item.ProcessMany([], Now));
+        Assert.Throws<ArgumentException>(() => item.ProcessMany([new(InboxTargetKind.Action, 1), new(InboxTargetKind.Action, 1)], Now));
+        Assert.Throws<ArgumentOutOfRangeException>(() => item.ProcessMany([new(InboxTargetKind.Action, 1)], Now.AddSeconds(-1)));
+        Assert.Empty(item.Targets);
+        Assert.Equal(InboxItemStatus.Active, item.Status);
+    }
+
+    [Fact]
     public void Capture_ValidText_PreservesExactUnclassifiedInput()
     {
         var text = "  a long thought  \n" + new string('x', 500);

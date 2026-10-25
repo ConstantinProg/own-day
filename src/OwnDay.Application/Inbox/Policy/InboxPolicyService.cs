@@ -4,6 +4,9 @@ namespace OwnDay.Application.Inbox.Policy;
 
 public sealed class InboxPolicyService(IInboxPolicyStore store, InboxPolicyEngine engine)
 {
+    public Task<InboxPolicyDecision> EvaluateAsync(UserId userId, long itemId, Guid analysisId,
+        CancellationToken cancellationToken) => EvaluateAsync(userId, itemId, analysisId, InboxPolicyEngine.Version, cancellationToken);
+
     public async Task<InboxPolicyDecision> EvaluateAsync(UserId userId, long itemId, Guid analysisId,
         string policyVersion, CancellationToken cancellationToken)
     {

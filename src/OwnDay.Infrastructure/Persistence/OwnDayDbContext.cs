@@ -23,6 +23,7 @@ public sealed class OwnDayDbContext(DbContextOptions<OwnDayDbContext> options)
     public DbSet<InboxItem> InboxItems => Set<InboxItem>();
     public DbSet<InboxAnalysis> InboxAnalyses => Set<InboxAnalysis>();
     public DbSet<InboxAnalysisJob> InboxAnalysisJobs => Set<InboxAnalysisJob>();
+    public DbSet<InboxAutomaticApplication> InboxAutomaticApplications => Set<InboxAutomaticApplication>();
     public DbSet<InboxDraft> TelegramInboxDrafts => Set<InboxDraft>();
     public DbSet<TelegramUserLanguage> TelegramUserLanguages => Set<TelegramUserLanguage>();
 
@@ -35,6 +36,23 @@ public sealed class OwnDayDbContext(DbContextOptions<OwnDayDbContext> options)
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         InboxAnalysisModel.Configure(modelBuilder);
+        modelBuilder.Entity<InboxAutomaticApplication>(entity =>
+        {
+            entity.ToTable("inbox_automatic_applications");
+            entity.HasKey(a => a.AnalysisId);
+            entity.Property(a => a.AnalysisId).ValueGeneratedNever().HasColumnName("analysis_id");
+            entity.Property(a => a.InboxItemId).HasColumnName("inbox_item_id");
+            entity.Property(a => a.UserId).HasConversion(id => id.Value, value => new UserId(value)).HasColumnName("user_id");
+            entity.Property(a => a.PolicyVersion).HasMaxLength(50).HasColumnName("policy_version");
+            entity.Property(a => a.EvaluatedAt).HasColumnName("evaluated_at");
+            entity.Property(a => a.Route).HasColumnName("route");
+            entity.Property(a => a.DecisionJson).HasColumnType("jsonb").HasColumnName("decision");
+            entity.Property(a => a.ProposalsJson).HasColumnType("jsonb").HasColumnName("proposals");
+            entity.Property(a => a.TargetsJson).HasColumnType("jsonb").HasColumnName("targets");
+            entity.HasOne<InboxAnalysis>().WithMany().HasForeignKey(a => a.AnalysisId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<InboxItem>().WithMany().HasForeignKey(a => new { a.InboxItemId, a.UserId })
+                .HasPrincipalKey(i => new { i.Id, i.UserId }).OnDelete(DeleteBehavior.Restrict);
+        });
         modelBuilder.Entity<TelegramUserLanguage>(entity =>
         {
             entity.ToTable("telegram_user_languages", table =>
@@ -81,6 +99,17 @@ public sealed class OwnDayDbContext(DbContextOptions<OwnDayDbContext> options)
             entity.Property(item => item.DiscardedAt).HasColumnName("discarded_at");
             entity.Property(item => item.TargetKind).HasColumnName("target_kind");
             entity.Property(item => item.TargetId).HasColumnName("target_id");
+            entity.OwnsMany(item => item.Targets, target =>
+            {
+                target.ToTable("inbox_targets", table => table.HasCheckConstraint(
+                    "CK_inbox_targets_identity", "kind BETWEEN 0 AND 4 AND target_id > 0"));
+                target.WithOwner().HasForeignKey("InboxItemId");
+                target.Property<long>("InboxItemId").HasColumnName("inbox_item_id");
+                target.Property(t => t.Kind).HasColumnName("kind");
+                target.Property(t => t.TargetId).ValueGeneratedNever().HasColumnName("target_id");
+                target.HasKey("InboxItemId", nameof(InboxTarget.Kind), nameof(InboxTarget.TargetId));
+            });
+            entity.Navigation(item => item.Targets).HasField("_targets").UsePropertyAccessMode(PropertyAccessMode.Field);
             entity.HasIndex(item => new { item.UserId, item.Status, item.CapturedAt, item.Id });
         });
 

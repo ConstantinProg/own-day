@@ -11,7 +11,8 @@ namespace OwnDay.Application.Inbox.Policy;
 // Pure workflow policy: no clock, I/O, provider, domain mutation or configurable confidence threshold.
 public sealed class InboxPolicyEngine
 {
-    public const string Version = "inbox-policy-v1";
+    public const string LegacyVersion = "inbox-policy-v1";
+    public const string Version = "inbox-policy-v2";
 
     public InboxPolicyDecision Evaluate(UserId userId, long itemId, Guid analysisId,
         InboxPolicySnapshot? snapshot, string policyVersion)
@@ -29,7 +30,7 @@ public sealed class InboxPolicyEngine
             return Result(InboxPolicyRoute.KeepInInbox);
         }
 
-        if (policyVersion != Version)
+        if (policyVersion != LegacyVersion && policyVersion != Version)
         {
             return Block(InboxPolicyReason.PolicyVersionUnsupported);
         }
@@ -86,13 +87,26 @@ public sealed class InboxPolicyEngine
                     Array.AsReadOnly(new[] { InboxPolicyReason.InvalidProposal })));
                 continue;
             }
-            decisions.Add(EvaluateProposal(row, proposal, context, currentProjects));
+            decisions.Add(policyVersion == Version
+                ? new(row.Id, row.Position, row.Kind, InboxPolicyRoute.AutoApply, Array.Empty<InboxPolicyReason>())
+                : EvaluateProposal(row, proposal, context, currentProjects));
+        }
+
+        if (policyVersion == Version)
+        {
+            if (decisions.Any(p => p.Route == InboxPolicyRoute.KeepInInbox))
+            {
+                reasons.Add(InboxPolicyReason.ProposalBlocked);
+            }
+            reasons.AddRange(decisions.SelectMany(p => p.Reasons));
+            return Result(decisions.All(p => p.Route == InboxPolicyRoute.AutoApply)
+                ? InboxPolicyRoute.AutoApply : InboxPolicyRoute.KeepInInbox);
         }
 
         if (rows.Length > 1)
         {
             reasons.Add(InboxPolicyReason.CompositeRequiresJointReview);
-            // InboxItem.Process currently records exactly one target. Never process a subset of the batch.
+            // Preserve the historical single-target restriction when replaying v1.
             reasons.Add(InboxPolicyReason.MultipleTargetsNotSupported);
         }
         if (decisions.Any(p => p.Route == InboxPolicyRoute.KeepInInbox))

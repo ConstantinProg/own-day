@@ -20,5 +20,8 @@ runner, review method, comparison artifacts and measured results.
 
 ## Inbox policy
 
-The deterministic Inbox routing rules, reason codes and current domain limitations are documented in
-[Deterministic Inbox policy](docs/Phase4-Milestone4-Deterministic-Policy.md).
+The active `inbox-policy-v2` automatically applies all five supported types, including atomic composite entries,
+after background analysis. Original text, proposals and application identities remain available for later correction.
+See [Automatic processing](docs/Phase4-Milestone5-Automatic-Processing.md) for mapping rules, migration,
+recovery and examples. The historical [v1 policy](docs/Phase4-Milestone4-Deterministic-Policy.md) remains available
+for explicit evaluation and compatibility.

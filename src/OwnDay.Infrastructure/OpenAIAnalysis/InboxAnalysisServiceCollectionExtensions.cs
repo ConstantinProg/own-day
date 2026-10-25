@@ -5,7 +5,9 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using OpenAI;
 using OpenAI.Chat;
+using OwnDay.Application.Inbox;
 using OwnDay.Application.Inbox.Analysis;
+using OwnDay.Application.Inbox.Policy;
 using OwnDay.Infrastructure.Persistence;
 
 namespace OwnDay.Infrastructure.OpenAIAnalysis;
@@ -41,6 +43,9 @@ public static class InboxAnalysisServiceCollectionExtensions
         services.AddSingleton<InboxAnalysisValidator>();
         services.AddScoped<IInboxAnalysisStore, EfInboxAnalysisStore>();
         services.AddScoped<IInboxAnalysisJobStore, EfInboxAnalysisJobStore>();
+        services.TryAddSingleton<InboxPolicyEngine>();
+        services.AddScoped<InboxAutomaticProcessingService>();
+        services.AddScoped<IInboxAutomaticProcessingStore, EfInboxAutomaticProcessingStore>();
         services.AddHostedService<InboxAnalysisWorker>();
         services.AddSingleton<ChatClient>(provider =>
         {

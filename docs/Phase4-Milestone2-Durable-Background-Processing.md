@@ -1,5 +1,9 @@
 # Phase 4 — Milestone 2: Durable Background Processing
 
+This document describes analysis scheduling and recovery. The existing worker now also applies saved results
+using [automatic processing](Phase4-Milestone5-Automatic-Processing.md). Statements below about no target
+creation describe the analysis job/use case, which remains separate from application.
+
 Implemented on PostgreSQL with a .NET `BackgroundService`. No broker, scheduler package or new production dependency
 is required. AI output remains a proposal: this processing never invokes domain transitions or creates targets.
 

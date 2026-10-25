@@ -2,6 +2,8 @@
 
 This document describes the original foundation. Automatic scheduling, retry/recovery, updated missing-key behavior
 and the current worker are documented in [durable background processing](Phase4-Milestone2-Durable-Background-Processing.md).
+Completed analyses are now consumed by [automatic processing](Phase4-Milestone5-Automatic-Processing.md);
+the analysis use case itself still only saves proposals.
 
 Implemented against the existing Inbox/Action/Project/WaitingFor/Reference/SomedayMaybe model.
 The older MVP documents describe a proposed execution model; they do not replace these implemented entities.

@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using OwnDay.Application.Inbox;
 using OwnDay.Application.Inbox.Analysis;
 
 namespace OwnDay.Infrastructure.OpenAIAnalysis;
@@ -33,7 +34,31 @@ public sealed class InboxAnalysisWorker(
         }
 
         return Task.WhenAll(Enumerable.Range(0, canRun ? options.Parallelism : 0)
-            .Select(_ => RunAsync(options, stoppingToken)).Append(RecoverAsync(canRun, stoppingToken)));
+            .Select(_ => RunAsync(options, stoppingToken)).Append(RecoverAsync(canRun, stoppingToken))
+            .Append(ApplyAsync(options, stoppingToken)));
+    }
+
+    private async Task ApplyAsync(InboxAnalysisProcessingOptions options, CancellationToken token)
+    {
+        while (!token.IsCancellationRequested)
+        {
+            try
+            {
+                await using var scope = scopes.CreateAsyncScope();
+                if (await scope.ServiceProvider.GetRequiredService<InboxAutomaticProcessingService>().ProcessNextAsync(token))
+                {
+                    continue;
+                }
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested) { return; }
+            catch (Exception exception)
+            {
+                Errors.Add(1);
+                logger.LogWarning("Inbox automatic application failed ({ErrorType}); saved analysis will be retried.",
+                    exception.GetType().Name);
+            }
+            await Task.Delay(TimeSpan.FromSeconds(options.PollSeconds), clock, token);
+        }
     }
 
     private async Task RecoverAsync(bool canRun, CancellationToken token)

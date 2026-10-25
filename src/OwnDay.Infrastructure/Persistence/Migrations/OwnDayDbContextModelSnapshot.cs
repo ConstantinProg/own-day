@@ -534,6 +534,101 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
 
                 b.Navigation("Item");
             });
+        modelBuilder.Entity("OwnDay.Application.Inbox.InboxAutomaticApplication", b =>
+            {
+                b.Property<Guid>("AnalysisId")
+                    .HasColumnType("uuid")
+                    .HasColumnName("analysis_id");
+
+                b.Property<string>("DecisionJson")
+                    .IsRequired()
+                    .HasColumnType("jsonb")
+                    .HasColumnName("decision");
+
+                b.Property<DateTime>("EvaluatedAt")
+                    .HasColumnType("timestamp with time zone")
+                    .HasColumnName("evaluated_at");
+
+                b.Property<long>("InboxItemId")
+                    .HasColumnType("bigint")
+                    .HasColumnName("inbox_item_id");
+
+                b.Property<string>("PolicyVersion")
+                    .IsRequired()
+                    .HasMaxLength(50)
+                    .HasColumnType("character varying(50)")
+                    .HasColumnName("policy_version");
+
+                b.Property<string>("ProposalsJson")
+                    .IsRequired()
+                    .HasColumnType("jsonb")
+                    .HasColumnName("proposals");
+
+                b.Property<int>("Route")
+                    .HasColumnType("integer")
+                    .HasColumnName("route");
+
+                b.Property<string>("TargetsJson")
+                    .IsRequired()
+                    .HasColumnType("jsonb")
+                    .HasColumnName("targets");
+
+                b.Property<long>("UserId")
+                    .HasColumnType("bigint")
+                    .HasColumnName("user_id");
+
+                b.HasKey("AnalysisId");
+
+                b.HasIndex("InboxItemId", "UserId");
+
+                b.ToTable("inbox_automatic_applications", (string)null);
+            });
+
+        modelBuilder.Entity("OwnDay.Application.Inbox.InboxAutomaticApplication", b =>
+            {
+                b.HasOne("OwnDay.Application.Inbox.Analysis.InboxAnalysis", null)
+                    .WithMany()
+                    .HasForeignKey("AnalysisId")
+                    .OnDelete(DeleteBehavior.Restrict)
+                    .IsRequired();
+
+                b.HasOne("OwnDay.Domain.Inbox.InboxItem", null)
+                    .WithMany()
+                    .HasForeignKey("InboxItemId", "UserId")
+                    .HasPrincipalKey("Id", "UserId")
+                    .OnDelete(DeleteBehavior.Restrict)
+                    .IsRequired();
+            });
+
+        modelBuilder.Entity("OwnDay.Domain.Inbox.InboxItem", b =>
+            {
+                b.OwnsMany("OwnDay.Domain.Inbox.InboxTarget", "Targets", b1 =>
+                    {
+                        b1.Property<long>("InboxItemId")
+                            .HasColumnType("bigint")
+                            .HasColumnName("inbox_item_id");
+
+                        b1.Property<int>("Kind")
+                            .HasColumnType("integer")
+                            .HasColumnName("kind");
+
+                        b1.Property<long>("TargetId")
+                            .HasColumnType("bigint")
+                            .HasColumnName("target_id");
+
+                        b1.HasKey("InboxItemId", "Kind", "TargetId");
+
+                        b1.ToTable("inbox_targets", null, t =>
+                            {
+                                t.HasCheckConstraint("CK_inbox_targets_identity", "kind BETWEEN 0 AND 4 AND target_id > 0");
+                            });
+
+                        b1.WithOwner()
+                            .HasForeignKey("InboxItemId");
+                    });
+
+                b.Navigation("Targets");
+            });
 #pragma warning restore 612, 618
     }
 }

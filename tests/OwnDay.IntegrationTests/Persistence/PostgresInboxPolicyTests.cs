@@ -59,8 +59,8 @@ public sealed class PostgresInboxPolicyTests : IAsyncLifetime
         var (itemId, analysisId, projectId) = await SeedAsync();
         await using var reader = new OwnDayDbContext(_options);
         var service = Service(reader);
-        var first = await service.EvaluateAsync(Owner, itemId, analysisId, InboxPolicyEngine.Version, Token);
-        var repeated = await service.EvaluateAsync(Owner, itemId, analysisId, InboxPolicyEngine.Version, Token);
+        var first = await service.EvaluateAsync(Owner, itemId, analysisId, InboxPolicyEngine.LegacyVersion, Token);
+        var repeated = await service.EvaluateAsync(Owner, itemId, analysisId, InboxPolicyEngine.LegacyVersion, Token);
         Assert.Equal(JsonSerializer.Serialize(first), JsonSerializer.Serialize(repeated));
         Assert.Equal(InboxPolicyRoute.RequireConfirmation, first.Route);
         Assert.Empty(reader.ChangeTracker.Entries());
@@ -80,7 +80,7 @@ public sealed class PostgresInboxPolicyTests : IAsyncLifetime
             }
             await writer.SaveChangesAsync(Token);
         }
-        var next = await service.EvaluateAsync(Owner, itemId, analysisId, InboxPolicyEngine.Version, Token);
+        var next = await service.EvaluateAsync(Owner, itemId, analysisId, InboxPolicyEngine.LegacyVersion, Token);
         Assert.Equal(InboxPolicyRoute.KeepInInbox, next.Route);
         Assert.Contains(change == "renamed" ? InboxPolicyReason.ProjectChanged : InboxPolicyReason.ProjectUnavailable, next.Reasons);
         Assert.NotEqual(first.StateFingerprint, next.StateFingerprint);
@@ -98,23 +98,23 @@ public sealed class PostgresInboxPolicyTests : IAsyncLifetime
         var (itemId, analysisId, _) = await SeedAsync();
         await using var db = new OwnDayDbContext(_options);
         var service = Service(db);
-        var foreign = await service.EvaluateAsync(new UserId(42), itemId, analysisId, InboxPolicyEngine.Version, Token);
+        var foreign = await service.EvaluateAsync(new UserId(42), itemId, analysisId, InboxPolicyEngine.LegacyVersion, Token);
         Assert.Contains(InboxPolicyReason.AnalysisUnavailable, foreign.Reasons);
         Assert.Empty(foreign.Proposals);
-        var missing = await service.EvaluateAsync(Owner, itemId, Guid.NewGuid(), InboxPolicyEngine.Version, Token);
+        var missing = await service.EvaluateAsync(Owner, itemId, Guid.NewGuid(), InboxPolicyEngine.LegacyVersion, Token);
         Assert.Contains(InboxPolicyReason.AnalysisUnavailable, missing.Reasons);
         var analysis = await db.InboxAnalyses.AsNoTracking().SingleAsync(Token);
         db.InboxAnalyses.Add(InboxAnalysis.Start(Owner, itemId, 2, new("fake", "inbox-v1", "test"),
             analysis.ContextJson, analysis.ContextFingerprint, analysis.InputFingerprint, DateTime.UtcNow));
         await db.SaveChangesAsync(Token);
-        var superseded = await service.EvaluateAsync(Owner, itemId, analysisId, InboxPolicyEngine.Version, Token);
+        var superseded = await service.EvaluateAsync(Owner, itemId, analysisId, InboxPolicyEngine.LegacyVersion, Token);
         Assert.Contains(InboxPolicyReason.AnalysisSuperseded, superseded.Reasons);
 
         using var cancelled = new CancellationTokenSource();
         cancelled.Cancel();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.EvaluateAsync(Owner, itemId, analysisId, InboxPolicyEngine.Version, cancelled.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.EvaluateAsync(Owner, itemId, analysisId, InboxPolicyEngine.LegacyVersion, cancelled.Token));
         await using var transaction = await db.Database.BeginTransactionAsync(Token);
-        await Assert.ThrowsAsync<InvalidOperationException>(() => service.EvaluateAsync(Owner, itemId, analysisId, InboxPolicyEngine.Version, Token));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.EvaluateAsync(Owner, itemId, analysisId, InboxPolicyEngine.LegacyVersion, Token));
     }
 
     [Fact]
@@ -130,10 +130,10 @@ public sealed class PostgresInboxPolicyTests : IAsyncLifetime
         });
         var options = new DbContextOptionsBuilder<OwnDayDbContext>(_options).AddInterceptors(interceptor).Options;
         await using var db = new OwnDayDbContext(options);
-        var first = await Service(db).EvaluateAsync(Owner, itemId, analysisId, InboxPolicyEngine.Version, Token);
+        var first = await Service(db).EvaluateAsync(Owner, itemId, analysisId, InboxPolicyEngine.LegacyVersion, Token);
         Assert.True(interceptor.Fired);
         Assert.Equal(InboxPolicyRoute.RequireConfirmation, first.Route);
-        var second = await Service(db).EvaluateAsync(Owner, itemId, analysisId, InboxPolicyEngine.Version, Token);
+        var second = await Service(db).EvaluateAsync(Owner, itemId, analysisId, InboxPolicyEngine.LegacyVersion, Token);
         Assert.Contains(InboxPolicyReason.ProjectUnavailable, second.Reasons);
     }
 
@@ -150,7 +150,7 @@ public sealed class PostgresInboxPolicyTests : IAsyncLifetime
         var tracked = await db.InboxItems.SingleAsync(Token);
         tracked.Discard(DateTime.UtcNow);
         var result = await scope.ServiceProvider.GetRequiredService<InboxPolicyService>()
-            .EvaluateAsync(Owner, itemId, analysisId, InboxPolicyEngine.Version, Token);
+            .EvaluateAsync(Owner, itemId, analysisId, InboxPolicyEngine.LegacyVersion, Token);
         Assert.Equal(InboxPolicyRoute.RequireConfirmation, result.Route);
         await using var observer = new OwnDayDbContext(_options);
         Assert.Equal(InboxItemStatus.Active, (await observer.InboxItems.SingleAsync(Token)).Status);

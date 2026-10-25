@@ -69,7 +69,8 @@ public sealed class InboxProcessingService(
         UserId userId,
         InboxItem? item,
         ProcessInboxItem command,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool finalize = true)
     {
         if (item is null)
         {
@@ -142,7 +143,31 @@ public sealed class InboxProcessingService(
 
         var targetId = await saveTarget(cancellationToken);
 
-        item.Process(command.TargetKind, targetId, timeProvider.GetUtcNow().UtcDateTime);
+        if (finalize)
+        {
+            item.Process(command.TargetKind, targetId, timeProvider.GetUtcNow().UtcDateTime);
+        }
         return new(ProcessInboxItemStatus.Processed, command.TargetKind, targetId);
+    }
+
+    // The caller owns the existing Inbox lock and transaction. A failure must escape to roll back every target.
+    internal async Task<IReadOnlyList<InboxTarget>> ProcessBatchLockedAsync(UserId userId, InboxItem item,
+        IReadOnlyList<ProcessInboxItem> commands, CancellationToken cancellationToken)
+    {
+        var targets = new List<InboxTarget>();
+        foreach (var command in commands)
+        {
+            var result = await ProcessLockedAsync(userId, item, command, cancellationToken, finalize: false);
+            if (result.Status != ProcessInboxItemStatus.Processed)
+            {
+                throw new InvalidOperationException("Validated automatic target could not be created.");
+            }
+            targets.Add(new(command.TargetKind, result.TargetId!.Value));
+        }
+        if (!item.ProcessMany(targets, timeProvider.GetUtcNow().UtcDateTime))
+        {
+            throw new InvalidOperationException("Inbox item is no longer active.");
+        }
+        return targets.AsReadOnly();
     }
 }

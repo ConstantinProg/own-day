@@ -4,6 +4,7 @@ namespace OwnDay.Domain.Inbox;
 
 public sealed class InboxItem
 {
+    private readonly List<InboxTarget> _targets = [];
     private InboxItem() { }
 
     private InboxItem(UserId userId, string originalText, DateTime capturedAt)
@@ -23,6 +24,7 @@ public sealed class InboxItem
     public DateTime? DiscardedAt { get; private set; }
     public InboxTargetKind? TargetKind { get; private set; }
     public long? TargetId { get; private set; }
+    public IReadOnlyList<InboxTarget> Targets => _targets.AsReadOnly();
 
     public static InboxItem Capture(UserId userId, string originalText, DateTime capturedAt)
     {
@@ -41,26 +43,28 @@ public sealed class InboxItem
     }
 
     public bool Process(InboxTargetKind targetKind, long targetId, DateTime processedAt)
+        => Status == InboxItemStatus.Active && ProcessMany([new InboxTarget(targetKind, targetId)], processedAt);
+
+    public bool ProcessMany(IReadOnlyList<InboxTarget> targets, DateTime processedAt)
     {
         if (Status != InboxItemStatus.Active)
         {
             return false;
         }
 
-        if (!Enum.IsDefined(targetKind))
+        ArgumentNullException.ThrowIfNull(targets);
+        if (targets.Count == 0 || targets.Any(t => t is null) ||
+            targets.DistinctBy(t => (t.Kind, t.TargetId)).Count() != targets.Count)
         {
-            throw new ArgumentOutOfRangeException(nameof(targetKind));
-        }
-
-        if (targetId <= 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(targetId));
+            throw new ArgumentException("Distinct targets are required.", nameof(targets));
         }
 
         DomainTime.RequireNotBefore(processedAt, CapturedAt, nameof(processedAt));
 
-        TargetKind = targetKind;
-        TargetId = targetId;
+        // Legacy fields identify the first target, including for existing manual consumers.
+        TargetKind = targets[0].Kind;
+        TargetId = targets[0].TargetId;
+        _targets.AddRange(targets);
         ProcessedAt = processedAt;
         Status = InboxItemStatus.Processed;
         return true;

@@ -1,5 +1,9 @@
 # Deterministic Inbox policy
 
+Historical policy: `inbox-policy-v1`, retained for explicitly versioned evaluation and compatibility.
+The only active application policy is now **`inbox-policy-v2`**; see
+[automatic processing](Phase4-Milestone5-Automatic-Processing.md). The rules below remain the v1 rules.
+
 Implemented policy version: **`inbox-policy-v1`**. This document describes the implementation against
 the existing M1–M3 contracts and current Domain, using the M4 requirements supplied for this change.
 The repository has no separate overarching Phase 4 specification.

@@ -1,5 +1,8 @@
 # Phase 4 — Milestone 3: Classification and Canonicalization
 
+This describes interpretation and evaluation. Saved results now feed the active v2 policy and
+[automatic processing](Phase4-Milestone5-Automatic-Processing.md); classification itself still only produces proposals.
+
 Inbox analysis still produces proposals, using the M1 Application validator and the M2 durable processing path.
 No entity creation, Policy Engine or Telegram confirmation is introduced. The current contract/schema remains
 `inbox-v1`; the production prompt is `inbox-analysis-v3`. Domain entities, migrations, background job lifecycle,
