@@ -8,9 +8,13 @@ namespace OwnDay.Application.Inbox.Analysis;
 // Structural and value validation only. This does not authorize applying any proposal.
 public sealed class InboxAnalysisValidator
 {
+    private const int MaxResponseJsonCharacters = 64_000;
+    // Preserve the single-proposal budget within the response's {"items":[]} envelope.
+    private const int MaxProposalJsonCharacters = MaxResponseJsonCharacters - 12;
+
     public InboxAnalysisOutput? ParseAndValidate(string json, InboxAnalysisRequest request)
     {
-        if (string.IsNullOrWhiteSpace(json) || json.Length > 64_000)
+        if (string.IsNullOrWhiteSpace(json) || json.Length > MaxResponseJsonCharacters)
         {
             return null;
         }
@@ -32,6 +36,27 @@ public sealed class InboxAnalysisValidator
 
         var projects = request.Context.Projects.Select(project => project.Id).ToHashSet();
         return output.Items.All(item => IsValidProposal(item, request, projects)) ? output : null;
+    }
+
+    public InboxProposal? ParseAndValidateProposal(string json, InboxAnalysisRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(json) || json.Length > MaxProposalJsonCharacters)
+        {
+            return null;
+        }
+
+        InboxProposal? proposal;
+        try
+        {
+            proposal = JsonSerializer.Deserialize<InboxProposal>(json, InboxAnalysisJson.Options);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+
+        var projects = request.Context.Projects.Select(project => project.Id).ToHashSet();
+        return IsValidProposal(proposal, request, projects) ? proposal : null;
     }
 
     private static bool IsValidProposal(InboxProposal? item, InboxAnalysisRequest request, HashSet<long> projects)

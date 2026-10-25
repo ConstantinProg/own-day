@@ -47,67 +47,79 @@ public sealed class InboxPolicyEngineTests
         Assert.Equal(snapshot.Analysis.Proposals[0].Id, Assert.Single(result.Proposals).ProposalId);
     }
 
-    [Theory]
-    [InlineData("description", InboxPolicyReason.DescriptionNotSupported)]
-    [InlineData("date", InboxPolicyReason.UnresolvedDateNotSupported)]
-    [InlineData("waiting-start", InboxPolicyReason.WaitingStartRequired)]
-    [InlineData("alternatives", InboxPolicyReason.ProjectChoiceRequired)]
-    [InlineData("missing-project", InboxPolicyReason.ProjectUnavailable)]
-    [InlineData("changed-project", InboxPolicyReason.ProjectChanged)]
-    [InlineData("empty-title", InboxPolicyReason.InvalidProposal)]
-    [InlineData("long-title", InboxPolicyReason.InvalidProposal)]
-    [InlineData("wrong-source", InboxPolicyReason.InvalidProposal)]
-    [InlineData("invented-source", InboxPolicyReason.InvalidProposal)]
-    [InlineData("wrong-project", InboxPolicyReason.InvalidProposal)]
-    [InlineData("project-parent", InboxPolicyReason.InvalidProposal)]
-    [InlineData("future-wait", InboxPolicyReason.InvalidProposal)]
-    [InlineData("evidence", InboxPolicyReason.InvalidProposal)]
-    [InlineData("date-without-ambiguity", InboxPolicyReason.InvalidProposal)]
-    [InlineData("null-properties", InboxPolicyReason.InvalidProposal)]
-    [InlineData("null-links", InboxPolicyReason.InvalidProposal)]
-    public void Evaluate_UnsupportedOrInvalidData_KeepsInInbox(string scenario, InboxPolicyReason expected)
+    public static TheoryData<InboxProposal, InboxPolicyReason> UnsupportedOrInvalidProposals => new()
     {
-        var proposal = Proposal();
-        proposal = scenario switch
-        {
-            "description" => proposal with { Description = "Essential extra detail" },
-            "date" or "date-without-ambiguity" => proposal with
+        { Proposal() with { Description = "Essential extra detail" }, InboxPolicyReason.DescriptionNotSupported },
+        { Proposal() with
             {
-                Properties = Empty with { UnresolvedDateText = "завтра" },
-                Ambiguities = scenario == "date" ? ["Date"] : []
-            },
-            "waiting-start" => Proposal(InboxTargetKind.WaitingFor) with { Properties = Empty },
-            "alternatives" => proposal with { ProjectIds = [1, 2], Ambiguities = ["Choose"] },
-            "missing-project" or "changed-project" => proposal with { ProjectIds = [1] },
-            "empty-title" => proposal with { Title = " " },
-            "long-title" => proposal with { Title = new string('a', 201) },
-            "wrong-source" => proposal with { Properties = Empty with { Source = "Ивана" } },
-            "invented-source" => Proposal(InboxTargetKind.WaitingFor) with { Properties = Empty with { Source = "Peter" } },
-            "wrong-project" => proposal with { ProjectIds = [99] },
-            "project-parent" => Proposal(InboxTargetKind.Project) with { ProjectIds = [1] },
-            "future-wait" => Proposal(InboxTargetKind.WaitingFor) with
+                Properties = Empty with { UnresolvedDateText = "завтра" }, Ambiguities = ["Date"]
+            }, InboxPolicyReason.UnresolvedDateNotSupported },
+        { Proposal(InboxTargetKind.WaitingFor) with { Properties = Empty }, InboxPolicyReason.WaitingStartRequired },
+        { Proposal() with { ProjectIds = [1, 2], Ambiguities = ["Choose"] }, InboxPolicyReason.ProjectChoiceRequired },
+        { Proposal() with { Title = " " }, InboxPolicyReason.InvalidProposal },
+        { Proposal() with { Title = new string('a', 201) }, InboxPolicyReason.InvalidProposal },
+        { Proposal() with { Properties = Empty with { Source = "Ивана" } }, InboxPolicyReason.InvalidProposal },
+        { Proposal(InboxTargetKind.WaitingFor) with
             {
-                Properties = Empty with { WaitingSince = new DateTimeOffset(CapturedAt.AddDays(1)), WaitingSinceEvidence = "2026-10-26T10:00:00Z" }
-            },
-            "evidence" => Proposal(InboxTargetKind.WaitingFor) with { Properties = Empty with { WaitingSinceEvidence = "2026-10-20T09:00:00Z" } },
-            "null-properties" => proposal with { Properties = null! },
-            "null-links" => proposal with { ProjectIds = null! },
-            _ => throw new InvalidOperationException()
-        };
-        var snapshot = Snapshot(proposal);
-        if (scenario == "missing-project")
-        {
-            snapshot = snapshot with { ActiveOwnedProjects = [] };
-        }
-        if (scenario == "changed-project")
-        {
-            snapshot = snapshot with { ActiveOwnedProjects = [new(1, "Renamed", CapturedAt)] };
-        }
+                Properties = Empty with { Source = "Peter" }
+            }, InboxPolicyReason.InvalidProposal },
+        { Proposal() with { ProjectIds = [99] }, InboxPolicyReason.InvalidProposal },
+        { Proposal(InboxTargetKind.Project) with { ProjectIds = [1] }, InboxPolicyReason.InvalidProposal },
+        { Proposal(InboxTargetKind.WaitingFor) with
+            {
+                Properties = Empty with
+                {
+                    WaitingSince = new DateTimeOffset(CapturedAt.AddDays(1)),
+                    WaitingSinceEvidence = "2026-10-26T10:00:00Z"
+                }
+            }, InboxPolicyReason.InvalidProposal },
+        { Proposal(InboxTargetKind.WaitingFor) with
+            {
+                Properties = Empty with { WaitingSinceEvidence = "2026-10-20T09:00:00Z" }
+            }, InboxPolicyReason.InvalidProposal },
+        { Proposal() with
+            {
+                Properties = Empty with { UnresolvedDateText = "завтра" }, Ambiguities = []
+            }, InboxPolicyReason.InvalidProposal },
+        { Proposal() with { Properties = null! }, InboxPolicyReason.InvalidProposal },
+        { Proposal() with { ProjectIds = null! }, InboxPolicyReason.InvalidProposal }
+    };
+
+    [Theory]
+    [MemberData(nameof(UnsupportedOrInvalidProposals))]
+    public void Evaluate_UnsupportedOrInvalidData_KeepsInInbox(InboxProposal proposal, InboxPolicyReason expected)
+    {
+        var result = Evaluate(Snapshot(proposal));
+
+        Assert.Equal(InboxPolicyRoute.KeepInInbox, result.Route);
+        Assert.Contains(expected, result.Reasons);
+        Assert.Equal(InboxPolicyRoute.KeepInInbox, Assert.Single(result.Proposals).Route);
+    }
+
+    [Fact]
+    public void Evaluate_ReferencedProjectUnavailable_KeepsInInbox()
+    {
+        var snapshot = Snapshot(Proposal() with { ProjectIds = [1] }) with { ActiveOwnedProjects = [] };
 
         var result = Evaluate(snapshot);
 
         Assert.Equal(InboxPolicyRoute.KeepInInbox, result.Route);
-        Assert.Contains(expected, result.Reasons);
+        Assert.Contains(InboxPolicyReason.ProjectUnavailable, result.Reasons);
+        Assert.Equal(InboxPolicyRoute.KeepInInbox, Assert.Single(result.Proposals).Route);
+    }
+
+    [Fact]
+    public void Evaluate_ReferencedProjectChanged_KeepsInInbox()
+    {
+        var snapshot = Snapshot(Proposal() with { ProjectIds = [1] }) with
+        {
+            ActiveOwnedProjects = [new(1, "Renamed", CapturedAt)]
+        };
+
+        var result = Evaluate(snapshot);
+
+        Assert.Equal(InboxPolicyRoute.KeepInInbox, result.Route);
+        Assert.Contains(InboxPolicyReason.ProjectChanged, result.Reasons);
         Assert.Equal(InboxPolicyRoute.KeepInInbox, Assert.Single(result.Proposals).Route);
     }
 

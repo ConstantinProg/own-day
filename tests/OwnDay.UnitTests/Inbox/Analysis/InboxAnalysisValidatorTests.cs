@@ -31,6 +31,47 @@ public sealed class InboxAnalysisValidatorTests
     }
 
     [Fact]
+    public void ParseAndValidateProposal_SavedWaitingProposal_PreservesPropertiesAndProject()
+    {
+        var proposal = Proposal(InboxTargetKind.WaitingFor, "Reply") with
+        {
+            Properties = EmptyProperties() with
+            {
+                Source = "Анны", WaitingSince = DateTimeOffset.Parse("2026-09-26T09:00:00Z"),
+                WaitingSinceEvidence = "2026-09-26T09:00:00Z"
+            },
+            ProjectIds = [12]
+        };
+        var json = JsonSerializer.Serialize(proposal, InboxAnalysisJson.Options);
+
+        var parsed = new InboxAnalysisValidator().ParseAndValidateProposal(json, Request);
+
+        Assert.NotNull(parsed);
+        Assert.Equal(json, JsonSerializer.Serialize(parsed, InboxAnalysisJson.Options));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("not json")]
+    [InlineData("null")]
+    [InlineData("{}")]
+    [InlineData("[]")]
+    [InlineData("{\"items\":[]}")]
+    public void ParseAndValidateProposal_MalformedStructure_Rejects(string json) =>
+        Assert.Null(new InboxAnalysisValidator().ParseAndValidateProposal(json, Request));
+
+    [Fact]
+    public void ParseAndValidateProposal_JsonSizeBoundary_PreservesSingleItemResponseBudget()
+    {
+        var json = JsonSerializer.Serialize(Proposal(InboxTargetKind.Action, "Review"), InboxAnalysisJson.Options);
+        var withinBudget = json.PadRight(64_000 - "{\"items\":[]}".Length);
+        var validator = new InboxAnalysisValidator();
+
+        Assert.NotNull(validator.ParseAndValidateProposal(withinBudget, Request));
+        Assert.Null(validator.ParseAndValidateProposal(withinBudget + " ", Request));
+    }
+
+    [Fact]
     public void ParseAndValidate_MultipleItems_ExtractsSupportedPropertiesAndPreservesUnresolvedDate()
     {
         var waiting = Proposal(InboxTargetKind.WaitingFor, "Ответ Анны") with
@@ -86,6 +127,7 @@ public sealed class InboxAnalysisValidatorTests
         var node = JsonNode.Parse(Json(Proposal(InboxTargetKind.Action, "Купить молоко")))!;
         node["items"]![0]![property] = value;
         Assert.Null(new InboxAnalysisValidator().ParseAndValidate(node.ToJsonString(), Request));
+        Assert.Null(new InboxAnalysisValidator().ParseAndValidateProposal(node["items"]![0]!.ToJsonString(), Request));
     }
 
     [Theory]

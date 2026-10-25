@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -17,22 +18,7 @@ public sealed class InboxPolicyEngine
     {
         var reasons = new List<InboxPolicyReason>();
         var decisions = new List<ProposalPolicyDecision>();
-        var fingerprint = snapshot is null ? string.Empty : Fingerprint(JsonSerializer.Serialize(new
-        {
-            snapshot.Item.Id, snapshot.Item.UserId, snapshot.Item.OriginalText, snapshot.Item.CapturedAt,
-            snapshot.Item.Status, snapshot.LatestAnalysisVersion,
-            analysis = new
-            {
-                snapshot.Analysis.Id, snapshot.Analysis.UserId, snapshot.Analysis.InboxItemId,
-                snapshot.Analysis.Version, snapshot.Analysis.Status, snapshot.Analysis.SchemaVersion,
-                snapshot.Analysis.InputFingerprint, snapshot.Analysis.ContextFingerprint, snapshot.Analysis.ContextJson,
-                proposals = snapshot.Analysis.Proposals.OrderBy(p => p.Position).Select(p => new
-                {
-                    p.Id, p.AnalysisId, p.Position, kind = p.Kind.ToString(), p.Title, p.PayloadJson
-                })
-            },
-            projects = snapshot.ActiveOwnedProjects.OrderBy(p => p.Id)
-        }, InboxAnalysisJson.Options));
+        var fingerprint = snapshot is null ? string.Empty : ComputeStateFingerprint(snapshot);
 
         InboxPolicyDecision Result(InboxPolicyRoute route) => new(policyVersion, analysisId, itemId,
             snapshot?.Analysis.Version, fingerprint, route, Array.AsReadOnly(reasons.Distinct().ToArray()),
@@ -79,37 +65,21 @@ public sealed class InboxPolicyEngine
             return Block(InboxPolicyReason.InputChanged);
         }
 
-        InboxAnalysisContext? context;
-        try
-        {
-            context = JsonSerializer.Deserialize<InboxAnalysisContext>(analysis.ContextJson, InboxAnalysisJson.Options);
-        }
-        catch (JsonException)
-        {
-            return Block(InboxPolicyReason.InvalidContext);
-        }
-        if (context?.Projects is null || context.Projects.Count > InboxAnalysisService.MaxProjects ||
-            context.Projects.Any(p => p is null || p.Id <= 0 || string.IsNullOrWhiteSpace(p.Title) ||
-                p.Title.Length > Domain.Projects.Project.MaxTitleLength || p.CreatedAt.Kind != DateTimeKind.Utc) ||
-            context.Projects.Select(p => p.Id).Distinct().Count() != context.Projects.Count ||
-            // PostgreSQL jsonb normalizes whitespace and key order. M1 hashes the typed serialization.
-            analysis.ContextFingerprint != Fingerprint(JsonSerializer.Serialize(context, InboxAnalysisJson.Options)))
+        if (!TryReadValidatedContext(analysis, out var context))
         {
             return Block(InboxPolicyReason.InvalidContext);
         }
         var rows = analysis.Proposals.OrderBy(p => p.Position).ToArray();
-        if (rows.Length is < 1 or > 20 || rows.Select(p => p.Id).Distinct().Count() != rows.Length ||
-            rows.Where((p, index) => p.Id == Guid.Empty || p.AnalysisId != analysisId || p.Position != index).Any())
+        if (!ValidateProposalSet(rows, analysisId))
         {
             return Block(InboxPolicyReason.InvalidProposalSet);
         }
 
         var request = new InboxAnalysisRequest(item.OriginalText, item.CapturedAt, context, InboxAnalysisService.SupportedTypes);
+        var validator = new InboxAnalysisValidator();
         foreach (var row in rows)
         {
-            // Reuse the independent M1 structural/value checks, including evidence and property compatibility.
-            var output = new InboxAnalysisValidator().ParseAndValidate("{\"items\":[" + row.PayloadJson + "]}", request);
-            var proposal = output?.Items is { Length: 1 } ? output.Items[0] : null;
+            var proposal = validator.ParseAndValidateProposal(row.PayloadJson, request);
             if (proposal is null || proposal.Kind != row.Kind || proposal.Title != row.Title)
             {
                 decisions.Add(new(row.Id, row.Position, row.Kind, InboxPolicyRoute.KeepInInbox,
@@ -133,6 +103,51 @@ public sealed class InboxPolicyEngine
         return Result(rows.Length > 1 || decisions.Any(p => p.Route == InboxPolicyRoute.KeepInInbox)
             ? InboxPolicyRoute.KeepInInbox : InboxPolicyRoute.RequireConfirmation);
     }
+
+    private static string ComputeStateFingerprint(InboxPolicySnapshot snapshot)
+    {
+        return Fingerprint(JsonSerializer.Serialize(new
+        {
+            snapshot.Item.Id, snapshot.Item.UserId, snapshot.Item.OriginalText, snapshot.Item.CapturedAt,
+            snapshot.Item.Status, snapshot.LatestAnalysisVersion,
+            analysis = new
+            {
+                snapshot.Analysis.Id, snapshot.Analysis.UserId, snapshot.Analysis.InboxItemId,
+                snapshot.Analysis.Version, snapshot.Analysis.Status, snapshot.Analysis.SchemaVersion,
+                snapshot.Analysis.InputFingerprint, snapshot.Analysis.ContextFingerprint, snapshot.Analysis.ContextJson,
+                proposals = snapshot.Analysis.Proposals.OrderBy(p => p.Position).Select(p => new
+                {
+                    p.Id, p.AnalysisId, p.Position, kind = p.Kind.ToString(), p.Title, p.PayloadJson
+                })
+            },
+            projects = snapshot.ActiveOwnedProjects.OrderBy(p => p.Id)
+        }, InboxAnalysisJson.Options));
+    }
+
+    private static bool TryReadValidatedContext(InboxAnalysis analysis,
+        [NotNullWhen(true)] out InboxAnalysisContext? context)
+    {
+        try
+        {
+            context = JsonSerializer.Deserialize<InboxAnalysisContext>(analysis.ContextJson, InboxAnalysisJson.Options);
+        }
+        catch (JsonException)
+        {
+            context = null;
+            return false;
+        }
+
+        return context?.Projects is not null && context.Projects.Count <= InboxAnalysisService.MaxProjects &&
+            context.Projects.All(p => p is not null && p.Id > 0 && !string.IsNullOrWhiteSpace(p.Title) &&
+                p.Title.Length <= Domain.Projects.Project.MaxTitleLength && p.CreatedAt.Kind == DateTimeKind.Utc) &&
+            context.Projects.Select(p => p.Id).Distinct().Count() == context.Projects.Count &&
+            // PostgreSQL jsonb normalizes whitespace and key order. Analysis hashes the typed serialization.
+            analysis.ContextFingerprint == Fingerprint(JsonSerializer.Serialize(context, InboxAnalysisJson.Options));
+    }
+
+    private static bool ValidateProposalSet(InboxAnalysisProposal[] rows, Guid analysisId) =>
+        rows.Length is >= 1 and <= 20 && rows.Select(p => p.Id).Distinct().Count() == rows.Length &&
+        !rows.Where((p, index) => p.Id == Guid.Empty || p.AnalysisId != analysisId || p.Position != index).Any();
 
     private static ProposalPolicyDecision EvaluateProposal(InboxAnalysisProposal row, InboxProposal proposal,
         InboxAnalysisContext context, IReadOnlyList<AnalysisProject> currentProjects)
