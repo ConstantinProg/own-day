@@ -23,6 +23,66 @@ public sealed class TelegramUpdateHandlerTests
     private static readonly DateTime Now = new(2026, 9, 17, 12, 0, 0, DateTimeKind.Utc);
 
     [Theory]
+    [InlineData(-1, false)]
+    [InlineData(0, true)]
+    [InlineData(1, true)]
+    public async Task HandleAsync_LanguageSelectionDeadline_ExpiresAtTenMinutes(long offsetTicks, bool expired)
+    {
+        var clock = new AdjustableTimeProvider();
+        await using var fixture = await HandlerFixture.CreateAsync(clock);
+        await fixture.Handler.HandleAsync(CreateTextMessageUpdate("/language"));
+        await fixture.Handler.HandleAsync(CreateTextMessageUpdate("1", updateId: 2));
+        await fixture.Handler.HandleAsync(CreateTextMessageUpdate("/language", updateId: 3));
+        Assert.Equal(Now.AddMinutes(10), Assert.Single(fixture.DbContext.TelegramUserLanguages).SelectionExpiresAt);
+        clock.UtcNow = Now.AddMinutes(10).AddTicks(offsetTicks);
+
+        await fixture.Handler.HandleAsync(CreateTextMessageUpdate("2", updateId: 4));
+
+        fixture.DbContext.ChangeTracker.Clear();
+        var preference = await fixture.DbContext.TelegramUserLanguages.SingleAsync();
+        Assert.Equal(expired ? "en" : "ru", preference.Locale);
+        Assert.Null(preference.SelectionExpiresAt);
+        var replies = await fixture.DbContext.TelegramOutboxMessages.ToListAsync();
+        Assert.Equal(4, replies.Count);
+        if (expired)
+        {
+            Assert.Equal("2", (await fixture.DbContext.InboxItems.SingleAsync()).OriginalText);
+            Assert.Contains(replies, reply => reply.Text == "Saved to your inbox. Open /inbox to process it.");
+        }
+        else
+        {
+            Assert.Empty(await fixture.DbContext.InboxItems.ToListAsync());
+            Assert.Contains(replies, reply => reply.Text == "Язык изменён на русский.");
+        }
+    }
+
+    [Fact]
+    public async Task HandleAsync_ExpiredLanguageSelection_ContinuesExistingInboxDraft()
+    {
+        var clock = new AdjustableTimeProvider();
+        await using var fixture = await HandlerFixture.CreateAsync(clock);
+        await fixture.Handler.HandleAsync(CreateTextMessageUpdate("original"));
+        await fixture.Handler.HandleAsync(CreateTextMessageUpdate("/inbox 1", updateId: 2));
+        await fixture.Handler.HandleAsync(CreateTextMessageUpdate("/language", updateId: 3));
+        clock.UtcNow = Now.AddMinutes(10);
+
+        await fixture.Handler.HandleAsync(CreateTextMessageUpdate("2", updateId: 4));
+
+        fixture.DbContext.ChangeTracker.Clear();
+        var preference = await fixture.DbContext.TelegramUserLanguages.SingleAsync();
+        Assert.Null(preference.Locale);
+        Assert.Null(preference.SelectionExpiresAt);
+        Assert.Equal("original", (await fixture.DbContext.InboxItems.SingleAsync()).OriginalText);
+        var draft = await fixture.DbContext.TelegramInboxDrafts.SingleAsync();
+        Assert.Equal(InboxDraftStep.Text, draft.Step);
+        Assert.Equal(OwnDay.Domain.Inbox.InboxTargetKind.Project, draft.TargetKind);
+        Assert.Equal("original", draft.Text);
+        Assert.Empty(await fixture.DbContext.Projects.ToListAsync());
+        Assert.Contains(await fixture.DbContext.TelegramOutboxMessages.ToListAsync(),
+            reply => reply.Text.StartsWith("Type: Project.", StringComparison.Ordinal));
+    }
+
+    [Theory]
     [InlineData("/start", "en", "OwnDay is running. Use /help to see available commands.")]
     [InlineData("/ping", "en", "pong")]
     [InlineData("/unknown", "en", "Unknown command. Use /help.")]
@@ -412,8 +472,9 @@ public sealed class TelegramUpdateHandlerTests
 
         public List<string> DatabaseCommands { get; }
 
-        public static async Task<HandlerFixture> CreateAsync()
+        public static async Task<HandlerFixture> CreateAsync(TimeProvider? clock = null)
         {
+            var timeProvider = clock ?? new FixedTimeProvider(Now);
             var connection = new SqliteConnection("Data Source=:memory:");
             await connection.OpenAsync();
             var databaseCommands = new List<string>();
@@ -430,20 +491,20 @@ public sealed class TelegramUpdateHandlerTests
             var cleaner = new RecordingMessageCleaner();
             var handler = new TelegramUpdateHandler(
                 router,
-                new TelegramActionCommandHandler(new ActionService(new EfActionStore(dbContext), new FixedTimeProvider(Now))),
-                new TelegramStructuredCommandHandler(new StructuredItemService(new EfStructuredItemStore(dbContext), new FixedTimeProvider(Now))),
+                new TelegramActionCommandHandler(new ActionService(new EfActionStore(dbContext), timeProvider)),
+                new TelegramStructuredCommandHandler(new StructuredItemService(new EfStructuredItemStore(dbContext), timeProvider)),
                 new TelegramInboxFlow(
                     new InboxDraftService(new EfInboxDraftStore(dbContext),
-                        new InboxCaptureService(new EfInboxItemStore(dbContext), new FixedTimeProvider(Now)),
+                        new InboxCaptureService(new EfInboxItemStore(dbContext), timeProvider),
                         new InboxProcessingService(new EfInboxProcessingStore(dbContext),
-                            new EfActionStore(dbContext), new EfStructuredItemStore(dbContext), new FixedTimeProvider(Now)),
-                        new StructuredItemService(new EfStructuredItemStore(dbContext), new FixedTimeProvider(Now)),
-                        new FixedTimeProvider(Now)),
-                    new InboxCaptureService(new EfInboxItemStore(dbContext), new FixedTimeProvider(Now)),
-                    new TelegramInboxPresenter(new StructuredItemService(new EfStructuredItemStore(dbContext), new FixedTimeProvider(Now)))),
-                new TelegramLanguageFlow(dbContext, new FixedTimeProvider(Now)),
+                            new EfActionStore(dbContext), new EfStructuredItemStore(dbContext), timeProvider),
+                        new StructuredItemService(new EfStructuredItemStore(dbContext), timeProvider),
+                        timeProvider),
+                    new InboxCaptureService(new EfInboxItemStore(dbContext), timeProvider),
+                    new TelegramInboxPresenter(new StructuredItemService(new EfStructuredItemStore(dbContext), timeProvider))),
+                new TelegramLanguageFlow(dbContext, timeProvider),
                 dbContext,
-                new FixedTimeProvider(Now),
+                timeProvider,
                 cleaner,
                 NullLogger<TelegramUpdateHandler>.Instance);
 
@@ -456,6 +517,13 @@ public sealed class TelegramUpdateHandlerTests
             await DbContext.DisposeAsync();
             await _connection.DisposeAsync();
         }
+    }
+
+    private sealed class AdjustableTimeProvider : TimeProvider
+    {
+        public DateTime UtcNow { get; set; } = Now;
+
+        public override DateTimeOffset GetUtcNow() => new(UtcNow);
     }
 
     private sealed class RecordingMessageCleaner : ITelegramMessageCleaner

@@ -25,7 +25,7 @@ public sealed class StructuredItemServiceTests
         Assert.Equal(Alice, project.UserId);
         Assert.Equal(ProjectStatus.Active, project.Status);
         Assert.Same(project, store.LastAdded);
-        Assert.Equal(source.Token, store.LastToken);
+        Assert.Equal(("Add", source.Token), Assert.Single(store.Calls));
     }
 
     [Fact]
@@ -54,7 +54,9 @@ public sealed class StructuredItemServiceTests
         Assert.Equal(7, (await service.CreateWaitingForAsync(Alice, "Reply", null, 7, source.Token)).ProjectId);
         Assert.Equal(3, store.ProjectLookupCount);
         Assert.Equal(3, store.AddCount);
-        Assert.Equal(source.Token, store.LastToken);
+        Assert.Equal(new[] { "ProjectLookup", "Add", "ProjectLookup", "Add", "ProjectLookup", "Add" },
+            store.Calls.Select(call => call.Operation));
+        Assert.All(store.Calls, call => Assert.Equal(source.Token, call.Token));
     }
 
     [Theory]
@@ -77,14 +79,14 @@ public sealed class StructuredItemServiceTests
         public long? OwnedProjectId { get; init; }
         public UserId ProjectOwner { get; init; }
         public object? LastAdded { get; private set; }
-        public CancellationToken LastToken { get; private set; }
+        public List<(string Operation, CancellationToken Token)> Calls { get; } = [];
         public int AddCount { get; private set; }
         public int ProjectLookupCount { get; private set; }
 
         public Task<bool> ProjectBelongsToAsync(long projectId, UserId userId, CancellationToken cancellationToken)
         {
             ProjectLookupCount++;
-            LastToken = cancellationToken;
+            Calls.Add(("ProjectLookup", cancellationToken));
             return Task.FromResult(OwnedProjectId == projectId && ProjectOwner == userId);
         }
 
@@ -111,7 +113,7 @@ public sealed class StructuredItemServiceTests
         private Task<T> Add<T>(T item, CancellationToken cancellationToken)
         {
             LastAdded = item;
-            LastToken = cancellationToken;
+            Calls.Add(("Add", cancellationToken));
             AddCount++;
             return Task.FromResult(item);
         }

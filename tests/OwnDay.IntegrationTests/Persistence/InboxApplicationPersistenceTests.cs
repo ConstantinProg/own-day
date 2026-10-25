@@ -14,15 +14,17 @@ public sealed class InboxApplicationPersistenceTests
 {
     private static readonly DateTime Now = new(2026, 9, 27, 10, 0, 0, DateTimeKind.Utc);
 
-    [Fact]
-    public async Task ApplicationQueries_OwnerAndStatus_ReturnOnlyActiveRecordsInCreationOrder()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ApplicationQueries_OwnerAndStatus_ReturnOnlyActiveRecordsInCreationOrder(bool reverseCreationTime)
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
         await connection.OpenAsync();
         var options = new DbContextOptionsBuilder<OwnDayDbContext>().UseSqlite(connection).Options;
         var alice = new UserId(11);
         var bob = new UserId(12);
-        var clock = new TestTimeProvider();
+        var clock = new TestTimeProvider(reverseCreationTime);
 
         await using (var db = new OwnDayDbContext(options))
         {
@@ -76,12 +78,15 @@ public sealed class InboxApplicationPersistenceTests
             Assert.True(resolved.Resolve(Now.AddMinutes(1)));
             await db.SaveChangesAsync();
 
-            Assert.Equal(new[] { first.Id, second.Id }, (await inbox.GetActiveAsync(alice, CancellationToken.None)).Select(item => item.Id));
-            Assert.Equal(new[] { project.Id, nextProject.Id }, (await structured.GetActiveProjectsAsync(alice, CancellationToken.None)).Select(item => item.Id));
-            Assert.Equal(new[] { action.Id, nextAction.Id }, (await actions.GetActiveAsync(alice, CancellationToken.None)).Select(item => item.Id));
-            Assert.Equal(new[] { idea.Id, nextIdea.Id }, (await structured.GetActiveSomedayMaybesAsync(alice, CancellationToken.None)).Select(item => item.Id));
-            Assert.Equal(new[] { note.Id, nextNote.Id }, (await structured.GetActiveReferencesAsync(alice, CancellationToken.None)).Select(item => item.Id));
-            Assert.Equal(new[] { waiting.Id, nextWaiting.Id }, (await structured.GetActiveWaitingForsAsync(alice, CancellationToken.None)).Select(item => item.Id));
+            long[] ExpectedOrder(long firstId, long secondId) =>
+                reverseCreationTime ? [secondId, firstId] : [firstId, secondId];
+
+            Assert.Equal(ExpectedOrder(first.Id, second.Id), (await inbox.GetActiveAsync(alice, CancellationToken.None)).Select(item => item.Id));
+            Assert.Equal(ExpectedOrder(project.Id, nextProject.Id), (await structured.GetActiveProjectsAsync(alice, CancellationToken.None)).Select(item => item.Id));
+            Assert.Equal(ExpectedOrder(action.Id, nextAction.Id), (await actions.GetActiveAsync(alice, CancellationToken.None)).Select(item => item.Id));
+            Assert.Equal(ExpectedOrder(idea.Id, nextIdea.Id), (await structured.GetActiveSomedayMaybesAsync(alice, CancellationToken.None)).Select(item => item.Id));
+            Assert.Equal(ExpectedOrder(note.Id, nextNote.Id), (await structured.GetActiveReferencesAsync(alice, CancellationToken.None)).Select(item => item.Id));
+            Assert.Equal(ExpectedOrder(waiting.Id, nextWaiting.Id), (await structured.GetActiveWaitingForsAsync(alice, CancellationToken.None)).Select(item => item.Id));
             Assert.Null(await inbox.FindAsync(bob, first.Id, CancellationToken.None));
             Assert.Null(await structured.FindProjectAsync(bob, project.Id, CancellationToken.None));
         }
@@ -92,16 +97,19 @@ public sealed class InboxApplicationPersistenceTests
             var structured = new StructuredItemService(new EfStructuredItemStore(db), clock);
             var own = await inbox.GetActiveAsync(alice, CancellationToken.None);
             Assert.Equal(2, own.Count);
-            Assert.Equal("  original\n" + new string('x', 500), own[0].OriginalText);
-            Assert.Equal(Now, own[0].CapturedAt);
-            Assert.Equal(InboxItemStatus.Active, own[0].Status);
-            Assert.Equal("Bob", (await structured.GetActiveWaitingForsAsync(alice, CancellationToken.None))[0].Source);
+            var original = Assert.Single(own, item => item.OriginalText == "  original\n" + new string('x', 500));
+            Assert.Equal(Now, original.CapturedAt);
+            Assert.All(own, item => Assert.Equal(InboxItemStatus.Active, item.Status));
+            Assert.Equal("Bob", Assert.Single(await structured.GetActiveWaitingForsAsync(alice, CancellationToken.None),
+                item => item.Description == "Reply").Source);
             Assert.Equal(1, await db.Actions.CountAsync(item => item.UserId == alice && item.ProjectId != null));
         }
     }
 
-    private sealed class TestTimeProvider : TimeProvider
+    private sealed class TestTimeProvider(bool reverseCreationTime) : TimeProvider
     {
-        public override DateTimeOffset GetUtcNow() => new(Now);
+        private int _calls;
+
+        public override DateTimeOffset GetUtcNow() => new(reverseCreationTime ? Now.AddMinutes(-_calls++) : Now);
     }
 }

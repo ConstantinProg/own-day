@@ -13,6 +13,120 @@ namespace OwnDay.IntegrationTests.Telegram;
 
 public sealed class TelegramUniversalInboxIntegrationTests
 {
+    [Theory]
+    [InlineData(InboxDraftStep.Text, "Enter 1 to 200 characters, or send a period to keep the original text.")]
+    [InlineData(InboxDraftStep.Source, "The source must be at most 200 characters. Send a period for no source.")]
+    [InlineData(InboxDraftStep.Confirm, "Send 'yes' to create it. /cancel — cancel; /discard — remove from inbox.")]
+    public async Task Post_InvalidDraftInput_PreservesDraftAndAcceptsCorrection(InboxDraftStep step, string expectedReply)
+    {
+        using var factory = new OwnDayHostFactory();
+        using var client = factory.CreateClient();
+        await PostAsync(client, 1, 101, "original");
+        await PostAsync(client, 2, 101, "/inbox 1");
+        await PostAsync(client, 3, 101, "5");
+        if (step != InboxDraftStep.Text)
+        {
+            await PostAsync(client, 4, 101, "edited");
+        }
+        if (step == InboxDraftStep.Confirm)
+        {
+            await PostAsync(client, 5, 101, "source");
+            await PostAsync(client, 6, 101, "0");
+        }
+
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
+        var before = await db.TelegramInboxDrafts.AsNoTracking().SingleAsync();
+        var replyCount = await db.TelegramOutboxMessages.CountAsync();
+        await PostAsync(client, 7, 101, step == InboxDraftStep.Confirm ? "no" : new string('x', 201));
+
+        var after = await db.TelegramInboxDrafts.AsNoTracking().SingleAsync();
+        Assert.Equal(step, after.Step);
+        Assert.Equal(before.Text, after.Text);
+        Assert.Equal(before.Source, after.Source);
+        Assert.Equal(before.ProjectId, after.ProjectId);
+        Assert.Equal(before.TargetKind, after.TargetKind);
+        Assert.Equal(before.InboxItemId, after.InboxItemId);
+        Assert.Equal(before.Version, after.Version);
+        Assert.Equal(before.ExpiresAt, after.ExpiresAt);
+        Assert.Equal(InboxItemStatus.Active, (await db.InboxItems.AsNoTracking().SingleAsync()).Status);
+        Assert.Empty(await db.WaitingFors.ToListAsync());
+        Assert.Equal(replyCount + 1, await db.TelegramOutboxMessages.CountAsync());
+        Assert.Contains(await db.TelegramOutboxMessages.ToListAsync(), reply => reply.Text == expectedReply);
+
+        await PostAsync(client, 8, 101, step == InboxDraftStep.Confirm ? "yes" : new string('x', 200));
+        if (step == InboxDraftStep.Confirm)
+        {
+            Assert.Empty(await db.TelegramInboxDrafts.ToListAsync());
+            Assert.Equal("edited", (await db.WaitingFors.SingleAsync()).Description);
+            Assert.Equal(InboxItemStatus.Processed, (await db.InboxItems.AsNoTracking().SingleAsync()).Status);
+        }
+        else
+        {
+            var corrected = await db.TelegramInboxDrafts.AsNoTracking().SingleAsync();
+            Assert.Equal(step == InboxDraftStep.Text ? InboxDraftStep.Source : InboxDraftStep.Project, corrected.Step);
+            Assert.Equal(new string('x', 200), step == InboxDraftStep.Text ? corrected.Text : corrected.Source);
+        }
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    [InlineData(5)]
+    public async Task Post_PeriodInput_KeepsOriginalTextAndSkipsOptionalFields(int choice)
+    {
+        using var factory = new OwnDayHostFactory();
+        using var client = factory.CreateClient();
+        await PostAsync(client, 1, 101, "  original text  ");
+        await PostAsync(client, 2, 101, "/inbox 1");
+        await PostAsync(client, 3, 101, choice.ToString());
+        await PostAsync(client, 4, 101, ".");
+        var next = 5L;
+        if (choice == 5)
+        {
+            await PostAsync(client, next++, 101, ".");
+        }
+        if (choice != 2)
+        {
+            await PostAsync(client, next++, 101, ".");
+        }
+        await PostAsync(client, next, 101, "yes");
+
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
+        var item = await db.InboxItems.SingleAsync();
+        Assert.Equal("  original text  ", item.OriginalText);
+        Assert.Equal(InboxItemStatus.Processed, item.Status);
+        Assert.Empty(await db.TelegramInboxDrafts.ToListAsync());
+        var text = choice switch
+        {
+            1 => (await db.Actions.SingleAsync()).Title,
+            2 => (await db.Projects.SingleAsync()).Title,
+            3 => (await db.SomedayMaybes.SingleAsync()).Text,
+            4 => (await db.References.SingleAsync()).Text,
+            _ => (await db.WaitingFors.SingleAsync()).Description
+        };
+        Assert.Equal("original text", text);
+        if (choice != 2)
+        {
+            var projectId = choice switch
+            {
+                1 => (await db.Actions.SingleAsync()).ProjectId,
+                3 => (await db.SomedayMaybes.SingleAsync()).ProjectId,
+                4 => (await db.References.SingleAsync()).ProjectId,
+                _ => (await db.WaitingFors.SingleAsync()).ProjectId
+            };
+            Assert.Null(projectId);
+            Assert.Empty(await db.Projects.ToListAsync());
+        }
+        if (choice == 5)
+        {
+            Assert.Null((await db.WaitingFors.SingleAsync()).Source);
+        }
+    }
+
     [Fact]
     public async Task Post_ReopenDraft_ResetsPreviousChoicesAndKeepsInboxItemsActive()
     {

@@ -3,8 +3,10 @@ using System.Net.Http.Json;
 using System.Text;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using OwnDay.Infrastructure.Persistence;
 using OwnDay.Infrastructure.Telegram.Delivery;
 using OwnDay.Infrastructure.Telegram.Handling;
 using Telegram.Bot.Types;
@@ -99,6 +101,10 @@ public sealed class TelegramWebhookEndpointTests : IClassFixture<OwnDayHostFacto
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Empty(messageSender.Messages);
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
+        Assert.Empty(await db.TelegramOutboxMessages.ToListAsync());
+        Assert.Empty(await db.ProcessedTelegramUpdates.ToListAsync());
     }
 
     [Theory]

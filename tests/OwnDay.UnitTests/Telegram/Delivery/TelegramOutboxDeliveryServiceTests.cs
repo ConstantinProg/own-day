@@ -20,12 +20,20 @@ public sealed class TelegramOutboxDeliveryServiceTests
     public async Task DeliverBatchAsync_ReadyMessages_ReturnsWhetherBatchWasFull(
         int messageCount, bool expectedFullBatch)
     {
-        await using var fixture = await DeliveryFixture.CreateAsync(new RecordingMessageSender());
+        var sender = new RecordingMessageSender();
+        await using var fixture = await DeliveryFixture.CreateAsync(sender);
+        var expected = new List<SentMessage>();
         for (var index = 0; index < messageCount; index++)
         {
-            fixture.AddPendingMessage();
+            var message = fixture.AddPendingMessage(Now.AddMinutes(index - messageCount), 100 + index, $"Reply {index}");
+            if (index < 10)
+            {
+                expected.Add(new SentMessage(message.ChatId, message.Text, CancellationToken.None));
+            }
         }
 
+        fixture.AddPendingMessage().Status = OutboxMessageStatus.Sent;
+        fixture.AddPendingMessage().Status = OutboxMessageStatus.Failed;
         var futureMessage = fixture.AddPendingMessage();
         futureMessage.NextAttemptAt = Now.AddDays(1);
         await fixture.DbContext.SaveChangesAsync();
@@ -33,7 +41,8 @@ public sealed class TelegramOutboxDeliveryServiceTests
         var fullBatch = await fixture.DeliveryService.DeliverBatchAsync(CancellationToken.None);
 
         Assert.Equal(expectedFullBatch, fullBatch.IsFullBatch);
-        Assert.Equal(Math.Min(messageCount, 10), await fixture.DbContext.TelegramOutboxMessages
+        Assert.Equal(expected, sender.Messages);
+        Assert.Equal(1 + Math.Min(messageCount, 10), await fixture.DbContext.TelegramOutboxMessages
             .CountAsync(message => message.Status == OutboxMessageStatus.Sent));
         Assert.Equal(OutboxMessageStatus.Pending, futureMessage.Status);
     }
@@ -41,15 +50,22 @@ public sealed class TelegramOutboxDeliveryServiceTests
     [Fact]
     public async Task DeliverBatchAsync_SendSucceeds_MarksMessageSent()
     {
-        await using var fixture = await DeliveryFixture.CreateAsync(new RecordingMessageSender());
-        var message = fixture.AddPendingMessage();
+        var sender = new RecordingMessageSender();
+        await using var fixture = await DeliveryFixture.CreateAsync(sender);
+        var message = fixture.AddPendingMessage(chatId: 123456789, text: "Queued reply");
+        message.LastError = "Previous attempt failed";
         await fixture.DbContext.SaveChangesAsync();
+        using var cancellation = new CancellationTokenSource();
 
-        await fixture.DeliveryService.DeliverBatchAsync(CancellationToken.None);
+        await fixture.DeliveryService.DeliverBatchAsync(cancellation.Token);
 
-        Assert.Equal(OutboxMessageStatus.Sent, message.Status);
-        Assert.Equal(Now, message.SentAt);
-        Assert.Equal(0, message.AttemptCount);
+        Assert.Equal(new SentMessage(123456789, "Queued reply", cancellation.Token), Assert.Single(sender.Messages));
+        fixture.DbContext.ChangeTracker.Clear();
+        var stored = await fixture.DbContext.TelegramOutboxMessages.SingleAsync();
+        Assert.Equal(OutboxMessageStatus.Sent, stored.Status);
+        Assert.Equal(Now, stored.SentAt);
+        Assert.Equal(0, stored.AttemptCount);
+        Assert.Null(stored.LastError);
     }
 
     [Fact]
@@ -202,13 +218,13 @@ public sealed class TelegramOutboxDeliveryServiceTests
                     new FixedTimeProvider(Now)));
         }
 
-        public TelegramOutboxMessage AddPendingMessage(DateTime? createdAt = null)
+        public TelegramOutboxMessage AddPendingMessage(DateTime? createdAt = null, long chatId = 1, string text = "pong")
         {
             var message = new TelegramOutboxMessage
             {
                 Id = Guid.NewGuid(),
-                ChatId = 1,
-                Text = "pong",
+                ChatId = chatId,
+                Text = text,
                 Status = OutboxMessageStatus.Pending,
                 NextAttemptAt = Now.AddMinutes(-1),
                 CreatedAt = createdAt ?? Now.AddMinutes(-1)
@@ -227,11 +243,19 @@ public sealed class TelegramOutboxDeliveryServiceTests
 
     private sealed class RecordingMessageSender : ITelegramMessageSender
     {
+        public List<SentMessage> Messages { get; } = [];
+
         public Task SendTextMessageAsync(
             long chatId,
             string text,
-            CancellationToken cancellationToken = default) => Task.CompletedTask;
+            CancellationToken cancellationToken = default)
+        {
+            Messages.Add(new SentMessage(chatId, text, cancellationToken));
+            return Task.CompletedTask;
+        }
     }
+
+    private sealed record SentMessage(long ChatId, string Text, CancellationToken Token);
 
     private sealed class CancellingMessageSender(
         CancellationTokenSource cancellation,
