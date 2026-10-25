@@ -1,13 +1,18 @@
+using System.Globalization;
+using System.Text.Json;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using OwnDay.Application.Actions;
-using OwnDay.Application.StructuredItems;
 using OwnDay.Application.Inbox;
+using OwnDay.Application.Inbox.Analysis;
+using OwnDay.Application.StructuredItems;
+using OwnDay.Domain;
 using OwnDay.Host.Filters;
+using OwnDay.Infrastructure.OpenAIAnalysis;
+using OwnDay.Infrastructure.Persistence;
 using OwnDay.Infrastructure.Telegram;
 using OwnDay.Infrastructure.Telegram.Configuration;
-using OwnDay.Infrastructure.Persistence;
 using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -45,8 +50,37 @@ builder.Services
     .ValidateOnStart();
 
 builder.Services.AddTelegram();
+builder.Services.AddInboxAnalysis();
 
-var app = builder.Build();
+await using var app = builder.Build();
+
+// An explicit operator command runs the application use case without starting HTTP or hosted workers.
+if (builder.Configuration["analyze-inbox-user"] is { } analysisUser)
+{
+    var userId = long.Parse(analysisUser, CultureInfo.InvariantCulture);
+    var itemId = long.Parse(builder.Configuration["analyze-inbox-item"] ??
+        throw new InvalidOperationException("--analyze-inbox-item is required."), CultureInfo.InvariantCulture);
+    await using var scope = app.Services.CreateAsyncScope();
+    using var cancellation = new CancellationTokenSource();
+    ConsoleCancelEventHandler cancelHandler = (_, args) => { args.Cancel = true; cancellation.Cancel(); };
+    Console.CancelKeyPress += cancelHandler;
+    try
+    {
+        var result = await scope.ServiceProvider.GetRequiredService<InboxAnalysisService>()
+            .AnalyzeAsync(new UserId(userId), itemId, cancellation.Token);
+        Console.WriteLine(JsonSerializer.Serialize(new
+        {
+            result?.Id, result?.Version, result?.Status,
+            proposals = result?.Proposals.OrderBy(proposal => proposal.Position).Select(proposal => proposal.ReadProposal())
+        }, InboxAnalysisJson.Options));
+    }
+    finally
+    {
+        Console.CancelKeyPress -= cancelHandler;
+    }
+
+    return;
+}
 
 app.UseSerilogRequestLogging();
 app.UseExceptionHandler();

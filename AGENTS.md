@@ -10,6 +10,12 @@
 - Keep changes within the requested scope. Do not introduce unrelated refactoring, new subsystems, or generalized abstractions to implement future roadmap items.
 - Do not commit, amend, rebase, reset, or otherwise rewrite history unless explicitly requested. Do not discard or overwrite pre-existing user changes.
 
+## Commit messages
+
+- Follow Conventional Commits: `<type>(<optional scope>): <description>`. Use a concise, imperative subject that names the concrete change.
+- Provide a sufficiently detailed body explaining the problem or purpose, the main changes and resulting behavior, and relevant validation. Include material limitations when they affect how the change can be used.
+- Describe the implemented behavior directly. Do not mention roadmap phases, milestones, stages, or their numbers in the subject or body.
+
 ## C# and dependencies
 
 - Preserve the shared settings in `Directory.Build.props`: .NET 10, nullable reference types, implicit usings, warnings as errors, and build-time code-style enforcement. Fix warnings rather than weakening these settings.

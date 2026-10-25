@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using OwnDay.Application.Inbox;
+using OwnDay.Application.Inbox.Analysis;
 using OwnDay.Domain.Actions;
 using OwnDay.Domain.Inbox;
 using OwnDay.Domain.Projects;
@@ -20,6 +21,7 @@ public sealed class OwnDayDbContext(DbContextOptions<OwnDayDbContext> options)
     public DbSet<Reference> References => Set<Reference>();
     public DbSet<WaitingFor> WaitingFors => Set<WaitingFor>();
     public DbSet<InboxItem> InboxItems => Set<InboxItem>();
+    public DbSet<InboxAnalysis> InboxAnalyses => Set<InboxAnalysis>();
     public DbSet<InboxDraft> TelegramInboxDrafts => Set<InboxDraft>();
     public DbSet<TelegramUserLanguage> TelegramUserLanguages => Set<TelegramUserLanguage>();
 
@@ -31,6 +33,7 @@ public sealed class OwnDayDbContext(DbContextOptions<OwnDayDbContext> options)
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        InboxAnalysisModel.Configure(modelBuilder);
         modelBuilder.Entity<TelegramUserLanguage>(entity =>
         {
             entity.ToTable("telegram_user_languages", table =>

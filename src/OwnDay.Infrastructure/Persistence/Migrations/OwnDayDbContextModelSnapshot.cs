@@ -61,6 +61,7 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
             b.Property<int?>("TargetKind").HasColumnType("integer").HasColumnName("target_kind");
             b.Property<long>("UserId").HasColumnType("bigint").HasColumnName("user_id");
             b.HasKey("Id");
+            b.HasAlternateKey("Id", "UserId");
             b.HasIndex("UserId", "Status", "CapturedAt", "Id");
             b.ToTable("inbox_items", t => t.HasCheckConstraint("CK_inbox_items_lifecycle",
                 "(status = 0 AND processed_at IS NULL AND discarded_at IS NULL AND target_kind IS NULL AND target_id IS NULL) OR " +
@@ -282,6 +283,159 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
 
             b.ToTable("telegram_outbox_messages");
         });
+        modelBuilder.Entity("OwnDay.Application.Inbox.Analysis.InboxAnalysis", b =>
+            {
+                b.Property<Guid>("Id")
+                    .HasColumnType("uuid")
+                    .HasColumnName("id");
+
+                b.Property<DateTime?>("CompletedAt")
+                    .HasColumnType("timestamp with time zone")
+                    .HasColumnName("completed_at");
+
+                b.Property<string>("ContextFingerprint")
+                    .IsRequired()
+                    .HasMaxLength(64)
+                    .HasColumnType("character varying(64)")
+                    .HasColumnName("context_fingerprint");
+
+                b.Property<string>("ContextJson")
+                    .IsRequired()
+                    .HasColumnType("jsonb")
+                    .HasColumnName("context");
+
+                b.Property<DateTime>("CreatedAt")
+                    .HasColumnType("timestamp with time zone")
+                    .HasColumnName("created_at");
+
+                b.Property<string>("DiagnosticsJson")
+                    .IsRequired()
+                    .HasColumnType("jsonb")
+                    .HasColumnName("diagnostics");
+
+                b.Property<long>("InboxItemId")
+                    .HasColumnType("bigint")
+                    .HasColumnName("inbox_item_id");
+
+                b.Property<string>("InputFingerprint")
+                    .IsRequired()
+                    .HasMaxLength(64)
+                    .HasColumnType("character varying(64)")
+                    .HasColumnName("input_fingerprint");
+
+                b.Property<string>("Model")
+                    .IsRequired()
+                    .HasMaxLength(200)
+                    .HasColumnType("character varying(200)")
+                    .HasColumnName("model");
+
+                b.Property<string>("PromptVersion")
+                    .IsRequired()
+                    .HasMaxLength(50)
+                    .HasColumnType("character varying(50)")
+                    .HasColumnName("prompt_version");
+
+                b.Property<string>("SchemaVersion")
+                    .IsRequired()
+                    .HasMaxLength(50)
+                    .HasColumnType("character varying(50)")
+                    .HasColumnName("schema_version");
+
+                b.Property<int>("Status")
+                    .IsConcurrencyToken()
+                    .HasColumnType("integer")
+                    .HasColumnName("status");
+
+                b.Property<long>("UserId")
+                    .HasColumnType("bigint")
+                    .HasColumnName("user_id");
+
+                b.Property<int>("Version")
+                    .HasColumnType("integer")
+                    .HasColumnName("version");
+
+                b.HasKey("Id");
+
+                b.HasIndex("InboxItemId", "UserId");
+
+                b.HasIndex("InboxItemId", "Version")
+                    .IsUnique();
+
+                b.HasIndex("UserId", "InboxItemId");
+
+                b.ToTable("inbox_analyses", null, t =>
+                    {
+                        t.HasCheckConstraint("CK_inbox_analyses_lifecycle", "(status = 0 AND completed_at IS NULL) OR (status BETWEEN 1 AND 3 AND completed_at IS NOT NULL AND completed_at >= created_at)");
+
+                        t.HasCheckConstraint("CK_inbox_analyses_version", "version > 0");
+                    });
+            });
+
+        modelBuilder.Entity("OwnDay.Application.Inbox.Analysis.InboxAnalysisProposal", b =>
+            {
+                b.Property<Guid>("Id")
+                    .HasColumnType("uuid")
+                    .HasColumnName("id");
+
+                b.Property<Guid>("AnalysisId")
+                    .HasColumnType("uuid")
+                    .HasColumnName("analysis_id");
+
+                b.Property<int>("Kind")
+                    .HasColumnType("integer")
+                    .HasColumnName("kind");
+
+                b.Property<string>("PayloadJson")
+                    .IsRequired()
+                    .HasColumnType("jsonb")
+                    .HasColumnName("payload");
+
+                b.Property<int>("Position")
+                    .HasColumnType("integer")
+                    .HasColumnName("position");
+
+                b.Property<string>("Title")
+                    .IsRequired()
+                    .HasMaxLength(200)
+                    .HasColumnType("character varying(200)")
+                    .HasColumnName("title");
+
+                b.HasKey("Id");
+
+                b.HasIndex("AnalysisId", "Position")
+                    .IsUnique();
+
+                b.ToTable("inbox_analysis_proposals", null, t =>
+                    {
+                        t.HasCheckConstraint("CK_inbox_analysis_proposals_kind", "kind BETWEEN 0 AND 4");
+
+                        t.HasCheckConstraint("CK_inbox_analysis_proposals_position", "position >= 0 AND position < 20");
+                    });
+            });
+
+        modelBuilder.Entity("OwnDay.Application.Inbox.Analysis.InboxAnalysis", b =>
+            {
+                b.HasOne("OwnDay.Domain.Inbox.InboxItem", null)
+                    .WithMany()
+                    .HasForeignKey("InboxItemId", "UserId")
+                    .HasPrincipalKey("Id", "UserId")
+                    .OnDelete(DeleteBehavior.Restrict)
+                    .IsRequired();
+            });
+
+        modelBuilder.Entity("OwnDay.Application.Inbox.Analysis.InboxAnalysisProposal", b =>
+            {
+                b.HasOne("OwnDay.Application.Inbox.Analysis.InboxAnalysis", null)
+                    .WithMany("Proposals")
+                    .HasForeignKey("AnalysisId")
+                    .OnDelete(DeleteBehavior.Cascade)
+                    .IsRequired();
+            });
+
+        modelBuilder.Entity("OwnDay.Application.Inbox.Analysis.InboxAnalysis", b =>
+            {
+                b.Navigation("Proposals");
+            });
 #pragma warning restore 612, 618
     }
 }
