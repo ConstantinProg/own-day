@@ -30,14 +30,21 @@ public sealed class OpenAIInboxAnalyzerTests
         var response = await analyzer.AnalyzeAsync(Request(), cancellation.Token);
 
         Assert.Equal(proposalJson, response.Json);
-        Assert.Equal("gpt-4.1-mini-test", response.Model);
+        Assert.Equal("gpt-6-luna-test", response.Model);
         Assert.Equal("chatcmpl-test", response.RequestId);
         Assert.Equal(100, response.InputTokens);
         Assert.Equal(25, response.OutputTokens);
         Assert.Equal(1, handler.Calls);
         using var sent = JsonDocument.Parse(handler.Body!);
         var root = sent.RootElement;
-        Assert.Equal("gpt-4.1-mini", root.GetProperty("model").GetString());
+        Assert.Equal("gpt-6-luna", root.GetProperty("model").GetString());
+        Assert.Equal("low", root.GetProperty("reasoning_effort").GetString());
+        Assert.Equal(8192, root.GetProperty("max_completion_tokens").GetInt32());
+        Assert.False(root.TryGetProperty("max_tokens", out _));
+        Assert.False(root.TryGetProperty("temperature", out _));
+        Assert.False(root.TryGetProperty("top_p", out _));
+        Assert.False(root.TryGetProperty("tools", out _));
+        Assert.Equal(new("gpt-6-luna", "inbox-v1", "inbox-analysis-v1", "low", 8192, 60), analyzer.Descriptor);
         Assert.Equal("json_schema", root.GetProperty("response_format").GetProperty("type").GetString());
         var format = root.GetProperty("response_format").GetProperty("json_schema");
         Assert.True(format.GetProperty("strict").GetBoolean());
@@ -48,6 +55,71 @@ public sealed class OpenAIInboxAnalyzerTests
         Assert.Equal("купит молоко", input.RootElement.GetProperty("originalText").GetString());
         Assert.Equal(JsonValueKind.Null, input.RootElement.GetProperty("context").GetProperty("timeZoneId").ValueKind);
         Assert.NotNull(new InboxAnalysisValidator().ParseAndValidate(response.Json, Request()));
+    }
+
+    [Theory]
+    [InlineData("gpt-6-luna", "none", "none")]
+    [InlineData("gpt-6-luna", "medium", "medium")]
+    [InlineData("gpt-6-luna", "high", "high")]
+    [InlineData("gpt-6-luna", "xhigh", "xhigh")]
+    [InlineData("gpt-6-luna", "max", "max")]
+    [InlineData("gpt-4.1-mini", "low", null)]
+    [InlineData("custom-model", "low", null)]
+    public async Task AnalyzeAsync_ConfiguredModelAndEffort_SendsOnlySupportedReasoning(
+        string model, string effort, string? expected)
+    {
+        using var handler = new RecordingHandler(Response("{}"));
+        using var http = new HttpClient(handler);
+        var analyzer = Analyzer(http, new() { Model = model, ReasoningEffort = effort, MaxOutputTokens = 4096 });
+
+        await analyzer.AnalyzeAsync(Request(), CancellationToken.None);
+
+        using var sent = JsonDocument.Parse(handler.Body!);
+        Assert.Equal(model, sent.RootElement.GetProperty("model").GetString());
+        Assert.Equal(4096, sent.RootElement.GetProperty("max_completion_tokens").GetInt32());
+        Assert.Equal(expected, analyzer.Descriptor.ReasoningEffort);
+        Assert.Equal(expected is not null, sent.RootElement.TryGetProperty("reasoning_effort", out var reasoning));
+        if (expected is not null)
+        {
+            Assert.Equal(expected, reasoning.GetString());
+        }
+    }
+
+    [Theory]
+    [InlineData("not-json")]
+    [InlineData("{\"items\":[],\"unexpected\":true}")]
+    public async Task AnalyzeAsync_InvalidStructuredContent_StillRequiresIndependentValidation(string json)
+    {
+        using var handler = new RecordingHandler(Response(json));
+        using var http = new HttpClient(handler);
+        var response = await Analyzer(http).AnalyzeAsync(Request(), CancellationToken.None);
+        Assert.Null(new InboxAnalysisValidator().ParseAndValidate(response.Json, Request()));
+    }
+
+    [Theory]
+    [InlineData("low", true)]
+    [InlineData("max", true)]
+    [InlineData("ultra", false)]
+    [InlineData("LOW", false)]
+    [InlineData("", false)]
+    public void Options_ReasoningEffort_ValidatesOnResolution(string effort, bool valid)
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<IConfiguration>(new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["InboxAnalysis:OpenAI:ReasoningEffort"] = effort
+        }).Build());
+        services.AddInboxAnalysis();
+        using var provider = services.BuildServiceProvider();
+        var options = provider.GetRequiredService<IOptions<OpenAIInboxAnalysisOptions>>();
+        if (valid)
+        {
+            Assert.Equal(effort, options.Value.ReasoningEffort);
+        }
+        else
+        {
+            Assert.Throws<OptionsValidationException>(() => options.Value);
+        }
     }
 
     [Theory]
@@ -162,20 +234,21 @@ public sealed class OpenAIInboxAnalyzerTests
         }
     }
 
-    private static OpenAIInboxAnalyzer Analyzer(HttpClient http) => new(
-        new ChatClient("gpt-4.1-mini", new ApiKeyCredential("dummy-key"), new OpenAIClientOptions
+    private static OpenAIInboxAnalyzer Analyzer(HttpClient http, OpenAIInboxAnalysisOptions? settings = null) => new(
+        new ChatClient((settings ?? new()).Model, new ApiKeyCredential("dummy-key"), new OpenAIClientOptions
         {
             Transport = new HttpClientPipelineTransport(http), RetryPolicy = new ClientRetryPolicy(0)
-        }), Options.Create(new OpenAIInboxAnalysisOptions()));
+        }), Options.Create(settings ?? new()));
 
     private static InboxAnalysisRequest Request() => new("купит молоко",
         new DateTime(2026, 9, 27, 10, 0, 0, DateTimeKind.Utc), new(null, [], false), InboxAnalysisService.SupportedTypes);
 
     private static string Response(string content, string finish = "stop", string? refusal = null) => JsonSerializer.Serialize(new
     {
-        id = "chatcmpl-test", @object = "chat.completion", created = 1790200000, model = "gpt-4.1-mini-test",
+        id = "chatcmpl-test", @object = "chat.completion", created = 1790200000, model = "gpt-6-luna-test",
         choices = new[] { new { index = 0, finish_reason = finish, message = new { role = "assistant", content, refusal } } },
-        usage = new { prompt_tokens = 100, completion_tokens = 25, total_tokens = 125 }
+        usage = new { prompt_tokens = 100, completion_tokens = 25, total_tokens = 125,
+            completion_tokens_details = new { reasoning_tokens = 20 } }
     });
 
     private sealed class RecordingHandler(string response, HttpStatusCode status = HttpStatusCode.OK) : HttpMessageHandler

@@ -17,7 +17,8 @@ public sealed record InboxAnalysisRequest(
     InboxAnalysisContext Context,
     IReadOnlyList<SupportedInboxType> SupportedTypes);
 
-public sealed record InboxAnalyzerDescriptor(string Model, string SchemaVersion, string PromptVersion);
+public sealed record InboxAnalyzerDescriptor(string Model, string SchemaVersion, string PromptVersion,
+    string? ReasoningEffort = null, int? MaxOutputTokens = null, int? TimeoutSeconds = null);
 
 public sealed record InboxAnalyzerResponse(
     string Json,

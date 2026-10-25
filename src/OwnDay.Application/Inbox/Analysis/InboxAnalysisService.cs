@@ -93,7 +93,8 @@ public sealed class InboxAnalysisService(
                 return Report(await jobs.FinishAsync(lease, Failure("already_finished"), null, cancellationToken));
             }
 
-            var descriptor = new InboxAnalyzerDescriptor(analysis.Model, analysis.SchemaVersion, analysis.PromptVersion);
+            var descriptor = new InboxAnalyzerDescriptor(analysis.Model, analysis.SchemaVersion, analysis.PromptVersion,
+                analysis.ReasoningEffort, analysis.MaxOutputTokens, analysis.TimeoutSeconds);
             if (descriptor != analyzer.Descriptor)
             {
                 return Report(await jobs.FinishAsync(lease, Failure("descriptor_mismatch"), null, cancellationToken));

@@ -25,8 +25,8 @@ input bounds and the attempt budget before using AI. Under short job and Inbox r
 state/lease, allocates an analysis version under the existing Inbox lock, and atomically links it to the job.
 This transaction commits before the provider is called. Subsequent attempts load that analysis and its saved
 context snapshot. Parsing, independent validation, timeout handling and retry policy belong to Application.
-Before invoking the provider, a Pending analysis must match the current analyzer's model, schema version and prompt
-version. A mismatch after deployment or configuration changes terminates the job and analysis as Failed
+Before invoking the provider, a Pending analysis must match the current analyzer's model, schema version, prompt
+version, effective reasoning effort, output token limit and provider timeout. A mismatch after deployment or configuration changes terminates the job and analysis as Failed
 (`descriptor_mismatch`) without a provider call or retry, preserving the original metadata. An operator can request
 a new manual analysis version with the current descriptor. Already finished results are acknowledged independently
 of descriptor changes.
@@ -84,7 +84,8 @@ separate intentional manual revisions.
 ## Configuration and operations
 
 Apply migrations before starting the updated Host, using the existing EF tooling and runtime connection settings.
-See [the analysis foundation](Phase4-Milestone1-AI-Analysis.md) for model, token limits and the operator command.
+See [the analysis foundation](Phase4-Milestone1-AI-Analysis.md) for model, token limits and the operator command,
+and [the model configuration guide](Inbox-AI-Model-Configuration.md) for the GPT-6 Luna migration and VPS steps.
 API keys belong in runtime secrets/environment variables. A missing key pauses the worker and does not fail Host
 startup. The disabled state is logged once; no analyzer or SDK client is resolved in paused processing loops.
 Configuration is read on startup; restart the Host to apply changes.
@@ -111,7 +112,7 @@ SDK retries remain disabled; the durable job exclusively controls retries and co
 | `input_limit`, `context_limit` | Stop; do not truncate input or enlarge the budget automatically |
 | HTTP 401/403 `configuration`, 429 quota/billing `budget_limit` | Stop; operator intervention required |
 | Other provider HTTP errors `permanent_failure` | Stop |
-| `descriptor_mismatch` | Stop; request a new manual version after model/schema/prompt changes |
+| `descriptor_mismatch` | Stop; request a new manual version after model/schema/prompt/reasoning/token/provider-timeout changes |
 | Host cancellation | Propagate cancellation; recover after lease expiry |
 | Unexpected runtime/database error | Log safe error type; recover via lease, consuming the finite reservation budget |
 

@@ -25,6 +25,9 @@ public sealed class InboxAnalysis
     public string Model { get; private set; } = string.Empty;
     public string SchemaVersion { get; private set; } = string.Empty;
     public string PromptVersion { get; private set; } = string.Empty;
+    public string? ReasoningEffort { get; private set; }
+    public int? MaxOutputTokens { get; private set; }
+    public int? TimeoutSeconds { get; private set; }
     public string ContextJson { get; private set; } = string.Empty;
     public string ContextFingerprint { get; private set; } = string.Empty;
     public string InputFingerprint { get; private set; } = string.Empty;
@@ -39,6 +42,8 @@ public sealed class InboxAnalysis
         {
             Id = Guid.NewGuid(), UserId = userId, InboxItemId = itemId, Version = version,
             Model = descriptor.Model, SchemaVersion = descriptor.SchemaVersion, PromptVersion = descriptor.PromptVersion,
+            ReasoningEffort = descriptor.ReasoningEffort, MaxOutputTokens = descriptor.MaxOutputTokens,
+            TimeoutSeconds = descriptor.TimeoutSeconds,
             ContextJson = contextJson, ContextFingerprint = contextFingerprint, InputFingerprint = inputFingerprint,
             CreatedAt = createdAt, Status = InboxAnalysisStatus.Pending
         };

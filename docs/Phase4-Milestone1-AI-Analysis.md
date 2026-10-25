@@ -32,14 +32,17 @@ No HTTP analysis endpoint, Telegram hook, AI worker, queue or automatic applicat
 The official `OpenAI` .NET SDK 2.8.0 is confined to Infrastructure. The adapter uses Chat Completions
 with strict JSON Schema, following [official OpenAI documentation](https://developers.openai.com/api/docs/guides/structured-outputs).
 The configured model must support that mode; unsupported models fail the attempt without a JSON-mode fallback.
-The default model is `gpt-4.1-mini`. Configure:
+The default model is `gpt-6-luna` with `reasoning_effort=low`. See the
+[model migration and VPS instructions](Inbox-AI-Model-Configuration.md) for compatibility, recovery and the opt-in smoke test.
+Configure:
 
 | Configuration key / environment variable | Default |
 | --- | --- |
 | `InboxAnalysis__OpenAI__Enabled` | `false` |
 | `InboxAnalysis__OpenAI__ApiKey` | unset; missing key pauses background analysis |
-| `InboxAnalysis__OpenAI__Model` | `gpt-4.1-mini` |
-| `InboxAnalysis__OpenAI__MaxOutputTokens` | `4096` (256–16384) |
+| `InboxAnalysis__OpenAI__Model` | `gpt-6-luna` |
+| `InboxAnalysis__OpenAI__ReasoningEffort` | `low` (none, low, medium, high, xhigh, max; sent only for gpt-6-luna) |
+| `InboxAnalysis__OpenAI__MaxOutputTokens` | `8192` (256–16384; reasoning plus visible output) |
 | `InboxAnalysis__OpenAI__TimeoutSeconds` | `60` (1–300) |
 
 Supply the API key through environment variables or a runtime secret store. Do not put it in source-controlled

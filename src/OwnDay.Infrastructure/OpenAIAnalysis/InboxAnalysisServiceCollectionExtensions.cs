@@ -20,6 +20,8 @@ public static class InboxAnalysisServiceCollectionExtensions
                 "InboxAnalysis:OpenAI:Model is required (at most 200 characters).")
             .Validate(options => options.MaxOutputTokens is >= 256 and <= 16_384,
                 "InboxAnalysis:OpenAI:MaxOutputTokens must be between 256 and 16384.")
+            .Validate(options => options.ReasoningEffort is "none" or "low" or "medium" or "high" or "xhigh" or "max",
+                "InboxAnalysis:OpenAI:ReasoningEffort must be none, low, medium, high, xhigh or max.")
             .Validate(options => options.TimeoutSeconds is >= 1 and <= 300,
                 "InboxAnalysis:OpenAI:TimeoutSeconds must be between 1 and 300.")
             .ValidateOnStart();

@@ -262,6 +262,39 @@ public sealed class InboxAnalysisServiceTests
         }
     }
 
+    [Theory]
+    [InlineData(null, null, null, "descriptor_mismatch")]
+    [InlineData("high", 8192, 60, "descriptor_mismatch")]
+    [InlineData("low", 4096, 60, "descriptor_mismatch")]
+    [InlineData("low", 8192, 30, "descriptor_mismatch")]
+    [InlineData("low", 8192, 60, "validated")]
+    public async Task ProcessJobAsync_ResumedParameters_OnlyCallsProviderWithExactSnapshot(
+        string? effort, int? tokens, int? timeout, string expectedCode)
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var item = await fixture.CaptureAsync("Review");
+        var context = JsonSerializer.Serialize(new InboxAnalysisContext(null, [], false), InboxAnalysisJson.Options);
+        var analysis = InboxAnalysis.Start(Alice, item.Id, 1,
+            new("fake-model", "inbox-v1", "test-v1", effort, tokens, timeout), context, "hash", "hash", Now);
+        var jobs = new RecordingJobStore(analysis);
+        var calls = 0;
+        var ai = new FakeAnalyzer((_, _) =>
+        {
+            calls++;
+            return Task.FromResult(Response(InboxAnalysisValidatorTests.Proposal(InboxTargetKind.Action, "Review")));
+        }) { Descriptor = new("fake-model", "inbox-v1", "test-v1", "low", 8192, 60) };
+
+        var code = await fixture.Service(ai).ProcessJobAsync(
+            new(Guid.NewGuid(), Guid.NewGuid(), Alice, item.Id, 2), jobs, new(), TestContextToken);
+
+        Assert.Equal(expectedCode, code);
+        Assert.Equal(expectedCode == "validated" ? 1 : 0, calls);
+        Assert.Null(jobs.RetryAfter);
+        Assert.Equal(effort, analysis.ReasoningEffort);
+        Assert.Equal(tokens, analysis.MaxOutputTokens);
+        Assert.Equal(timeout, analysis.TimeoutSeconds);
+    }
+
     private sealed class RecordingJobStore(InboxAnalysis analysis) : IInboxAnalysisJobStore
     {
         public InboxAnalysisOutcome? Outcome { get; private set; }
@@ -294,7 +327,7 @@ public sealed class InboxAnalysisServiceTests
 
     private sealed class FakeAnalyzer(Func<InboxAnalysisRequest, CancellationToken, Task<InboxAnalyzerResponse>> run) : IInboxAnalyzer
     {
-        public InboxAnalyzerDescriptor Descriptor => new("fake-model", "inbox-v1", "test-v1");
+        public InboxAnalyzerDescriptor Descriptor { get; init; } = new("fake-model", "inbox-v1", "test-v1");
         public Task<InboxAnalyzerResponse> AnalyzeAsync(InboxAnalysisRequest request, CancellationToken cancellationToken) =>
             run(request, cancellationToken);
     }

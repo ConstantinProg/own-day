@@ -1,4 +1,5 @@
 using System.ClientModel;
+using System.ClientModel.Primitives;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
 using OpenAI.Chat;
@@ -9,7 +10,8 @@ namespace OwnDay.Infrastructure.OpenAIAnalysis;
 public sealed class OpenAIInboxAnalyzer(ChatClient client, IOptions<OpenAIInboxAnalysisOptions> options) : IInboxAnalyzer
 {
     public InboxAnalyzerDescriptor Descriptor { get; } = new(options.Value.Model,
-        OpenAIInboxAnalysisFormat.SchemaVersion, OpenAIInboxAnalysisFormat.PromptVersion);
+        OpenAIInboxAnalysisFormat.SchemaVersion, OpenAIInboxAnalysisFormat.PromptVersion,
+        options.Value.EffectiveReasoningEffort, options.Value.MaxOutputTokens, options.Value.TimeoutSeconds);
 
     public async Task<InboxAnalyzerResponse> AnalyzeAsync(InboxAnalysisRequest request, CancellationToken cancellationToken)
     {
@@ -19,12 +21,15 @@ public sealed class OpenAIInboxAnalyzer(ChatClient client, IOptions<OpenAIInboxA
             throw new InboxAnalyzerException("context_limit");
         }
 
-        var completionOptions = new ChatCompletionOptions
-        {
-            MaxOutputTokenCount = options.Value.MaxOutputTokens,
-            ResponseFormat = ChatResponseFormat.CreateJsonSchemaFormat("inbox_analysis",
-                BinaryData.FromString(OpenAIInboxAnalysisFormat.Schema), jsonSchemaIsStrict: true)
-        };
+        // The SDK's typed reasoning property is experimental. The public
+        // model reader supports this documented wire field without experimental APIs.
+        var completionOptions = Descriptor.ReasoningEffort is { } effort
+            ? ModelReaderWriter.Read<ChatCompletionOptions>(BinaryData.FromString(
+                JsonSerializer.Serialize(new { reasoning_effort = effort })))!
+            : new ChatCompletionOptions();
+        completionOptions.MaxOutputTokenCount = Descriptor.MaxOutputTokens;
+        completionOptions.ResponseFormat = ChatResponseFormat.CreateJsonSchemaFormat("inbox_analysis",
+            BinaryData.FromString(OpenAIInboxAnalysisFormat.Schema), jsonSchemaIsStrict: true);
 
         ChatCompletion completion;
         try

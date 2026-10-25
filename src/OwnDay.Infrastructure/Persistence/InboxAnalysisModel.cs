@@ -55,6 +55,9 @@ internal static class InboxAnalysisModel
             entity.Property(row => row.Model).HasMaxLength(200).HasColumnName("model");
             entity.Property(row => row.SchemaVersion).HasMaxLength(50).HasColumnName("schema_version");
             entity.Property(row => row.PromptVersion).HasMaxLength(50).HasColumnName("prompt_version");
+            entity.Property(row => row.ReasoningEffort).HasMaxLength(20).HasColumnName("reasoning_effort");
+            entity.Property(row => row.MaxOutputTokens).HasColumnName("max_output_tokens");
+            entity.Property(row => row.TimeoutSeconds).HasColumnName("timeout_seconds");
             entity.Property(row => row.ContextJson).HasColumnType("jsonb").HasColumnName("context");
             entity.Property(row => row.ContextFingerprint).HasMaxLength(64).HasColumnName("context_fingerprint");
             entity.Property(row => row.InputFingerprint).HasMaxLength(64).HasColumnName("input_fingerprint");

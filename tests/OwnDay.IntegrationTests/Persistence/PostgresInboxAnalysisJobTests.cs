@@ -252,12 +252,62 @@ public sealed class PostgresInboxAnalysisJobTests : IAsyncLifetime
         Assert.Equal(1, analysis.Version);
         Assert.Equal(InboxAnalysisStatus.Failed, analysis.Status);
         Assert.NotNull(analysis.CompletedAt);
-        Assert.Equal("{\"code\":\"descriptor_mismatch\"}", analysis.DiagnosticsJson);
+        using var diagnostics = JsonDocument.Parse(analysis.DiagnosticsJson);
+        Assert.Equal("descriptor_mismatch", diagnostics.RootElement.GetProperty("code").GetString());
         Assert.Equal(new("fake", "v1", "v1"), new InboxAnalyzerDescriptor(analysis.Model, analysis.SchemaVersion, analysis.PromptVersion));
         Assert.Empty(await verify.Set<InboxAnalysisProposal>().ToListAsync(Token));
         Assert.Null(await Jobs(verify).ClaimAsync(TimeSpan.FromMinutes(2), Token));
         Assert.Equal(0, ai.Calls);
         Assert.Equal(InboxItemStatus.Active, (await verify.InboxItems.SingleAsync(Token)).Status);
+    }
+
+    [Theory]
+    [InlineData("low", 8192, 60, false, true)]
+    [InlineData("high", 8192, 60, false, false)]
+    [InlineData("low", 4096, 60, false, false)]
+    [InlineData("low", 8192, 30, false, false)]
+    [InlineData("low", 8192, 60, true, false)]
+    public async Task ProcessJobAsync_RestartWithParameters_PreservesSnapshotAndFencesChangedConfiguration(
+        string effort, int tokens, int timeout, bool legacy, bool succeeds)
+    {
+        await CaptureAsync();
+        var original = legacy ? new InboxAnalyzerDescriptor("gpt-6-luna", "v1", "v1")
+            : new("gpt-6-luna", "v1", "v1", "low", 8192, 60);
+        await RunAsync(new FakeAnalyzer((_, _) => throw new InboxAnalyzerException("provider_failure"))
+        {
+            Descriptor = original
+        });
+        Guid analysisId;
+        await using (var db = Db())
+        {
+            var pending = await db.InboxAnalyses.SingleAsync(Token);
+            analysisId = pending.Id;
+            Assert.Equal(original.ReasoningEffort, pending.ReasoningEffort);
+            Assert.Equal(original.MaxOutputTokens, pending.MaxOutputTokens);
+            Assert.Equal(original.TimeoutSeconds, pending.TimeoutSeconds);
+        }
+
+        await MakeReadyAsync();
+        var ai = new FakeAnalyzer((_, _) => Task.FromResult(Response() with { Model = "gpt-6-luna-resolved" }))
+        {
+            Descriptor = new("gpt-6-luna", "v1", "v1", effort, tokens, timeout)
+        };
+        await RunAsync(ai);
+
+        await using var verify = Db();
+        var job = await verify.InboxAnalysisJobs.SingleAsync(Token);
+        var analysis = Assert.Single(await verify.InboxAnalyses.ToListAsync(Token));
+        Assert.Equal(analysisId, analysis.Id);
+        Assert.Equal(1, analysis.Version);
+        Assert.Equal(original.ReasoningEffort, analysis.ReasoningEffort);
+        Assert.Equal(original.MaxOutputTokens, analysis.MaxOutputTokens);
+        Assert.Equal(original.TimeoutSeconds, analysis.TimeoutSeconds);
+        Assert.Equal(succeeds ? "gpt-6-luna-resolved" : original.Model, analysis.Model);
+        Assert.Equal(succeeds ? InboxAnalysisJobStatus.Completed : InboxAnalysisJobStatus.Failed, job.Status);
+        Assert.Equal(succeeds ? "validated" : "descriptor_mismatch", job.LastCode);
+        Assert.Equal(succeeds ? 1 : 0, ai.Calls);
+        Assert.Equal(succeeds ? 1 : 0, await verify.Set<InboxAnalysisProposal>().CountAsync(Token));
+        Assert.Null(await Jobs(verify).ClaimAsync(TimeSpan.FromMinutes(2), Token));
     }
 
     [Fact]

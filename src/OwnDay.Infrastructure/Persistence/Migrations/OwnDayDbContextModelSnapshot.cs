@@ -335,6 +335,19 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
                     .HasColumnType("character varying(50)")
                     .HasColumnName("prompt_version");
 
+                b.Property<string>("ReasoningEffort")
+                    .HasMaxLength(20)
+                    .HasColumnType("character varying(20)")
+                    .HasColumnName("reasoning_effort");
+
+                b.Property<int?>("MaxOutputTokens")
+                    .HasColumnType("integer")
+                    .HasColumnName("max_output_tokens");
+
+                b.Property<int?>("TimeoutSeconds")
+                    .HasColumnType("integer")
+                    .HasColumnName("timeout_seconds");
+
                 b.Property<string>("SchemaVersion")
                     .IsRequired()
                     .HasMaxLength(50)

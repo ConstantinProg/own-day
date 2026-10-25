@@ -12,3 +12,5 @@ Manual analysis remains available through the operator command. See
 [durable background processing](docs/Phase4-Milestone2-Durable-Background-Processing.md) for configuration,
 migrations, recovery guarantees and operational limits, and
 [the analysis foundation](docs/Phase4-Milestone1-AI-Analysis.md) for the proposal contract and manual command.
+Inbox analysis defaults to `gpt-6-luna` with low reasoning; see
+[model configuration](docs/Inbox-AI-Model-Configuration.md) for VPS migration and an opt-in real API smoke test.
