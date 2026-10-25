@@ -35,7 +35,7 @@ public sealed class TelegramOutboxWorker(
             }
             catch (Exception exception) when (!stoppingToken.IsCancellationRequested)
             {
-                _logger.LogError(exception, "Telegram outbox delivery cycle failed.");
+                _logger.LogError("Telegram outbox delivery cycle failed ({ErrorType}).", exception.GetType().Name);
             }
 
             await Task.Delay(PollInterval, _timeProvider, stoppingToken);

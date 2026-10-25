@@ -14,7 +14,8 @@ public sealed class InboxProcessingService(
     IInboxProcessingStore store,
     IActionStore actions,
     IStructuredItemStore structuredItems,
-    TimeProvider timeProvider)
+    TimeProvider timeProvider,
+    Observability.IInboxTelemetry? telemetry = null)
 {
     public Task<ProcessInboxItemResult> ProcessAsync(
         UserId userId,
@@ -93,6 +94,7 @@ public sealed class InboxProcessingService(
         }
 
         item.Process(target.Kind, target.TargetId, timeProvider.GetUtcNow().UtcDateTime);
+        telemetry?.Record(userId, item.Id, "manual", timeProvider.GetUtcNow().UtcDateTime);
         return new(ProcessInboxItemStatus.Processed, target.Kind, target.TargetId);
     }
 
@@ -154,6 +156,7 @@ public sealed class InboxProcessingService(
         }
 
         var targetId = await saveTarget(cancellationToken);
+        telemetry?.Record(userId, command.InboxItemId, "created", now, command.TargetKind, targetId);
 
         return new(new InboxTarget(command.TargetKind, targetId));
     }

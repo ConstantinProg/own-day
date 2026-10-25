@@ -52,7 +52,7 @@ public sealed class InboxAnalysisService(
             return null;
         }
 
-        var request = new InboxAnalysisRequest(item.OriginalText, item.CapturedAt, context, SupportedTypes);
+        var request = new InboxAnalysisRequest(item.OriginalText, item.CapturedAt, context, SupportedTypes, analysis.Id, analysis.UserId.Value);
         var outcome = await EvaluateAsync(request, cancellationToken);
         analysis.Finish(outcome.Status, Now(analysis), outcome.DiagnosticsJson, outcome.Output, outcome.Model);
         await analyses.SaveAsync(analysis, cancellationToken);
@@ -102,7 +102,7 @@ public sealed class InboxAnalysisService(
 
             // A retry uses the committed context snapshot of the logical analysis.
             context = JsonSerializer.Deserialize<InboxAnalysisContext>(analysis.ContextJson, InboxAnalysisJson.Options)!;
-            var request = new InboxAnalysisRequest(item.OriginalText, item.CapturedAt, context, SupportedTypes);
+            var request = new InboxAnalysisRequest(item.OriginalText, item.CapturedAt, context, SupportedTypes, analysis.Id, analysis.UserId.Value);
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeout.CancelAfter(TimeSpan.FromSeconds(options.TimeoutSeconds));
             try
@@ -148,7 +148,8 @@ public sealed class InboxAnalysisService(
             code = (output is null ? InboxAnalysisCode.InvalidResponse : InboxAnalysisCode.Validated).ToStorageValue(),
             requestId = response.RequestId,
             inputTokens = response.InputTokens,
-            outputTokens = response.OutputTokens
+            outputTokens = response.OutputTokens,
+            cachedInputTokens = response.CachedInputTokens
         }, InboxAnalysisJson.Options);
         return new(output is null ? InboxAnalysisCode.InvalidResponse : InboxAnalysisCode.Validated, output, response.Model, diagnostics);
     }

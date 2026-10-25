@@ -14,7 +14,8 @@ public sealed class InboxAnalysisWorker(
     IOptions<InboxAnalysisProcessingOptions> processing,
     IOptions<OpenAIInboxAnalysisOptions> provider,
     TimeProvider clock,
-    ILogger<InboxAnalysisWorker> logger) : BackgroundService
+    ILogger<InboxAnalysisWorker> logger,
+    InboxBackgroundDiagnostics diagnostics) : BackgroundService
 {
     internal static readonly Meter Meter = new("OwnDay.InboxAnalysis", "1.0");
     internal static readonly Counter<long> Claims = Meter.CreateCounter<long>("inbox_analysis.claims");
@@ -42,11 +43,17 @@ public sealed class InboxAnalysisWorker(
     {
         while (!token.IsCancellationRequested)
         {
+            InboxApplicationCandidate? candidate = null;
             try
             {
                 await using var scope = scopes.CreateAsyncScope();
-                if (await scope.ServiceProvider.GetRequiredService<InboxAutomaticProcessingService>().ProcessNextAsync(token))
+                candidate = await scope.ServiceProvider.GetRequiredService<IInboxAutomaticProcessingStore>().FindNextAsync(token);
+                if (candidate is not null)
                 {
+                    var result = await scope.ServiceProvider.GetRequiredService<InboxAutomaticProcessingService>()
+                        .ApplyAsync(candidate.UserId, candidate.InboxItemId, candidate.AnalysisId, token);
+                    logger.LogInformation("Inbox application for item {InboxItemId}, analysis {AnalysisId}: {Route}.",
+                        candidate.InboxItemId, candidate.AnalysisId, result?.Route);
                     continue;
                 }
             }
@@ -54,8 +61,9 @@ public sealed class InboxAnalysisWorker(
             catch (Exception exception)
             {
                 Errors.Add(1);
-                logger.LogWarning("Inbox automatic application failed ({ErrorType}); saved analysis will be retried.",
-                    exception.GetType().Name);
+                await diagnostics.RecordAsync("background_apply_error", null, token, candidate);
+                logger.LogWarning("Inbox automatic application failed for item {InboxItemId}, analysis {AnalysisId} ({ErrorType}); saved analysis will be retried.",
+                    candidate?.InboxItemId, candidate?.AnalysisId, exception.GetType().Name);
             }
             await Task.Delay(TimeSpan.FromSeconds(options.PollSeconds), clock, token);
         }
@@ -68,12 +76,14 @@ public sealed class InboxAnalysisWorker(
             try
             {
                 await using var scope = scopes.CreateAsyncScope();
+                await diagnostics.LogOverdueAsync(token);
                 await scope.ServiceProvider.GetRequiredService<IInboxAnalysisJobStore>().RecoverAsync(canRun, token);
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested) { return; }
             catch (Exception exception)
             {
                 Errors.Add(1);
+                await diagnostics.RecordAsync("background_recovery_error", null, token);
                 logger.LogWarning("Inbox analysis recovery failed ({ErrorType}).", exception.GetType().Name);
             }
 
@@ -85,6 +95,7 @@ public sealed class InboxAnalysisWorker(
     {
         while (!token.IsCancellationRequested)
         {
+            InboxAnalysisLease? activeLease = null;
             try
             {
                 await using var scope = scopes.CreateAsyncScope();
@@ -92,6 +103,7 @@ public sealed class InboxAnalysisWorker(
                 var lease = await jobs.ClaimAsync(TimeSpan.FromSeconds(options.LeaseSeconds), token);
                 if (lease is not null)
                 {
+                    activeLease = lease;
                     Claims.Add(1);
                     Active.Add(1);
                     var started = Stopwatch.GetTimestamp();
@@ -118,6 +130,7 @@ public sealed class InboxAnalysisWorker(
             {
                 Errors.Add(1);
                 // Provider bodies, user text and connection strings never enter logs.
+                await diagnostics.RecordAsync("background_analysis_error", activeLease, token);
                 logger.LogWarning("Inbox analysis cycle failed ({ErrorType}); lease will recover unfinished work.",
                     exception.GetType().Name);
             }

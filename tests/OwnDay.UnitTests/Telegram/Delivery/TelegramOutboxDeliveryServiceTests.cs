@@ -165,7 +165,7 @@ public sealed class TelegramOutboxDeliveryServiceTests
         if (firstSendFails)
         {
             Assert.Null(storedFirst.SentAt);
-            Assert.Equal("Telegram is unavailable.", storedFirst.LastError);
+            Assert.Equal(nameof(InvalidOperationException), storedFirst.LastError);
             Assert.True(storedFirst.NextAttemptAt > originalNextAttemptAt);
         }
         else

@@ -35,3 +35,8 @@ Automatic results can be undone with the **Undo entire result** button or `/inbo
 Undo removes the complete unchanged batch and restores the original for manual correction with `/inbox <id>`.
 Changed, completed or subsequently linked results are preserved with an explanation. See
 [Undo and correction](docs/Phase4-Milestone7-Undo-and-Correction.md) for safety rules, migration and Telegram dialogs.
+
+Use `/stats`, `/stats today`, `/stats 30d`, or `/stats all` for localized Inbox, automation, Undo, timing,
+token usage and estimated OpenAI cost reports. A persistent token admission budget controls new OpenAI requests.
+See [observability and cost control](docs/Phase4-Milestone8-Observability-and-Cost-Control.md) for the migration,
+UTC periods, metric definitions, explicit model prices, budget limitations and examples for all four reports.

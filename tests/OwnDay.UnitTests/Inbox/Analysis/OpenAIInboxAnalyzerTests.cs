@@ -156,6 +156,11 @@ public sealed class OpenAIInboxAnalyzerTests
         var exception = await Assert.ThrowsAsync<InboxAnalyzerException>(() =>
             Analyzer(http).AnalyzeAsync(Request(), CancellationToken.None));
         Assert.Equal(code, exception.Code.ToStorageValue());
+        Assert.NotNull(exception.Response);
+        Assert.Equal(100, exception.Response.InputTokens);
+        Assert.Equal(25, exception.Response.OutputTokens);
+        Assert.Equal(64, exception.Response.CachedInputTokens);
+        Assert.Empty(exception.Response.Json);
     }
 
     [Fact]

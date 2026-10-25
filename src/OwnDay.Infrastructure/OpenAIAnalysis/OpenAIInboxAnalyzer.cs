@@ -16,13 +16,19 @@ public sealed class OpenAIInboxAnalyzer(ChatClient client, IOptions<OpenAIInboxA
         OpenAIInboxAnalysisFormat.SchemaVersion, promptVersion ?? OpenAIInboxAnalysisFormat.PromptVersion,
         options.Value.EffectiveReasoningEffort, options.Value.MaxOutputTokens, options.Value.TimeoutSeconds);
 
-    public async Task<InboxAnalyzerResponse> AnalyzeAsync(InboxAnalysisRequest request, CancellationToken cancellationToken)
+    public void ValidateRequest(InboxAnalysisRequest request)
     {
         var input = JsonSerializer.Serialize(request, InboxAnalysisJson.Options);
         if (input.Length > 48_000)
         {
             throw new InboxAnalyzerException(InboxAnalysisCode.ContextLimit);
         }
+    }
+
+    public async Task<InboxAnalyzerResponse> AnalyzeAsync(InboxAnalysisRequest request, CancellationToken cancellationToken)
+    {
+        ValidateRequest(request);
+        var input = JsonSerializer.Serialize(request, InboxAnalysisJson.Options);
 
         // The SDK's typed reasoning property is experimental. The public
         // model reader supports this documented wire field without experimental APIs.
@@ -58,15 +64,18 @@ public sealed class OpenAIInboxAnalyzer(ChatClient client, IOptions<OpenAIInboxA
             throw new InboxAnalyzerException(InboxAnalysisCode.Timeout);
         }
 
+        var metadata = new InboxAnalyzerResponse(string.Empty, completion.Model, completion.Id,
+            completion.Usage?.InputTokenCount, completion.Usage?.OutputTokenCount,
+            completion.Usage?.InputTokenDetails?.CachedTokenCount);
         if (!string.IsNullOrEmpty(completion.Refusal))
         {
-            throw new InboxAnalyzerException(InboxAnalysisCode.Refused);
+            throw new InboxAnalyzerException(InboxAnalysisCode.Refused, metadata);
         }
 
         if (completion.FinishReason != ChatFinishReason.Stop || completion.Content.Count != 1 ||
             completion.Content[0].Kind != ChatMessageContentPartKind.Text)
         {
-            throw new InboxAnalyzerException(InboxAnalysisCode.IncompleteResponse);
+            throw new InboxAnalyzerException(InboxAnalysisCode.IncompleteResponse, metadata);
         }
 
         return new(completion.Content[0].Text, completion.Model, completion.Id,

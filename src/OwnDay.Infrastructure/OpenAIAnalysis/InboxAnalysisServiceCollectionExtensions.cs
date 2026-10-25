@@ -8,6 +8,7 @@ using OpenAI.Chat;
 using OwnDay.Application.Inbox;
 using OwnDay.Application.Inbox.Analysis;
 using OwnDay.Application.Inbox.Policy;
+using OwnDay.Application.Inbox.Observability;
 using OwnDay.Infrastructure.Persistence;
 
 namespace OwnDay.Infrastructure.OpenAIAnalysis;
@@ -39,6 +40,19 @@ public static class InboxAnalysisServiceCollectionExtensions
             .ValidateOnStart();
 
         services.TryAddSingleton<TimeProvider>(TimeProvider.System);
+        services.AddOptions<OpenAICostOptions>()
+            .BindConfiguration(OpenAICostOptions.SectionName)
+            .Validate(o => o.TokenLimit is null or > 0 && o.TokensPerRequest is > 0 and <= 10_000_000,
+                "CostControl token limit and reservation must be positive.")
+            .Validate(o => o.Models.All(p => !string.IsNullOrWhiteSpace(p.Key) &&
+                p.Value.InputUsdPerMillion is null or >= 0 && p.Value.CachedInputUsdPerMillion is null or >= 0 &&
+                p.Value.OutputUsdPerMillion is null or >= 0), "Model prices must be nonnegative USD per million tokens.")
+            .ValidateOnStart();
+        services.AddScoped<IInboxTelemetry, EfInboxTelemetry>();
+        services.AddScoped<IInboxStatisticsStore, EfInboxStatisticsStore>();
+        services.AddScoped<InboxStatisticsService>();
+        services.AddSingleton<IOpenAIRequestLedger, EfOpenAIRequestLedger>();
+        services.AddSingleton<InboxBackgroundDiagnostics>();
         services.AddScoped<InboxAnalysisService>();
         services.AddSingleton<InboxAnalysisValidator>();
         services.AddScoped<IInboxAnalysisStore, EfInboxAnalysisStore>();
@@ -61,7 +75,9 @@ public static class InboxAnalysisServiceCollectionExtensions
                 RetryPolicy = new ClientRetryPolicy(0)
             });
         });
-        services.AddSingleton<IInboxAnalyzer, OpenAIInboxAnalyzer>();
+        services.AddSingleton<OpenAIInboxAnalyzer>();
+        services.AddScoped<IInboxAnalyzer>(provider => new CostControlledInboxAnalyzer(
+            provider.GetRequiredService<OpenAIInboxAnalyzer>(), provider.GetRequiredService<IOpenAIRequestLedger>()));
         return services;
     }
 }

@@ -13,6 +13,7 @@ namespace OwnDay.Infrastructure.Telegram.Handling;
 
 public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
 {
+    private readonly TelegramStatisticsCommandHandler? _statistics;
     private readonly TelegramActionCommandHandler _actionCommandHandler;
     private readonly TelegramStructuredCommandHandler _structuredCommandHandler;
     private readonly TelegramInboxFlow _inboxFlow;
@@ -34,7 +35,8 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         TimeProvider timeProvider,
         ITelegramMessageCleaner messageCleaner,
         ILogger<TelegramUpdateHandler> logger,
-        ITelegramCallbackResponder? callbackResponder = null)
+        ITelegramCallbackResponder? callbackResponder = null,
+        TelegramStatisticsCommandHandler? statistics = null)
     {
         ArgumentNullException.ThrowIfNull(router);
         ArgumentNullException.ThrowIfNull(actionCommandHandler);
@@ -44,6 +46,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         ArgumentNullException.ThrowIfNull(messageCleaner);
         ArgumentNullException.ThrowIfNull(logger);
 
+        _statistics = statistics;
         _router = router;
         _actionCommandHandler = actionCommandHandler;
         _structuredCommandHandler = structuredCommandHandler;
@@ -123,6 +126,8 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
             }
             replies = command.Name switch
             {
+                "stats" => await (_statistics ?? throw new InvalidOperationException("Statistics handler is required."))
+                    .HandleAsync(command.UserId, command.Arguments, locale, cancellationToken),
                 "language" => await _languageFlow.OpenAsync(command.UserId, locale, cancellationToken),
                 "inbox" => await _inboxFlow.OpenAsync(command.UserId, command.Arguments, locale, cancellationToken),
                 "inbox_undo" => await _inboxFlow.UndoAsync(command.UserId, command.Arguments, locale, cancellationToken),
@@ -174,9 +179,9 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         }
         catch (Exception exception) when (exception is not OperationCanceledException && !cancellationToken.IsCancellationRequested)
         {
-            _logger.LogWarning(exception,
-                "Could not delete processed Telegram message {MessageId} from chat {ChatId}.",
-                update.Message!.Id, chatId);
+            _logger.LogWarning(
+                "Could not delete processed Telegram message {MessageId} from chat {ChatId} ({ErrorType}).",
+                update.Message!.Id, chatId, exception.GetType().Name);
         }
     }
 

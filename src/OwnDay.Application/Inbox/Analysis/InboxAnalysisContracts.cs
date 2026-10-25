@@ -15,7 +15,9 @@ public sealed record InboxAnalysisRequest(
     string OriginalText,
     DateTime CapturedAt,
     InboxAnalysisContext Context,
-    IReadOnlyList<SupportedInboxType> SupportedTypes);
+    IReadOnlyList<SupportedInboxType> SupportedTypes,
+    [property: System.Text.Json.Serialization.JsonIgnore] Guid? AnalysisId = null,
+    [property: System.Text.Json.Serialization.JsonIgnore] long? OwnerId = null);
 
 public sealed record InboxAnalyzerDescriptor(string Model, string SchemaVersion, string PromptVersion,
     string? ReasoningEffort = null, int? MaxOutputTokens = null, int? TimeoutSeconds = null);
@@ -31,13 +33,16 @@ public sealed record InboxAnalyzerResponse(
 public interface IInboxAnalyzer
 {
     InboxAnalyzerDescriptor Descriptor { get; }
+    // Provider-local input validation runs before a durable paid-request reservation.
+    void ValidateRequest(InboxAnalysisRequest request) { }
     Task<InboxAnalyzerResponse> AnalyzeAsync(InboxAnalysisRequest request, CancellationToken cancellationToken);
 }
 
 // Only safe diagnostic codes cross the provider boundary; never provider exception messages or response bodies.
-public sealed class InboxAnalyzerException(InboxAnalysisCode code) : Exception("Inbox analysis provider failed.")
+public sealed class InboxAnalyzerException(InboxAnalysisCode code, InboxAnalyzerResponse? response = null) : Exception("Inbox analysis provider failed.")
 {
     public InboxAnalysisCode Code { get; } = code;
+    public InboxAnalyzerResponse? Response { get; } = response;
 }
 
 public sealed record InboxAnalysisOutput

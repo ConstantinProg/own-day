@@ -265,4 +265,27 @@
   <data name="undo.already" xml:space="preserve"><value>Обработка Inbox #{0} уже отменена. Другие сущности не изменены. Для ручной обработки: /inbox {0}.</value></data>
   <data name="undo.conflict" xml:space="preserve"><value>Безопасно отменить Inbox #{0} нельзя: созданная сущность изменена, завершена, удалена, связана с другими данными или её исходное состояние нельзя проверить. Ничего не удалено. Посмотрите /inbox_result {0}.</value></data>
   <data name="undo.unavailable" xml:space="preserve"><value>Автоматический результат для отмены этой записи недоступен.</value></data>
+  <data name="stats.usage" xml:space="preserve"><value>Команды: /stats, /stats today, /stats 30d или /stats all.</value></data>
+  <data name="stats.period.7d" xml:space="preserve"><value>последние 7 дней</value></data>
+  <data name="stats.period.today" xml:space="preserve"><value>сегодня</value></data>
+  <data name="stats.period.30d" xml:space="preserve"><value>последние 30 дней</value></data>
+  <data name="stats.period.all" xml:space="preserve"><value>всё время</value></data>
+  <data name="stats.title" xml:space="preserve"><value>Статистика Inbox: {0}. Часовой пояс: UTC.</value></data>
+  <data name="stats.received" xml:space="preserve"><value>Получено: {0}. Текущий результат: обработано {1}, активно {2}, удалено из Inbox {3}.</value></data>
+  <data name="stats.automation" xml:space="preserve"><value>Записей AutoApply: {0}. Требовали проверки: {1}.</value></data>
+  <data name="stats.created" xml:space="preserve"><value>Создано из Inbox: задач {0}, проектов {1}, ожиданий {2}, заметок {3}, идей {4}.</value></data>
+  <data name="stats.undo" xml:space="preserve"><value>Undo: {0}. Отказов и повторов: {1}. Ручных решений: {2}.</value></data>
+  <data name="stats.analysis" xml:space="preserve"><value>AI-анализы: успешных {0}, неуспешных {1}; успешность {2}. Среднее время успешного анализа: {3} с.</value></data>
+  <data name="stats.background" xml:space="preserve"><value>Запросов OpenAI: {0}, повторных {1}, ошибок {2}. Ожидающих анализов сейчас: {3}. Просроченных заданий сейчас: {4}.</value></data>
+  <data name="stats.tokens" xml:space="preserve"><value>Токены: вход {0}, из них кеш {1}; выход {2}.</value></data>
+  <data name="stats.cost" xml:space="preserve"><value>Оценочная стоимость: {0} USD. Это не сумма фактического списания.</value></data>
+  <data name="stats.legacy" xml:space="preserve"><value>Анализов без учёта запросов: {0}; дополнительный расход и стоимость неизвестны.</value></data>
+  <data name="stats.partial" xml:space="preserve"><value>{0} известно; для {1} запросов неизвестно</value></data>
+  <data name="stats.unknown" xml:space="preserve"><value>неизвестно</value></data>
+  <data name="stats.rules" xml:space="preserve"><value>Записи — по дате получения; остальные счётчики — по дате события. Успешность: успешные / завершённые анализы. Календарные дни UTC, включая сегодня.</value></data>
+  <data name="stats.worker" xml:space="preserve"><value>Повторов фоновых заданий: {0}, ошибок: {1}. Общих фоновых ошибок сервиса: {2}, повторов доставки: {3}.</value></data>
+  <data name="stats.legacy_tokens" xml:space="preserve"><value>Последний сохранённый usage без журнала запросов: вход {0}, кеш {1}, выход {2}. Дополнительные повторы неизвестны; в итоги запросов не включены.</value></data>
+  <data name="stats.coverage" xml:space="preserve"><value>Подробный учёт событий с {0} UTC; более ранние отказы Undo, фоновые повторы и ошибки неизвестны.</value></data>
+  <data name="stats.processing_time" xml:space="preserve"><value>Среднее время от получения до обработки полученных записей: {0} с.</value></data>
+  <data name="stats.all_unknown" xml:space="preserve"><value>неизвестно для всех {0} измерений</value></data>
 </root>

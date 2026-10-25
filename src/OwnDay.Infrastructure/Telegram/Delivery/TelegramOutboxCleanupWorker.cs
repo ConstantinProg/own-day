@@ -35,7 +35,7 @@ public sealed class TelegramOutboxCleanupWorker(
             }
             catch (Exception exception) when (!stoppingToken.IsCancellationRequested)
             {
-                _logger.LogError(exception, "Telegram outbox cleanup cycle failed.");
+                _logger.LogError("Telegram outbox cleanup cycle failed ({ErrorType}).", exception.GetType().Name);
             }
 
             await Task.Delay(interval, _timeProvider, stoppingToken);

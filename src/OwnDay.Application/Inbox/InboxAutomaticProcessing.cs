@@ -69,7 +69,8 @@ public sealed class InboxAutomaticProcessingService(
     IInboxAutomaticProcessingStore store,
     InboxPolicyEngine policy,
     InboxProcessingService processing,
-    TimeProvider clock)
+    TimeProvider clock,
+    Observability.IInboxTelemetry? telemetry = null)
 {
     public async Task<bool> ProcessNextAsync(CancellationToken cancellationToken)
     {
@@ -140,15 +141,18 @@ public sealed class InboxAutomaticProcessingService(
         {
             if (item is null)
             {
+                telemetry?.Record(userId, itemId, "undo_unavailable", clock.GetUtcNow().UtcDateTime);
                 return new InboxUndoResult(InboxUndoOutcome.Unavailable, itemId);
             }
             var application = await store.FindAppliedAsync(userId, itemId, token);
             if (application is null)
             {
+                telemetry?.Record(userId, itemId, "undo_unavailable", clock.GetUtcNow().UtcDateTime);
                 return new InboxUndoResult(InboxUndoOutcome.Unavailable, itemId);
             }
             if (application.UndoneAt is not null)
             {
+                telemetry?.Record(userId, itemId, "undo_already", clock.GetUtcNow().UtcDateTime);
                 return new InboxUndoResult(InboxUndoOutcome.AlreadyUndone, itemId);
             }
             var targets = JsonSerializer.Deserialize<AppliedInboxProposal[]>(
@@ -159,6 +163,7 @@ public sealed class InboxAutomaticProcessingService(
                     .SetEquals(targets.Select(t => (t.Kind, t.TargetId))) ||
                 !await store.TryRemoveUnchangedTargetsAsync(application, token))
             {
+                telemetry?.Record(userId, itemId, "undo_conflict", clock.GetUtcNow().UtcDateTime);
                 return new InboxUndoResult(InboxUndoOutcome.Conflict, itemId);
             }
             if (!item.UndoProcessing(targets.Select(t => new InboxTarget(t.Kind, t.TargetId)).ToArray()))

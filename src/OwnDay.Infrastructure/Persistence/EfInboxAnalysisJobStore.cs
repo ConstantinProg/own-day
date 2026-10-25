@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using OwnDay.Application.Inbox;
 using OwnDay.Application.Inbox.Analysis;
+using OwnDay.Application.Inbox.Observability;
 using OwnDay.Domain.Inbox;
 
 namespace OwnDay.Infrastructure.Persistence;
@@ -9,8 +10,9 @@ public sealed class EfInboxAnalysisJobStore(OwnDayDbContext db, IInboxProcessing
 {
     public async Task<InboxAnalysisLease?> ClaimAsync(TimeSpan lease, CancellationToken cancellationToken)
     {
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         var token = Guid.NewGuid();
-        // One autocommit statement. Database time avoids clock skew between hosts.
+        // Claim and retry fact commit together. Database time avoids clock skew between hosts.
         var rows = await db.InboxAnalysisJobs.FromSqlInterpolated($"""
             UPDATE inbox_analysis_jobs SET status = {(int)InboxAnalysisJobStatus.Running}, lease_token = {token},
                 lease_until = clock_timestamp() + {lease}, available_at = clock_timestamp() + {lease},
@@ -21,6 +23,16 @@ public sealed class EfInboxAnalysisJobStore(OwnDayDbContext db, IInboxProcessing
             RETURNING *
             """).AsNoTracking().ToListAsync(cancellationToken);
         var job = rows.SingleOrDefault();
+        if (job is { AttemptCount: > 1 })
+        {
+            db.InboxOperationEvents.Add(new InboxOperationEvent
+            {
+                Id = token, UserId = job.UserId.Value, InboxItemId = job.InboxItemId,
+                Code = "background_retry", At = await NowAsync(cancellationToken)
+            });
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        await transaction.CommitAsync(cancellationToken);
         return job is null ? null : new(job.Id, token, job.UserId, job.InboxItemId, job.AttemptCount);
     }
 
@@ -84,7 +96,17 @@ public sealed class EfInboxAnalysisJobStore(OwnDayDbContext db, IInboxProcessing
 
             var analysis = job.AnalysisId is { } id
                 ? await db.InboxAnalyses.Include(row => row.Proposals).SingleAsync(row => row.Id == id, token) : null;
-            return job.Finish(item, analysis, outcome, retryAfter, now);
+            var finished = job.Finish(item, analysis, outcome, retryAfter, now);
+            if (outcome.Output is null && finished.Status != InboxAnalysisJobStatus.Skipped &&
+                finished.Code != InboxAnalysisCode.AlreadyFinished)
+            {
+                db.InboxOperationEvents.Add(new InboxOperationEvent
+                {
+                    UserId = job.UserId.Value, InboxItemId = job.InboxItemId,
+                    Code = "background_" + finished.Code.ToStorageValue() + "_error", At = now
+                });
+            }
+            return finished;
         }, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return result;

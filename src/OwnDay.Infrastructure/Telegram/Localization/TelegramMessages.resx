@@ -265,4 +265,27 @@ More: /done &lt;id&gt; — complete a task; /start, /help, /ping, /language.</va
   <data name="undo.already" xml:space="preserve"><value>Inbox #{0} was already undone. No further entities changed. Continue manually: /inbox {0}.</value></data>
   <data name="undo.conflict" xml:space="preserve"><value>Cannot safely undo inbox #{0}: a created entity was changed, completed, removed or linked to other data, or its original state cannot be verified. Nothing was removed. Review /inbox_result {0}.</value></data>
   <data name="undo.unavailable" xml:space="preserve"><value>No automatic result available to undo for this inbox entry.</value></data>
+  <data name="stats.usage" xml:space="preserve"><value>Use /stats, /stats today, /stats 30d or /stats all.</value></data>
+  <data name="stats.period.7d" xml:space="preserve"><value>last 7 days</value></data>
+  <data name="stats.period.today" xml:space="preserve"><value>today</value></data>
+  <data name="stats.period.30d" xml:space="preserve"><value>last 30 days</value></data>
+  <data name="stats.period.all" xml:space="preserve"><value>all time</value></data>
+  <data name="stats.title" xml:space="preserve"><value>Inbox statistics: {0}. Time zone: UTC.</value></data>
+  <data name="stats.received" xml:space="preserve"><value>Received: {0}. Current results: processed {1}, active {2}, discarded {3}.</value></data>
+  <data name="stats.automation" xml:space="preserve"><value>AutoApply entries: {0}. Required review: {1}.</value></data>
+  <data name="stats.created" xml:space="preserve"><value>Created from Inbox: tasks {0}, projects {1}, waiting {2}, notes {3}, ideas {4}.</value></data>
+  <data name="stats.undo" xml:space="preserve"><value>Undo: {0}. Refused/repeated: {1}. Manual decisions: {2}.</value></data>
+  <data name="stats.analysis" xml:space="preserve"><value>AI analyses: successful {0}, unsuccessful {1}; success {2}. Mean successful analysis time: {3} s.</value></data>
+  <data name="stats.background" xml:space="preserve"><value>OpenAI requests: {0}, retries {1}, errors {2}. Pending analyses now: {3}. Overdue jobs now: {4}.</value></data>
+  <data name="stats.tokens" xml:space="preserve"><value>Tokens: input {0}, including cached {1}; output {2}.</value></data>
+  <data name="stats.cost" xml:space="preserve"><value>Estimated cost: {0} USD. This is not a billing statement.</value></data>
+  <data name="stats.legacy" xml:space="preserve"><value>Analyses without request accounting: {0}; additional usage/cost unknown.</value></data>
+  <data name="stats.partial" xml:space="preserve"><value>{0} known; unknown for {1} requests</value></data>
+  <data name="stats.unknown" xml:space="preserve"><value>unknown</value></data>
+  <data name="stats.rules" xml:space="preserve"><value>Received entries use capture date; other counters use event date. Success: successful / finished analyses. Calendar days UTC, including today.</value></data>
+  <data name="stats.worker" xml:space="preserve"><value>Background job retries: {0}, errors: {1}. Service-wide background errors: {2}, delivery retries: {3}.</value></data>
+  <data name="stats.legacy_tokens" xml:space="preserve"><value>Last saved usage without request accounting: input {0}, cached {1}, output {2}. Additional retries unknown; excluded from request totals.</value></data>
+  <data name="stats.coverage" xml:space="preserve"><value>Detailed event accounting since {0} UTC; earlier refused Undo, background retries and errors unknown.</value></data>
+  <data name="stats.processing_time" xml:space="preserve"><value>Mean capture-to-processing time for processed received entries: {0} s.</value></data>
+  <data name="stats.all_unknown" xml:space="preserve"><value>unknown for all {0} observations</value></data>
 </root>

@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using OwnDay.Application.Inbox.Observability;
 using Microsoft.Extensions.Logging;
 using OwnDay.Infrastructure.Persistence;
 using Telegram.Bot.Exceptions;
@@ -45,6 +46,13 @@ public sealed class TelegramOutboxDeliveryService
         {
             try
             {
+                if (message.AttemptCount > 0)
+                {
+                    _dbContext.InboxOperationEvents.Add(new InboxOperationEvent
+                    {
+                        Code = "background_delivery_retry", At = now
+                    });
+                }
                 await _messageSender.SendMessageAsync(
                     message.ChatId,
                     message.Text,
@@ -61,25 +69,27 @@ public sealed class TelegramOutboxDeliveryService
                 {
                     message.AttemptCount++;
                 }
-                message.LastError = exception.Message;
+                message.LastError = exception.GetType().Name;
+                _dbContext.InboxOperationEvents.Add(new InboxOperationEvent
+                {
+                    Code = "background_delivery_error", At = _timeProvider.GetUtcNow().UtcDateTime
+                });
 
                 if (exception is ApiRequestException { ErrorCode: 400 or 403 or 404 })
                 {
                     message.Status = OutboxMessageStatus.Failed;
                     _logger.LogError(
-                        exception,
-                        "Telegram outbox message {OutboxMessageId} was rejected permanently.",
-                        message.Id);
+                        "Telegram outbox message {OutboxMessageId} was rejected permanently ({ErrorType}).",
+                        message.Id, exception.GetType().Name);
                 }
                 else
                 {
                     message.NextAttemptAt = _timeProvider.GetUtcNow().UtcDateTime.AddSeconds(
                         Math.Min(MaximumRetryDelaySeconds, Math.Pow(2, Math.Min(message.AttemptCount, 12))));
                     _logger.LogWarning(
-                        exception,
-                        "Telegram outbox message {OutboxMessageId} delivery failed on attempt {AttemptCount}.",
+                        "Telegram outbox message {OutboxMessageId} delivery failed on attempt {AttemptCount} ({ErrorType}).",
                         message.Id,
-                        message.AttemptCount);
+                        message.AttemptCount, exception.GetType().Name);
                 }
             }
 

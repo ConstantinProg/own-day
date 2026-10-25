@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using OwnDay.Application.Inbox.Observability;
 using OwnDay.Application.Inbox;
 using OwnDay.Application.Inbox.Analysis;
 using OwnDay.Domain.Actions;
@@ -15,6 +16,9 @@ namespace OwnDay.Infrastructure.Persistence;
 public sealed class OwnDayDbContext(DbContextOptions<OwnDayDbContext> options)
     : DbContext(options)
 {
+    public DbSet<OpenAIRequestAttempt> OpenAIRequestAttempts => Set<OpenAIRequestAttempt>();
+    public DbSet<InboxOperationEvent> InboxOperationEvents => Set<InboxOperationEvent>();
+
     public DbSet<Action> Actions => Set<Action>();
     public DbSet<Project> Projects => Set<Project>();
     public DbSet<SomedayMaybe> SomedayMaybes => Set<SomedayMaybe>();
@@ -37,6 +41,7 @@ public sealed class OwnDayDbContext(DbContextOptions<OwnDayDbContext> options)
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         InboxAnalysisModel.Configure(modelBuilder);
+        InboxObservabilityModel.Configure(modelBuilder);
         modelBuilder.Entity<TelegramInboxDestination>(entity =>
         {
             entity.ToTable("telegram_inbox_destinations");

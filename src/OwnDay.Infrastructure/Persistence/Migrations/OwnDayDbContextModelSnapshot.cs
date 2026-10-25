@@ -19,6 +19,129 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
 
         NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+        modelBuilder.Entity("OwnDay.Application.Inbox.Observability.InboxOperationEvent", b =>
+            {
+                b.Property<Guid>("Id")
+                    .ValueGeneratedOnAdd()
+                    .HasColumnType("uuid");
+
+                b.Property<DateTime>("At")
+                    .HasColumnType("timestamp with time zone");
+
+                b.Property<string>("Code")
+                    .IsRequired()
+                    .HasMaxLength(50)
+                    .HasColumnType("character varying(50)");
+
+                b.Property<long>("InboxItemId")
+                    .HasColumnType("bigint");
+
+                b.Property<int?>("Kind")
+                    .HasColumnType("integer");
+
+                b.Property<long?>("TargetId")
+                    .HasColumnType("bigint");
+
+                b.Property<long>("UserId")
+                    .HasColumnType("bigint");
+
+                b.HasKey("Id");
+
+                b.HasIndex("Kind", "TargetId")
+                    .IsUnique()
+                    .HasFilter("\"Code\" = 'created'");
+
+                b.HasIndex("UserId", "At");
+
+                b.HasIndex("UserId", "Code", "InboxItemId");
+
+                b.ToTable("inbox_operation_events", (string)null);
+            });
+
+        modelBuilder.Entity("OwnDay.Application.Inbox.Observability.OpenAIRequestAttempt", b =>
+            {
+                b.Property<Guid>("Id")
+                    .ValueGeneratedOnAdd()
+                    .HasColumnType("uuid");
+
+                b.Property<Guid>("AnalysisId")
+                    .HasColumnType("uuid");
+
+                b.Property<int?>("CachedInputTokens")
+                    .HasColumnType("integer");
+
+                b.Property<decimal?>("CachedInputUsdPerMillion")
+                    .HasPrecision(20, 8)
+                    .HasColumnType("numeric(20,8)");
+
+                b.Property<long>("ChargedTokens")
+                    .HasColumnType("bigint");
+
+                b.Property<string>("Code")
+                    .IsRequired()
+                    .HasMaxLength(50)
+                    .HasColumnType("character varying(50)");
+
+                b.Property<decimal?>("EstimatedUsd")
+                    .HasPrecision(20, 12)
+                    .HasColumnType("numeric(20,12)");
+
+                b.Property<DateTime?>("FinishedAt")
+                    .HasColumnType("timestamp with time zone");
+
+                b.Property<int?>("InputTokens")
+                    .HasColumnType("integer");
+
+                b.Property<decimal?>("InputUsdPerMillion")
+                    .HasPrecision(20, 8)
+                    .HasColumnType("numeric(20,8)");
+
+                b.Property<string>("Model")
+                    .IsRequired()
+                    .HasMaxLength(200)
+                    .HasColumnType("character varying(200)");
+
+                b.Property<int?>("OutputTokens")
+                    .HasColumnType("integer");
+
+                b.Property<decimal?>("OutputUsdPerMillion")
+                    .HasPrecision(20, 8)
+                    .HasColumnType("numeric(20,8)");
+
+                b.Property<string>("ProviderRequestId")
+                    .HasMaxLength(200)
+                    .HasColumnType("character varying(200)");
+
+                b.Property<long>("ReservedTokens")
+                    .HasColumnType("bigint");
+
+                b.Property<int>("Sequence")
+                    .HasColumnType("integer");
+
+                b.Property<DateTime>("StartedAt")
+                    .HasColumnType("timestamp with time zone");
+
+                b.Property<long>("UserId")
+                    .HasColumnType("bigint");
+
+                b.HasKey("Id");
+
+                b.HasIndex("AnalysisId", "StartedAt");
+
+                b.HasIndex("UserId", "StartedAt");
+
+                b.ToTable("openai_request_attempts", (string)null);
+            });
+
+        modelBuilder.Entity("OwnDay.Application.Inbox.Observability.OpenAIRequestAttempt", b =>
+            {
+                b.HasOne("OwnDay.Application.Inbox.Analysis.InboxAnalysis", null)
+                    .WithMany()
+                    .HasForeignKey("AnalysisId")
+                    .OnDelete(DeleteBehavior.Restrict)
+                    .IsRequired();
+            });
+
         modelBuilder.Entity("OwnDay.Application.Inbox.InboxDraft", b =>
         {
             b.Property<long>("UserId").ValueGeneratedNever().HasColumnType("bigint").HasColumnName("user_id");
