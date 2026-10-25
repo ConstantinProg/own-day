@@ -17,3 +17,8 @@ Inbox analysis defaults to `gpt-6-luna` with low reasoning; see
 Classification and canonicalization use a versioned prompt and a 115-scenario Russian Golden Dataset; see
 [semantic evaluation](docs/Phase4-Milestone3-Classification-and-Canonicalization.md) for the explicit real-model
 runner, review method, comparison artifacts and measured results.
+
+## Inbox policy
+
+The deterministic Inbox routing rules, reason codes and current domain limitations are documented in
+[Deterministic Inbox policy](docs/Phase4-Milestone4-Deterministic-Policy.md).

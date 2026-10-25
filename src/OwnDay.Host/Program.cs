@@ -51,6 +51,7 @@ builder.Services
 
 builder.Services.AddTelegram();
 builder.Services.AddInboxAnalysis();
+builder.Services.AddInboxPolicy();
 
 await using var app = builder.Build();
 
