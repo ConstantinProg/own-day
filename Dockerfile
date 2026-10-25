@@ -9,6 +9,7 @@ COPY src/OwnDay.Infrastructure/OwnDay.Infrastructure.csproj src/OwnDay.Infrastru
 COPY src/OwnDay.Host/OwnDay.Host.csproj src/OwnDay.Host/
 COPY tests/OwnDay.UnitTests/OwnDay.UnitTests.csproj tests/OwnDay.UnitTests/
 COPY tests/OwnDay.IntegrationTests/OwnDay.IntegrationTests.csproj tests/OwnDay.IntegrationTests/
+COPY tools/OwnDay.InboxEvaluation/OwnDay.InboxEvaluation.csproj tools/OwnDay.InboxEvaluation/
 
 RUN dotnet restore OwnDay.slnx
 
