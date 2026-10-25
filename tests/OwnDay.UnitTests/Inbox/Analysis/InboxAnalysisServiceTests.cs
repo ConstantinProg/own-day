@@ -199,6 +199,31 @@ public sealed class InboxAnalysisServiceTests
         Assert.Equal(InboxAnalysisService.MaxInputCharacters + 1, item.OriginalText.Length);
     }
 
+    [Theory]
+    [InlineData("a\0b", "Action")]
+    [InlineData("Reply", "Action, Project")]
+    public async Task AnalyzeAsync_InvalidProposalTextOrKind_PersistsInvalidResponseWithoutProposals(string title, string kind)
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var item = await fixture.CaptureAsync("Reply");
+        var json = InboxAnalysisValidatorTests.Json(InboxAnalysisValidatorTests.Proposal(InboxTargetKind.Action, title))
+            .Replace("\"kind\":\"Action\"", "\"kind\":\"" + kind + "\"", StringComparison.Ordinal);
+        var ai = new FakeAnalyzer((_, _) => Task.FromResult(new InboxAnalyzerResponse(json, "fake-model")));
+        var service = fixture.Service(ai);
+
+        var result = await service.AnalyzeAsync(Alice, item.Id, TestContextToken);
+        fixture.Db.ChangeTracker.Clear();
+        var saved = Assert.Single(await service.GetAsync(Alice, item.Id, TestContextToken));
+
+        Assert.NotNull(result);
+        Assert.Equal(result.Id, saved.Id);
+        Assert.Equal(InboxAnalysisStatus.InvalidResponse, saved.Status);
+        Assert.NotNull(saved.CompletedAt);
+        Assert.Empty(saved.Proposals);
+        Assert.Empty(fixture.Db.Set<InboxAnalysisProposal>());
+        Assert.Contains("invalid_response", saved.DiagnosticsJson);
+    }
+
     private static CancellationToken TestContextToken => CancellationToken.None;
 
     private static InboxAnalyzerResponse Response(params InboxProposal[] proposals) =>

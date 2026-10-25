@@ -126,6 +126,61 @@ public sealed class PostgresInboxAnalysisTests
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    [Trait("Requires", "PostgreSQL via OWNDAY_TEST_POSTGRES_CONNECTION")]
+    public async Task AnalyzeAsync_NulInTitleOrJsonPayload_PersistsInvalidResponseWithoutProposals(bool inPayload)
+    {
+        var connectionString = Environment.GetEnvironmentVariable("OWNDAY_TEST_POSTGRES_CONNECTION") ??
+            throw new InvalidOperationException("OWNDAY_TEST_POSTGRES_CONNECTION is required for this test.");
+        var schema = "ownday_test_" + Guid.NewGuid().ToString("N");
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var token = cancellation.Token;
+        await using var admin = new OwnDayDbContext(new DbContextOptionsBuilder<OwnDayDbContext>().UseNpgsql(connectionString).Options);
+#pragma warning disable EF1003 // Schema names are generated from GUIDs, not user input.
+        await admin.Database.ExecuteSqlRawAsync("CREATE SCHEMA " + schema, token);
+#pragma warning restore EF1003
+        try
+        {
+            var options = new DbContextOptionsBuilder<OwnDayDbContext>().UseNpgsql(
+                new NpgsqlConnectionStringBuilder(connectionString) { SearchPath = schema }.ConnectionString).Options;
+            await using var db = new OwnDayDbContext(options);
+            await db.Database.MigrateAsync(token);
+            var owner = new UserId(41);
+            var item = InboxItem.Capture(owner, "Reply", DateTime.UtcNow);
+            db.InboxItems.Add(item);
+            await db.SaveChangesAsync(token);
+            var proposal = new InboxProposal
+            {
+                Kind = InboxTargetKind.Action, Title = inPayload ? "Reply" : "a\0b",
+                Description = inPayload ? "a\0b" : null,
+                Properties = new() { Source = null, WaitingSince = null, WaitingSinceEvidence = null, UnresolvedDateText = null },
+                ProjectIds = [], Ambiguities = []
+            };
+            var json = JsonSerializer.Serialize(new InboxAnalysisOutput { Items = [proposal] }, InboxAnalysisJson.Options);
+            var ai = new FakeAnalyzer((_, _) => Task.FromResult(new InboxAnalyzerResponse(json, "fake-model")));
+
+            var result = await Service(db, ai).AnalyzeAsync(owner, item.Id, token);
+
+            await using var reader = new OwnDayDbContext(options);
+            var saved = Assert.Single(await Service(reader, ai).GetAsync(owner, item.Id, token));
+            Assert.NotNull(result);
+            Assert.Equal(result.Id, saved.Id);
+            Assert.Equal(InboxAnalysisStatus.InvalidResponse, saved.Status);
+            Assert.NotNull(saved.CompletedAt);
+            Assert.Empty(saved.Proposals);
+            Assert.Contains("invalid_response", saved.DiagnosticsJson);
+            Assert.Equal(0, await reader.Set<InboxAnalysisProposal>().CountAsync(token));
+        }
+        finally
+        {
+#pragma warning disable EF1003 // Same GUID-generated schema.
+            await admin.Database.ExecuteSqlRawAsync("DROP SCHEMA " + schema + " CASCADE");
+#pragma warning restore EF1003
+        }
+    }
+
     private static InboxAnalysisService Service(OwnDayDbContext db, IInboxAnalyzer ai) => new(
         new EfInboxItemStore(db), new EfInboxAnalysisStore(db, new EfInboxProcessingStore(db)), ai, new(), TimeProvider.System);
 

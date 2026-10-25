@@ -72,6 +72,11 @@ public sealed class InboxAnalysisValidatorTests
     [Theory]
     [InlineData("kind", "Unknown")]
     [InlineData("kind", "1")]
+    [InlineData("kind", "Action, Project")]
+    [InlineData("kind", "Project, SomedayMaybe")]
+    [InlineData("kind", "Action, Action")]
+    [InlineData("kind", "action")]
+    [InlineData("kind", " Action ")]
     [InlineData("title", "")]
     [InlineData("title", "   ")]
     [InlineData("title", " padded ")]
@@ -81,6 +86,46 @@ public sealed class InboxAnalysisValidatorTests
         var node = JsonNode.Parse(Json(Proposal(InboxTargetKind.Action, "Купить молоко")))!;
         node["items"]![0]![property] = value;
         Assert.Null(new InboxAnalysisValidator().ParseAndValidate(node.ToJsonString(), Request));
+    }
+
+    [Theory]
+    [InlineData("title")]
+    [InlineData("description")]
+    [InlineData("source")]
+    [InlineData("waitingSinceEvidence")]
+    [InlineData("unresolvedDateText")]
+    [InlineData("ambiguities")]
+    public void ParseAndValidate_NulInProposalText_Rejects(string property)
+    {
+        const string text = "a\0b";
+        var node = JsonNode.Parse(Json(Proposal(InboxTargetKind.WaitingFor, "Reply")))!;
+        var item = node["items"]![0]!;
+        item["ambiguities"] = new JsonArray("Unknown date");
+        if (property == "ambiguities")
+        {
+            item["ambiguities"]![0] = text;
+        }
+        else if (property is "title" or "description")
+        {
+            item[property] = text;
+        }
+        else
+        {
+            item["properties"]![property] = text;
+        }
+
+        var request = Request with { OriginalText = Request.OriginalText + text };
+        Assert.Null(new InboxAnalysisValidator().ParseAndValidate(node.ToJsonString(), request));
+    }
+
+    [Fact]
+    public void ParseAndValidate_LiteralUnicodeEscapeText_PreservesText()
+    {
+        const string title = @"Keep the literal sequence \u0000";
+        var parsed = new InboxAnalysisValidator().ParseAndValidate(Json(Proposal(InboxTargetKind.Action, title)), Request);
+
+        Assert.NotNull(parsed);
+        Assert.Equal(title, Assert.Single(parsed.Items).Title);
     }
 
     [Theory]

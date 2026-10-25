@@ -83,7 +83,7 @@ public sealed class InboxAnalysisValidator
         (text.EndsWith('Z') || (text.Length >= 6 && text[^3] == ':' && text[^6] is '+' or '-'));
 
     private static bool RequiredText(string? text, int max) =>
-        !string.IsNullOrWhiteSpace(text) && text.Length <= max && text == text.Trim();
+        !string.IsNullOrWhiteSpace(text) && text.Length <= max && !text.Contains('\0') && text == text.Trim();
 
     private static bool OptionalText(string? text, int max) => text is null || RequiredText(text, max);
 }
