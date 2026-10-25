@@ -139,6 +139,61 @@ public sealed class TelegramInboxFeedbackTests
     }
 
     [Theory]
+    [InlineData("accept")]
+    [InlineData("reject")]
+    [InlineData("expired")]
+    public async Task ConfirmationCommand_WithoutTelegramDestination_QueuesResolutionReplyOnce(string scenario)
+    {
+        using var factory = new OwnDayHostFactory();
+        using var client = factory.CreateClient();
+        var id = await SeedAsync(factory, client, [Proposal(InboxTargetKind.Action, "Proposed action")]);
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
+            await db.TelegramInboxDestinations.ExecuteDeleteAsync();
+        }
+        await ApplyAsync(factory, id, InboxPolicyEngine.LegacyVersion);
+        if (scenario == "expired")
+        {
+            using var scope = factory.Services.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
+            await db.InboxAutomaticApplications.ExecuteUpdateAsync(s => s.SetProperty(a => a.EvaluatedAt, DateTime.UtcNow.AddDays(-2)));
+        }
+
+        var command = $"/inbox_{(scenario == "reject" ? "reject" : "accept")} {id:N}";
+        await PostTextAsync(client, 2, command);
+        await PostTextAsync(client, 2, command);
+
+        using var verify = factory.Services.CreateScope();
+        var saved = verify.ServiceProvider.GetRequiredService<OwnDayDbContext>();
+        var replies = await saved.TelegramOutboxMessages.OrderBy(m => m.CreatedAt).ToListAsync();
+        Assert.Equal(2, replies.Count);
+        var reply = replies[1];
+        Assert.Equal(Owner.Value, reply.ChatId);
+        Assert.Null(reply.ReplyMarkupJson);
+        var outcome = scenario switch
+        {
+            "accept" => InboxConfirmationOutcome.Applied,
+            "reject" => InboxConfirmationOutcome.Rejected,
+            _ => InboxConfirmationOutcome.Stale
+        };
+        Assert.Equal(outcome, (await saved.InboxAutomaticApplications.SingleAsync()).ConfirmationOutcome);
+        Assert.Equal(scenario == "accept" ? 1 : 0, await saved.Actions.CountAsync());
+        Assert.Equal(scenario == "accept" ? InboxItemStatus.Processed : InboxItemStatus.Active,
+            (await saved.InboxItems.SingleAsync()).Status);
+        Assert.Contains(scenario switch
+        {
+            "accept" => "Proposed action",
+            "reject" => "rejected",
+            _ => "out of date"
+        }, reply.Text, StringComparison.Ordinal);
+        Assert.Contains(scenario == "accept" ? "/inbox_result 1" : "/inbox 1", reply.Text, StringComparison.Ordinal);
+        Assert.Equal(2, await saved.TelegramOutboxMessages.CountAsync());
+        Assert.Equal(2, await saved.ProcessedTelegramUpdates.CountAsync());
+        Assert.Empty(await saved.TelegramInboxDestinations.ToListAsync());
+    }
+
+    [Theory]
     [InlineData("expired")]
     [InlineData("superseded")]
     [InlineData("manual")]

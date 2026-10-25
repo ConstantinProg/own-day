@@ -25,10 +25,17 @@ public sealed class TelegramInboxFlow(
             return [TelegramTexts.Get(locale, "auto.unavailable")];
         }
         var result = await automatic.ConfirmAsync(user, analysisId, accept, token);
-        // The first resolution queues its own durable feedback in the same transaction.
         if (result.Changed)
         {
-            return [];
+            if (result.FeedbackQueued)
+            {
+                return [];
+            }
+            // Entries without a proactive destination still receive a reply to this command.
+            var application = await db.InboxAutomaticApplications.AsNoTracking()
+                .SingleAsync(a => a.UserId == user && a.AnalysisId == analysisId, token);
+            var status = await db.InboxAnalyses.Where(a => a.Id == analysisId).Select(a => a.Status).SingleAsync(token);
+            return [TelegramInboxFeedback.Render(application, status, user.Value, locale).Text];
         }
         return [TelegramTexts.Get(locale, result.Outcome switch
         {

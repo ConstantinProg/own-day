@@ -31,7 +31,7 @@ public sealed class EfInboxAutomaticProcessingStore(OwnDayDbContext db) : IInbox
         return application;
     }
 
-    public async Task QueueFeedbackAsync(InboxAutomaticApplication application, InboxAnalysisStatus status,
+    public async Task<bool> QueueFeedbackAsync(InboxAutomaticApplication application, InboxAnalysisStatus status,
         CancellationToken cancellationToken)
     {
         if (db.Database.CurrentTransaction is null)
@@ -42,11 +42,12 @@ public sealed class EfInboxAutomaticProcessingStore(OwnDayDbContext db) : IInbox
             .SingleOrDefaultAsync(d => d.InboxItemId == application.InboxItemId, cancellationToken);
         if (destination is null)
         {
-            return;
+            return false;
         }
         var locale = await db.TelegramUserLanguages.Where(l => l.UserId == application.UserId.Value)
             .Select(l => l.Locale).SingleOrDefaultAsync(cancellationToken) ?? destination.Locale;
         db.TelegramOutboxMessages.Add(TelegramInboxFeedback.Render(application, status, destination.ChatId, locale));
+        return true;
     }
 
     public async Task<InboxPolicySnapshot?> ReadLockedAsync(InboxItem item, Guid analysisId, CancellationToken cancellationToken)

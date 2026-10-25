@@ -18,7 +18,8 @@ public enum InboxConfirmationOutcome
     Stale
 }
 
-public sealed record InboxConfirmationResult(InboxConfirmationOutcome? Outcome, long? InboxItemId, bool Changed);
+public sealed record InboxConfirmationResult(InboxConfirmationOutcome? Outcome, long? InboxItemId, bool Changed,
+    bool FeedbackQueued = false);
 
 // Original assessment is retained; confirmation resolution is written once under the Inbox lock.
 public sealed class InboxAutomaticApplication
@@ -44,8 +45,8 @@ public interface IInboxAutomaticProcessingStore
     // Called inside the existing Inbox transaction/lock; referenced projects stay locked until commit.
     Task<InboxPolicySnapshot?> ReadLockedAsync(InboxItem item, Guid analysisId, CancellationToken cancellationToken);
     void Add(InboxAutomaticApplication application);
-    // Enlist one logical notification in the caller's transaction; never contact the transport here.
-    Task QueueFeedbackAsync(InboxAutomaticApplication application, InboxAnalysisStatus status, CancellationToken cancellationToken);
+    // Enlist one logical notification in the caller's transaction; return false if no destination exists.
+    Task<bool> QueueFeedbackAsync(InboxAutomaticApplication application, InboxAnalysisStatus status, CancellationToken cancellationToken);
 }
 
 public sealed class InboxAutomaticProcessingService(
@@ -154,8 +155,8 @@ public sealed class InboxAutomaticProcessingService(
             }
             application.ConfirmationOutcome = outcome;
             application.ResolvedAt = clock.GetUtcNow().UtcDateTime;
-            await store.QueueFeedbackAsync(application, snapshot?.Analysis.Status ?? InboxAnalysisStatus.Failed, token);
-            return new InboxConfirmationResult(outcome, item.Id, true);
+            var feedbackQueued = await store.QueueFeedbackAsync(application, snapshot?.Analysis.Status ?? InboxAnalysisStatus.Failed, token);
+            return new InboxConfirmationResult(outcome, item.Id, true, feedbackQueued);
         }, cancellationToken);
     }
 }

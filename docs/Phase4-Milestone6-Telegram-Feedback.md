@@ -64,6 +64,8 @@ Unknown/foreign offers return a generic unavailable message without disclosing t
 
 The text-command equivalents are `/inbox_accept <analysis-uuid-N>` and `/inbox_reject <analysis-uuid-N>`;
 the buttons are the normal entry point. `/inbox_result` supplies the readable result entry point for users.
+If an entry has no saved Telegram destination, resolving it through a command or callback still queues a reply
+to the current chat in the webhook transaction, without registering a destination for proactive notifications.
 Callback acknowledgement is best effort after transaction completion, and never deletes the bot's preview.
 Old keyboards can remain visible; durable checks, rather than keyboard removal, enforce validity.
 
