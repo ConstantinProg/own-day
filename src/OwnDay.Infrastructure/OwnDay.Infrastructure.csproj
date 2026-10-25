@@ -4,6 +4,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="OpenAIAnalysis/Prompts/*.txt" />
     <ProjectReference Include="..\OwnDay.Application\OwnDay.Application.csproj" />
   </ItemGroup>
 

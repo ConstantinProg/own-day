@@ -14,3 +14,6 @@ migrations, recovery guarantees and operational limits, and
 [the analysis foundation](docs/Phase4-Milestone1-AI-Analysis.md) for the proposal contract and manual command.
 Inbox analysis defaults to `gpt-6-luna` with low reasoning; see
 [model configuration](docs/Inbox-AI-Model-Configuration.md) for VPS migration and an opt-in real API smoke test.
+Classification and canonicalization use a versioned prompt and a 115-scenario Russian Golden Dataset; see
+[semantic evaluation](docs/Phase4-Milestone3-Classification-and-Canonicalization.md) for the explicit real-model
+runner, review method, comparison artifacts and measured results.

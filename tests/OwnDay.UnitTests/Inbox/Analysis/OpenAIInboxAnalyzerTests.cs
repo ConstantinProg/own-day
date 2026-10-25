@@ -34,6 +34,7 @@ public sealed class OpenAIInboxAnalyzerTests
         Assert.Equal("chatcmpl-test", response.RequestId);
         Assert.Equal(100, response.InputTokens);
         Assert.Equal(25, response.OutputTokens);
+        Assert.Equal(64, response.CachedInputTokens);
         Assert.Equal(1, handler.Calls);
         using var sent = JsonDocument.Parse(handler.Body!);
         var root = sent.RootElement;
@@ -44,7 +45,7 @@ public sealed class OpenAIInboxAnalyzerTests
         Assert.False(root.TryGetProperty("temperature", out _));
         Assert.False(root.TryGetProperty("top_p", out _));
         Assert.False(root.TryGetProperty("tools", out _));
-        Assert.Equal(new("gpt-6-luna", "inbox-v1", "inbox-analysis-v1", "low", 8192, 60), analyzer.Descriptor);
+        Assert.Equal(new("gpt-6-luna", "inbox-v1", "inbox-analysis-v3", "low", 8192, 60), analyzer.Descriptor);
         Assert.Equal("json_schema", root.GetProperty("response_format").GetProperty("type").GetString());
         var format = root.GetProperty("response_format").GetProperty("json_schema");
         Assert.True(format.GetProperty("strict").GetBoolean());
@@ -56,6 +57,28 @@ public sealed class OpenAIInboxAnalyzerTests
         Assert.Equal(JsonValueKind.Null, input.RootElement.GetProperty("context").GetProperty("timeZoneId").ValueKind);
         Assert.NotNull(new InboxAnalysisValidator().ParseAndValidate(response.Json, Request()));
     }
+
+    [Theory]
+    [InlineData("inbox-analysis-v1")]
+    [InlineData("inbox-analysis-v2")]
+    [InlineData("inbox-analysis-v3")]
+    public async Task AnalyzeAsync_HistoricalPrompt_UsesExactVersionInWireRequestAndDescriptor(string version)
+    {
+        using var handler = new RecordingHandler(Response("{}"));
+        using var http = new HttpClient(handler);
+        var analyzer = Analyzer(http, promptVersion: version);
+
+        await analyzer.AnalyzeAsync(Request(), CancellationToken.None);
+
+        using var sent = JsonDocument.Parse(handler.Body!);
+        Assert.Equal(version, analyzer.Descriptor.PromptVersion);
+        Assert.Equal(OpenAIInboxAnalysisFormat.GetPrompt(version), sent.RootElement.GetProperty("messages")[0].GetProperty("content").GetString());
+        Assert.Equal("inbox-v1", analyzer.Descriptor.SchemaVersion);
+    }
+
+    [Fact]
+    public void GetPrompt_UnknownVersion_RejectsWithoutFallback() =>
+        Assert.Throws<ArgumentException>(() => OpenAIInboxAnalysisFormat.GetPrompt("inbox-analysis-unknown"));
 
     [Theory]
     [InlineData("gpt-6-luna", "none", "none")]
@@ -234,11 +257,11 @@ public sealed class OpenAIInboxAnalyzerTests
         }
     }
 
-    private static OpenAIInboxAnalyzer Analyzer(HttpClient http, OpenAIInboxAnalysisOptions? settings = null) => new(
+    private static OpenAIInboxAnalyzer Analyzer(HttpClient http, OpenAIInboxAnalysisOptions? settings = null, string? promptVersion = null) => new(
         new ChatClient((settings ?? new()).Model, new ApiKeyCredential("dummy-key"), new OpenAIClientOptions
         {
             Transport = new HttpClientPipelineTransport(http), RetryPolicy = new ClientRetryPolicy(0)
-        }), Options.Create(settings ?? new()));
+        }), Options.Create(settings ?? new()), promptVersion);
 
     private static InboxAnalysisRequest Request() => new("купит молоко",
         new DateTime(2026, 9, 27, 10, 0, 0, DateTimeKind.Utc), new(null, [], false), InboxAnalysisService.SupportedTypes);
@@ -248,6 +271,7 @@ public sealed class OpenAIInboxAnalyzerTests
         id = "chatcmpl-test", @object = "chat.completion", created = 1790200000, model = "gpt-6-luna-test",
         choices = new[] { new { index = 0, finish_reason = finish, message = new { role = "assistant", content, refusal } } },
         usage = new { prompt_tokens = 100, completion_tokens = 25, total_tokens = 125,
+            prompt_tokens_details = new { cached_tokens = 64 },
             completion_tokens_details = new { reasoning_tokens = 20 } }
     });
 

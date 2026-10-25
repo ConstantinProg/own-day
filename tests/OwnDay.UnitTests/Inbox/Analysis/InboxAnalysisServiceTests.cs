@@ -295,6 +295,32 @@ public sealed class InboxAnalysisServiceTests
         Assert.Equal(timeout, analysis.TimeoutSeconds);
     }
 
+    [Theory]
+    [InlineData("inbox-analysis-v1")]
+    [InlineData("inbox-analysis-v2")]
+    public async Task ProcessJobAsync_PreviousProductionPrompt_FailsSafelyWithoutCallingProvider(string previousPrompt)
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var item = await fixture.CaptureAsync("Review");
+        var context = JsonSerializer.Serialize(new InboxAnalysisContext(null, [], false), InboxAnalysisJson.Options);
+        var analysis = InboxAnalysis.Start(Alice, item.Id, 1,
+            new("gpt-6-luna", "inbox-v1", previousPrompt, "low", 8192, 60), context, "hash", "hash", Now);
+        var jobs = new RecordingJobStore(analysis);
+        var ai = new FakeAnalyzer((_, _) => throw new InvalidOperationException("Must not call provider"))
+        {
+            Descriptor = new("gpt-6-luna", "inbox-v1",
+                Infrastructure.OpenAIAnalysis.OpenAIInboxAnalysisFormat.PromptVersion, "low", 8192, 60)
+        };
+
+        var code = await fixture.Service(ai).ProcessJobAsync(
+            new(Guid.NewGuid(), Guid.NewGuid(), Alice, item.Id, 2), jobs, new(), TestContextToken);
+
+        Assert.Equal("descriptor_mismatch", code);
+        Assert.Equal(previousPrompt, analysis.PromptVersion);
+        Assert.Null(jobs.RetryAfter);
+        Assert.Null(jobs.Outcome!.Output);
+    }
+
     private sealed class RecordingJobStore(InboxAnalysis analysis) : IInboxAnalysisJobStore
     {
         public InboxAnalysisOutcome? Outcome { get; private set; }

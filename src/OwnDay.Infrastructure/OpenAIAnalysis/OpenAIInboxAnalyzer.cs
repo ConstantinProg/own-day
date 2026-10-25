@@ -7,10 +7,13 @@ using OwnDay.Application.Inbox.Analysis;
 
 namespace OwnDay.Infrastructure.OpenAIAnalysis;
 
-public sealed class OpenAIInboxAnalyzer(ChatClient client, IOptions<OpenAIInboxAnalysisOptions> options) : IInboxAnalyzer
+public sealed class OpenAIInboxAnalyzer(ChatClient client, IOptions<OpenAIInboxAnalysisOptions> options,
+    string? promptVersion = null) : IInboxAnalyzer
 {
+    private readonly string _systemPrompt = OpenAIInboxAnalysisFormat.GetPrompt(promptVersion ?? OpenAIInboxAnalysisFormat.PromptVersion);
+
     public InboxAnalyzerDescriptor Descriptor { get; } = new(options.Value.Model,
-        OpenAIInboxAnalysisFormat.SchemaVersion, OpenAIInboxAnalysisFormat.PromptVersion,
+        OpenAIInboxAnalysisFormat.SchemaVersion, promptVersion ?? OpenAIInboxAnalysisFormat.PromptVersion,
         options.Value.EffectiveReasoningEffort, options.Value.MaxOutputTokens, options.Value.TimeoutSeconds);
 
     public async Task<InboxAnalyzerResponse> AnalyzeAsync(InboxAnalysisRequest request, CancellationToken cancellationToken)
@@ -35,7 +38,7 @@ public sealed class OpenAIInboxAnalyzer(ChatClient client, IOptions<OpenAIInboxA
         try
         {
             completion = await client.CompleteChatAsync(
-                [new SystemChatMessage(OpenAIInboxAnalysisFormat.SystemPrompt), new UserChatMessage(input)],
+                [new SystemChatMessage(_systemPrompt), new UserChatMessage(input)],
                 completionOptions, cancellationToken);
         }
         catch (ClientResultException exception)
@@ -67,7 +70,8 @@ public sealed class OpenAIInboxAnalyzer(ChatClient client, IOptions<OpenAIInboxA
         }
 
         return new(completion.Content[0].Text, completion.Model, completion.Id,
-            completion.Usage?.InputTokenCount, completion.Usage?.OutputTokenCount);
+            completion.Usage?.InputTokenCount, completion.Usage?.OutputTokenCount,
+            completion.Usage?.InputTokenDetails?.CachedTokenCount);
     }
 
     private static InboxAnalysisCode Classify(ClientResultException exception)

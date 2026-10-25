@@ -25,7 +25,8 @@ public sealed record InboxAnalyzerResponse(
     string Model,
     string? RequestId = null,
     int? InputTokens = null,
-    int? OutputTokens = null);
+    int? OutputTokens = null,
+    int? CachedInputTokens = null);
 
 public interface IInboxAnalyzer
 {
