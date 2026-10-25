@@ -145,7 +145,7 @@ public sealed class InboxAnalysisServiceTests
     {
         await using var fixture = await Fixture.CreateAsync();
         var item = await fixture.CaptureAsync("Купить молоко");
-        var service = fixture.Service(new FakeAnalyzer((_, _) => throw new InboxAnalyzerException("sensitive body")));
+        var service = fixture.Service(new FakeAnalyzer((_, _) => throw new InboxAnalyzerException((InboxAnalysisCode)int.MaxValue)));
         var result = await service.AnalyzeAsync(Alice, item.Id, TestContextToken);
         Assert.Equal(InboxAnalysisStatus.Failed, result!.Status);
         Assert.DoesNotContain("sensitive", result.DiagnosticsJson);
@@ -249,7 +249,7 @@ public sealed class InboxAnalysisServiceTests
 
         Assert.Equal(expectedCode, code);
         Assert.Equal(expectedCode == "validated" ? 1 : 0, calls);
-        Assert.Equal(expectedCode, jobs.Outcome!.Code);
+        Assert.Equal(expectedCode, jobs.Outcome!.Code.ToStorageValue());
         Assert.Null(jobs.RetryAfter);
         if (expectedCode == "descriptor_mismatch")
         {

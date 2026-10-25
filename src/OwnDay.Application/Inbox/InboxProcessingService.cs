@@ -99,20 +99,35 @@ public sealed class InboxProcessingService(
         }
 
         // Only domain construction errors are input errors. Storage failures propagate.
-        object target;
+        Func<CancellationToken, Task<long>> saveTarget;
         var now = timeProvider.GetUtcNow().UtcDateTime;
         try
         {
-            target = command.TargetKind switch
+            switch (command.TargetKind)
             {
-                InboxTargetKind.Action => Action.Create(userId, command.Text, now, command.ProjectId),
-                InboxTargetKind.Project => Project.Create(userId, command.Text, now),
-                InboxTargetKind.SomedayMaybe => SomedayMaybe.Create(userId, command.Text, now, command.ProjectId),
-                InboxTargetKind.Reference => Reference.Create(userId, command.Text, now, command.ProjectId),
-                InboxTargetKind.WaitingFor => WaitingFor.Create(userId, command.Text, command.Source,
-                    command.WaitingSince ?? now, command.ProjectId),
-                _ => throw new InvalidOperationException("Target kind was already validated.")
-            };
+                case InboxTargetKind.Action:
+                    var action = Action.Create(userId, command.Text, now, command.ProjectId);
+                    saveTarget = async token => (await actions.AddAsync(action, token)).Id;
+                    break;
+                case InboxTargetKind.Project:
+                    var project = Project.Create(userId, command.Text, now);
+                    saveTarget = async token => (await structuredItems.AddAsync(project, token)).Id;
+                    break;
+                case InboxTargetKind.SomedayMaybe:
+                    var idea = SomedayMaybe.Create(userId, command.Text, now, command.ProjectId);
+                    saveTarget = async token => (await structuredItems.AddAsync(idea, token)).Id;
+                    break;
+                case InboxTargetKind.Reference:
+                    var reference = Reference.Create(userId, command.Text, now, command.ProjectId);
+                    saveTarget = async token => (await structuredItems.AddAsync(reference, token)).Id;
+                    break;
+                case InboxTargetKind.WaitingFor:
+                    var waiting = WaitingFor.Create(userId, command.Text, command.Source, command.WaitingSince ?? now, command.ProjectId);
+                    saveTarget = async token => (await structuredItems.AddAsync(waiting, token)).Id;
+                    break;
+                default:
+                    throw new InvalidOperationException("Target kind was already validated.");
+            }
         }
         catch (ArgumentException)
         {
@@ -125,15 +140,7 @@ public sealed class InboxProcessingService(
             return new(ProcessInboxItemStatus.InvalidProject);
         }
 
-        var targetId = target switch
-        {
-            Action action => (await actions.AddAsync(action, cancellationToken)).Id,
-            Project project => (await structuredItems.AddAsync(project, cancellationToken)).Id,
-            SomedayMaybe idea => (await structuredItems.AddAsync(idea, cancellationToken)).Id,
-            Reference reference => (await structuredItems.AddAsync(reference, cancellationToken)).Id,
-            WaitingFor waiting => (await structuredItems.AddAsync(waiting, cancellationToken)).Id,
-            _ => throw new InvalidOperationException("Unsupported inbox target.")
-        };
+        var targetId = await saveTarget(cancellationToken);
 
         item.Process(command.TargetKind, targetId, timeProvider.GetUtcNow().UtcDateTime);
         return new(ProcessInboxItemStatus.Processed, command.TargetKind, targetId);

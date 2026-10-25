@@ -6,25 +6,25 @@ namespace OwnDay.UnitTests.Inbox.Analysis;
 public sealed class InboxAnalysisProcessingOptionsTests
 {
     [Theory]
-    [InlineData("refused")]
-    [InlineData("invalid_response")]
-    [InlineData("incomplete_response")]
-    [InlineData("context_limit")]
-    [InlineData("input_limit")]
-    [InlineData("configuration")]
-    [InlineData("budget_limit")]
-    [InlineData("permanent_failure")]
-    [InlineData("item_inactive")]
-    public void RetryAfter_TerminalReason_DoesNotRetry(string code)
+    [InlineData(InboxAnalysisCode.Refused)]
+    [InlineData(InboxAnalysisCode.InvalidResponse)]
+    [InlineData(InboxAnalysisCode.IncompleteResponse)]
+    [InlineData(InboxAnalysisCode.ContextLimit)]
+    [InlineData(InboxAnalysisCode.InputLimit)]
+    [InlineData(InboxAnalysisCode.Configuration)]
+    [InlineData(InboxAnalysisCode.BudgetLimit)]
+    [InlineData(InboxAnalysisCode.PermanentFailure)]
+    [InlineData(InboxAnalysisCode.ItemInactive)]
+    public void RetryAfter_TerminalReason_DoesNotRetry(InboxAnalysisCode code)
     {
         Assert.Null(new InboxAnalysisProcessingOptions().RetryAfter(code, 1, 0.5));
     }
 
     [Theory]
-    [InlineData("provider_failure")]
-    [InlineData("rate_limit")]
-    [InlineData("timeout")]
-    public void RetryAfter_TransientReason_UsesExponentialBoundedJitterAndStopsAtLimit(string code)
+    [InlineData(InboxAnalysisCode.ProviderFailure)]
+    [InlineData(InboxAnalysisCode.RateLimit)]
+    [InlineData(InboxAnalysisCode.Timeout)]
+    public void RetryAfter_TransientReason_UsesExponentialBoundedJitterAndStopsAtLimit(InboxAnalysisCode code)
     {
         var options = new InboxAnalysisProcessingOptions { MaxAttempts = 5, InitialBackoffSeconds = 30, MaxBackoffSeconds = 100 };
         Assert.Equal(TimeSpan.FromSeconds(15), options.RetryAfter(code, 1, 0));

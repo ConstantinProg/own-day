@@ -14,7 +14,7 @@ public sealed class TelegramInboxFlow(
     public async Task<IReadOnlyList<string>> CaptureOrContinueAsync(UserId user, string text, string locale, CancellationToken token)
     {
         var result = await drafts.CaptureOrLoadAsync(user, text, token);
-        if (result is { Outcome: InboxDraftOutcome.Prompt, Draft: { } draft, Item: { } item })
+        if (result is InboxDraftResult.Prompt { Draft: var draft, Item: var item })
         {
             var input = ParseInput(draft.Step, text.Trim());
             if (input is null)

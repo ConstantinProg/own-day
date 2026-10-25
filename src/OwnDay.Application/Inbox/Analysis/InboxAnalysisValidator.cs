@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using OwnDay.Domain.Inbox;
+using OwnDay.Domain.WaitingFors;
 
 namespace OwnDay.Application.Inbox.Analysis;
 
@@ -30,53 +31,78 @@ public sealed class InboxAnalysisValidator
         }
 
         var projects = request.Context.Projects.Select(project => project.Id).ToHashSet();
-        foreach (var item in output.Items)
+        return output.Items.All(item => IsValidProposal(item, request, projects)) ? output : null;
+    }
+
+    private static bool IsValidProposal(InboxProposal? item, InboxAnalysisRequest request, HashSet<long> projects)
+    {
+        if (item is null || !Enum.IsDefined(item.Kind) ||
+            request.SupportedTypes.SingleOrDefault(type => type.Kind == item.Kind) is not { } supported)
         {
-            if (item is null || !Enum.IsDefined(item.Kind) ||
-                request.SupportedTypes.SingleOrDefault(type => type.Kind == item.Kind) is not { } supported ||
-                !RequiredText(item.Title, supported.MaxTitleLength) || !OptionalText(item.Description, 2000) ||
-                item.Properties is not { } properties || item.ProjectIds is null || item.Ambiguities is null ||
-                item.ProjectIds.Length > 5 || item.ProjectIds.Distinct().Count() != item.ProjectIds.Length ||
-                item.ProjectIds.Any(id => !projects.Contains(id)) ||
-                (item.Kind == InboxTargetKind.Project && item.ProjectIds.Length != 0) ||
-                item.Ambiguities.Length > 10 || item.Ambiguities.Any(text => !RequiredText(text, 500)) ||
-                (item.ProjectIds.Length > 1 && item.Ambiguities.Length == 0) ||
-                !OptionalText(properties.Source, 200) ||
-                !OptionalText(properties.UnresolvedDateText, 500) ||
-                !OptionalText(properties.WaitingSinceEvidence, 100) ||
-                (properties.Source is not null && !request.OriginalText.Contains(properties.Source, StringComparison.Ordinal)) ||
-                (item.Kind != InboxTargetKind.WaitingFor &&
-                    (properties.Source is not null || properties.WaitingSince is not null || properties.WaitingSinceEvidence is not null)))
-            {
-                return null;
-            }
-
-            if (properties.UnresolvedDateText is { } unresolved &&
-                (!request.OriginalText.Contains(unresolved, StringComparison.Ordinal) || item.Ambiguities.Length == 0))
-            {
-                return null;
-            }
-
-            if (properties.WaitingSince is { } since)
-            {
-                var evidence = properties.WaitingSinceEvidence;
-                // Require explicit time and offset, also when a future caller supplies a known timezone.
-                if (evidence is null || !request.OriginalText.Contains(evidence, StringComparison.Ordinal) ||
-                    !HasExplicitOffset(evidence) ||
-                    !DateTimeOffset.TryParse(evidence, CultureInfo.InvariantCulture, DateTimeStyles.None, out var explicitDate) ||
-                    explicitDate != since || since.Offset != TimeSpan.Zero || since.UtcDateTime > request.CapturedAt ||
-                    properties.UnresolvedDateText is not null)
-                {
-                    return null;
-                }
-            }
-            else if (properties.WaitingSinceEvidence is not null)
-            {
-                return null;
-            }
+            return false;
         }
 
-        return output;
+        return RequiredText(item.Title, supported.MaxTitleLength) && OptionalText(item.Description, 2000) &&
+            HasValidAmbiguities(item.Ambiguities) && HasValidProjects(item, projects) &&
+            HasValidProperties(item, request);
+    }
+
+    private static bool HasValidAmbiguities(string[]? ambiguities) =>
+        ambiguities is { Length: <= 10 } && ambiguities.All(text => RequiredText(text, 500));
+
+    private static bool HasValidProjects(InboxProposal item, HashSet<long> projects)
+    {
+        var ids = item.ProjectIds;
+        return ids is { Length: <= 5 } && ids.Distinct().Count() == ids.Length &&
+            ids.All(projects.Contains) &&
+            (item.Kind != InboxTargetKind.Project || ids.Length == 0) &&
+            (ids.Length <= 1 || item.Ambiguities.Length > 0);
+    }
+
+    private static bool HasValidProperties(InboxProposal item, InboxAnalysisRequest request)
+    {
+        if (item.Properties is not { } properties ||
+            !OptionalText(properties.Source, WaitingFor.MaxSourceLength) ||
+            !OptionalText(properties.UnresolvedDateText, 500) ||
+            !OptionalText(properties.WaitingSinceEvidence, 100))
+        {
+            return false;
+        }
+
+        if (properties.Source is { } source && !request.OriginalText.Contains(source, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        if (item.Kind != InboxTargetKind.WaitingFor &&
+            (properties.Source is not null || properties.WaitingSince is not null || properties.WaitingSinceEvidence is not null))
+        {
+            return false;
+        }
+
+        if (properties.UnresolvedDateText is { } unresolved &&
+            (!request.OriginalText.Contains(unresolved, StringComparison.Ordinal) || item.Ambiguities.Length == 0))
+        {
+            return false;
+        }
+
+        return HasValidWaitingSince(properties, request);
+    }
+
+    private static bool HasValidWaitingSince(InboxProposalProperties properties, InboxAnalysisRequest request)
+    {
+        if (properties.WaitingSince is not { } since)
+        {
+            return properties.WaitingSinceEvidence is null;
+        }
+
+        // Require explicit time and offset, also when a future caller supplies a known timezone.
+        var evidence = properties.WaitingSinceEvidence;
+        return evidence is not null && request.OriginalText.Contains(evidence, StringComparison.Ordinal) &&
+            HasExplicitOffset(evidence) &&
+            DateTimeOffset.TryParse(evidence, CultureInfo.InvariantCulture, DateTimeStyles.None, out var explicitDate) &&
+            explicitDate == since && since.Offset == TimeSpan.Zero && since.UtcDateTime <= request.CapturedAt &&
+            properties.UnresolvedDateText is null;
     }
 
     private static bool HasExplicitOffset(string text) => text.Contains('T') &&

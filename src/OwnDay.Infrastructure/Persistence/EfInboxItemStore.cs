@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using OwnDay.Application.Inbox;
+using OwnDay.Application.Inbox.Analysis;
 using OwnDay.Domain;
 using OwnDay.Domain.Inbox;
 
@@ -10,10 +11,7 @@ public sealed class EfInboxItemStore(OwnDayDbContext dbContext) : IInboxItemStor
     public async Task<InboxItem> AddAsync(InboxItem item, CancellationToken cancellationToken)
     {
         dbContext.InboxItems.Add(item);
-        dbContext.InboxAnalysisJobs.Add(new()
-        {
-            Item = item, UserId = item.UserId, CreatedAt = item.CapturedAt, AvailableAt = item.CapturedAt
-        });
+        dbContext.InboxAnalysisJobs.Add(InboxAnalysisJob.Schedule(item));
         await dbContext.SaveChangesAsync(cancellationToken);
         return item;
     }

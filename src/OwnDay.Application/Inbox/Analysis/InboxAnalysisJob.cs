@@ -1,3 +1,4 @@
+using System.Text.Json;
 using OwnDay.Domain;
 using OwnDay.Domain.Inbox;
 
@@ -15,22 +16,84 @@ public enum InboxAnalysisJobStatus
 // One automatic analysis per captured item; retries retain the same AnalysisId/version.
 public sealed class InboxAnalysisJob
 {
-    public Guid Id { get; set; } = Guid.NewGuid();
-    public long InboxItemId { get; set; }
-    public UserId UserId { get; set; }
-    public InboxItem Item { get; set; } = null!;
-    public Guid? AnalysisId { get; set; }
-    public InboxAnalysisJobStatus Status { get; set; }
-    public int AttemptCount { get; set; }
-    public DateTime AvailableAt { get; set; }
-    public DateTime CreatedAt { get; set; }
-    public Guid? LeaseToken { get; set; }
-    public DateTime? LeaseUntil { get; set; }
-    public string? LastCode { get; set; }
+    private InboxAnalysisJob() { }
+
+    public static InboxAnalysisJob Schedule(InboxItem item)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        return new InboxAnalysisJob
+        {
+            Item = item, InboxItemId = item.Id, UserId = item.UserId,
+            CreatedAt = item.CapturedAt, AvailableAt = item.CapturedAt
+        };
+    }
+
+    public void AttachAnalysis(InboxAnalysis analysis)
+    {
+        if (Status != InboxAnalysisJobStatus.Running || AnalysisId is not null ||
+            analysis.UserId != UserId || analysis.InboxItemId != InboxItemId)
+        {
+            throw new InvalidOperationException("Analysis must belong to the running job.");
+        }
+
+        AnalysisId = analysis.Id;
+    }
+
+    // Called under the store's job and Inbox locks, after validating lease ownership.
+    public InboxAnalysisJobResult Finish(InboxItem? item, InboxAnalysis? analysis,
+        InboxAnalysisOutcome outcome, TimeSpan? retryAfter, DateTime now)
+    {
+        if (Status != InboxAnalysisJobStatus.Running || LeaseUntil is null || LeaseUntil <= now)
+        {
+            throw new InvalidOperationException("Only a running job with a valid lease can finish.");
+        }
+
+        var code = outcome.Code;
+        if (analysis is { Status: not InboxAnalysisStatus.Pending })
+        {
+            Status = analysis.Status == InboxAnalysisStatus.Completed
+                ? InboxAnalysisJobStatus.Completed : InboxAnalysisJobStatus.Failed;
+            code = InboxAnalysisCode.AlreadyFinished;
+        }
+        else if (item?.Status != InboxItemStatus.Active || code == InboxAnalysisCode.ItemInactive)
+        {
+            Status = InboxAnalysisJobStatus.Skipped;
+            code = InboxAnalysisCode.ItemInactive;
+            analysis?.Finish(InboxAnalysisStatus.Failed, now, InboxAnalysisOutcome.Failure(code).DiagnosticsJson);
+        }
+        else if (retryAfter is { } delay)
+        {
+            Status = InboxAnalysisJobStatus.Ready;
+            AvailableAt = now + delay;
+        }
+        else
+        {
+            Status = outcome.Output is null ? InboxAnalysisJobStatus.Failed : InboxAnalysisJobStatus.Completed;
+            analysis?.Finish(outcome.Status, now, outcome.DiagnosticsJson, outcome.Output, outcome.Model);
+        }
+
+        LastCode = code.ToStorageValue();
+        LeaseToken = null;
+        LeaseUntil = null;
+        return new(Status, code);
+    }
+
+    public Guid Id { get; private set; } = Guid.NewGuid();
+    public long InboxItemId { get; private set; }
+    public UserId UserId { get; private set; }
+    public InboxItem Item { get; private set; } = null!;
+    public Guid? AnalysisId { get; private set; }
+    public InboxAnalysisJobStatus Status { get; private set; }
+    public int AttemptCount { get; private set; }
+    public DateTime AvailableAt { get; private set; }
+    public DateTime CreatedAt { get; private set; }
+    public Guid? LeaseToken { get; private set; }
+    public DateTime? LeaseUntil { get; private set; }
+    public string? LastCode { get; private set; }
 }
 
 public sealed record InboxAnalysisLease(Guid JobId, Guid Token, UserId UserId, long ItemId, int Attempt);
-public sealed record InboxAnalysisJobResult(InboxAnalysisJobStatus Status, string Code);
+public sealed record InboxAnalysisJobResult(InboxAnalysisJobStatus Status, InboxAnalysisCode Code);
 
 public interface IInboxAnalysisJobStore
 {
@@ -43,8 +106,16 @@ public interface IInboxAnalysisJobStore
     Task RecoverAsync(bool processingEnabled, CancellationToken cancellationToken);
 }
 
-public sealed record InboxAnalysisOutcome(string Code, InboxAnalysisOutput? Output = null,
-    string? Model = null, string DiagnosticsJson = "{}");
+public sealed record InboxAnalysisOutcome(InboxAnalysisCode Code, InboxAnalysisOutput? Output = null,
+    string? Model = null, string DiagnosticsJson = "{}")
+{
+    public InboxAnalysisStatus Status => Output is not null
+        ? InboxAnalysisStatus.Completed
+        : Code == InboxAnalysisCode.InvalidResponse ? InboxAnalysisStatus.InvalidResponse : InboxAnalysisStatus.Failed;
+
+    public static InboxAnalysisOutcome Failure(InboxAnalysisCode code) => new(code,
+        DiagnosticsJson: JsonSerializer.Serialize(new { code = code.ToStorageValue() }, InboxAnalysisJson.Options));
+}
 
 public sealed class InboxAnalysisProcessingOptions
 {
@@ -58,9 +129,9 @@ public sealed class InboxAnalysisProcessingOptions
     public int InitialBackoffSeconds { get; set; } = 30;
     public int MaxBackoffSeconds { get; set; } = 900;
 
-    public static bool IsTransient(string code) => code is "provider_failure" or "rate_limit" or "timeout";
+    public static bool IsTransient(InboxAnalysisCode code) => code is InboxAnalysisCode.ProviderFailure or InboxAnalysisCode.RateLimit or InboxAnalysisCode.Timeout;
 
-    public TimeSpan? RetryAfter(string code, int attempt, double jitter)
+    public TimeSpan? RetryAfter(InboxAnalysisCode code, int attempt, double jitter)
     {
         if (!IsTransient(code) || attempt >= MaxAttempts)
         {

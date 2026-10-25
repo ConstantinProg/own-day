@@ -132,7 +132,7 @@ public sealed class OpenAIInboxAnalyzerTests
         using var http = new HttpClient(handler);
         var exception = await Assert.ThrowsAsync<InboxAnalyzerException>(() =>
             Analyzer(http).AnalyzeAsync(Request(), CancellationToken.None));
-        Assert.Equal(code, exception.Code);
+        Assert.Equal(code, exception.Code.ToStorageValue());
     }
 
     [Fact]
@@ -142,7 +142,7 @@ public sealed class OpenAIInboxAnalyzerTests
         using var http = new HttpClient(handler);
         var exception = await Assert.ThrowsAsync<InboxAnalyzerException>(() =>
             Analyzer(http).AnalyzeAsync(Request(), CancellationToken.None));
-        Assert.Equal("rate_limit", exception.Code);
+        Assert.Equal("rate_limit", exception.Code.ToStorageValue());
         Assert.DoesNotContain("private", exception.ToString());
         Assert.Null(exception.InnerException);
         Assert.Equal(1, handler.Calls);
@@ -155,7 +155,7 @@ public sealed class OpenAIInboxAnalyzerTests
         using var http = new HttpClient(handler);
         var exception = await Assert.ThrowsAsync<InboxAnalyzerException>(() =>
             Analyzer(http).AnalyzeAsync(Request() with { OriginalText = new string('x', 48_001) }, CancellationToken.None));
-        Assert.Equal("context_limit", exception.Code);
+        Assert.Equal("context_limit", exception.Code.ToStorageValue());
         Assert.Equal(0, handler.Calls);
     }
 
@@ -175,7 +175,7 @@ public sealed class OpenAIInboxAnalyzerTests
         using var handler = new RecordingHandler(body, (HttpStatusCode)status);
         using var http = new HttpClient(handler);
         var error = await Assert.ThrowsAsync<InboxAnalyzerException>(() => Analyzer(http).AnalyzeAsync(Request(), CancellationToken.None));
-        Assert.Equal(expected, error.Code);
+        Assert.Equal(expected, error.Code.ToStorageValue());
         Assert.DoesNotContain("private", error.ToString());
         Assert.Equal(1, handler.Calls);
     }
@@ -188,7 +188,7 @@ public sealed class OpenAIInboxAnalyzerTests
         using var handler = new RecordingHandler(body, HttpStatusCode.TooManyRequests);
         using var http = new HttpClient(handler);
         var error = await Assert.ThrowsAsync<InboxAnalyzerException>(() => Analyzer(http).AnalyzeAsync(Request(), CancellationToken.None));
-        Assert.Equal("rate_limit", error.Code);
+        Assert.Equal("rate_limit", error.Code.ToStorageValue());
         Assert.Equal(1, handler.Calls);
     }
 

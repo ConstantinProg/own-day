@@ -30,17 +30,17 @@ public sealed class InboxDraftService(
             }
 
             await capture.CaptureAsync(user, text, token);
-            return new(expired ? InboxDraftOutcome.Expired : InboxDraftOutcome.Captured);
+            return new InboxDraftResult.Notice(expired ? InboxDraftOutcome.Expired : InboxDraftOutcome.Captured);
         }
 
         var item = await capture.FindAsync(user, draft.InboxItemId, token);
         if (item?.Status != InboxItemStatus.Active)
         {
             drafts.Remove(draft);
-            return new(InboxDraftOutcome.Unavailable);
+            return new InboxDraftResult.Notice(InboxDraftOutcome.Unavailable);
         }
 
-        return new(InboxDraftOutcome.Prompt, draft, item);
+        return new InboxDraftResult.Prompt(draft, item);
     }
 
     public async Task<InboxDraftResult> OpenAsync(UserId user, long itemId, CancellationToken token)
@@ -48,7 +48,7 @@ public sealed class InboxDraftService(
         var item = await capture.FindAsync(user, itemId, token);
         if (item?.Status != InboxItemStatus.Active)
         {
-            return new(InboxDraftOutcome.NotFound);
+            return new InboxDraftResult.Notice(InboxDraftOutcome.NotFound);
         }
 
         var draft = await drafts.FindAsync(user, token);
@@ -65,7 +65,7 @@ public sealed class InboxDraftService(
         draft.Source = null;
         draft.ProjectId = null;
         Refresh(draft);
-        return new(InboxDraftOutcome.Prompt, draft, item);
+        return new InboxDraftResult.Prompt(draft, item);
     }
 
     public async Task<bool> CancelAsync(UserId user, CancellationToken token)
@@ -125,7 +125,7 @@ public sealed class InboxDraftService(
                 var text = edit.Text ?? draft.Text;
                 if (!IsValidText(draft.TargetKind, text))
                 {
-                    return new(InboxDraftOutcome.InvalidText);
+                    return new InboxDraftResult.Notice(InboxDraftOutcome.InvalidText);
                 }
 
                 draft.Text = text!.Trim();
@@ -140,7 +140,7 @@ public sealed class InboxDraftService(
                 if (source.Source is not null &&
                     (string.IsNullOrWhiteSpace(source.Source) || source.Source.Trim().Length > WaitingFor.MaxSourceLength))
                 {
-                    return new(InboxDraftOutcome.InvalidSource);
+                    return new InboxDraftResult.Notice(InboxDraftOutcome.InvalidSource);
                 }
 
                 draft.Source = source.Source?.Trim();
@@ -150,7 +150,7 @@ public sealed class InboxDraftService(
                 if (project.ProjectId is long id &&
                     (await structured.FindProjectAsync(user, id, token)) is not { Status: ProjectStatus.Active })
                 {
-                    return new(InboxDraftOutcome.InvalidProject);
+                    return new InboxDraftResult.Notice(InboxDraftOutcome.InvalidProject);
                 }
 
                 draft.ProjectId = project.ProjectId;
@@ -163,32 +163,34 @@ public sealed class InboxDraftService(
         }
 
         Refresh(draft);
-        return new(InboxDraftOutcome.Prompt, draft, item);
+        return new InboxDraftResult.Prompt(draft, item);
     }
 
     private async Task<InboxDraftResult> ConfirmAsync(UserId user, InboxDraft draft, CancellationToken token)
     {
+        var targetKind = draft.TargetKind ?? throw new InvalidOperationException("Target is required.");
         var result = await processing.ProcessAsync(user, new ProcessInboxItem(
-            draft.InboxItemId, draft.TargetKind ?? throw new InvalidOperationException("Target is required."),
+            draft.InboxItemId, targetKind,
             draft.Text ?? throw new InvalidOperationException("Text is required."), draft.ProjectId, draft.Source), token);
         if (result.Status == ProcessInboxItemStatus.InvalidProject)
         {
             draft.Step = InboxDraftStep.Project;
             Refresh(draft);
-            return new(InboxDraftOutcome.ProjectUnavailable);
+            return new InboxDraftResult.Notice(InboxDraftOutcome.ProjectUnavailable);
         }
 
         if (result.Status == ProcessInboxItemStatus.InvalidTargetData)
         {
             draft.Step = InboxDraftStep.Text;
             Refresh(draft);
-            return new(InboxDraftOutcome.InvalidTargetData);
+            return new InboxDraftResult.Notice(InboxDraftOutcome.InvalidTargetData);
         }
 
         drafts.Remove(draft);
         return result.Status == ProcessInboxItemStatus.Processed
-            ? new(InboxDraftOutcome.Processed, draft, TargetId: result.TargetId)
-            : new(InboxDraftOutcome.ProcessingUnavailable);
+            ? new InboxDraftResult.Processed(draft.InboxItemId, targetKind,
+                result.TargetId ?? throw new InvalidOperationException("Processed item requires a target ID."))
+            : new InboxDraftResult.Notice(InboxDraftOutcome.ProcessingUnavailable);
     }
 
     private static bool IsValidText(InboxTargetKind? kind, string? text)

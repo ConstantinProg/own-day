@@ -34,9 +34,9 @@ public interface IInboxAnalyzer
 }
 
 // Only safe diagnostic codes cross the provider boundary; never provider exception messages or response bodies.
-public sealed class InboxAnalyzerException(string code) : Exception("Inbox analysis provider failed.")
+public sealed class InboxAnalyzerException(InboxAnalysisCode code) : Exception("Inbox analysis provider failed.")
 {
-    public string Code { get; } = code;
+    public InboxAnalysisCode Code { get; } = code;
 }
 
 public sealed record InboxAnalysisOutput

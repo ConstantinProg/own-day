@@ -18,7 +18,7 @@ public sealed class OpenAIInboxAnalyzer(ChatClient client, IOptions<OpenAIInboxA
         var input = JsonSerializer.Serialize(request, InboxAnalysisJson.Options);
         if (input.Length > 48_000)
         {
-            throw new InboxAnalyzerException("context_limit");
+            throw new InboxAnalyzerException(InboxAnalysisCode.ContextLimit);
         }
 
         // The SDK's typed reasoning property is experimental. The public
@@ -44,33 +44,33 @@ public sealed class OpenAIInboxAnalyzer(ChatClient client, IOptions<OpenAIInboxA
         }
         catch (HttpRequestException)
         {
-            throw new InboxAnalyzerException("provider_failure");
+            throw new InboxAnalyzerException(InboxAnalysisCode.ProviderFailure);
         }
         catch (JsonException)
         {
-            throw new InboxAnalyzerException("invalid_response");
+            throw new InboxAnalyzerException(InboxAnalysisCode.InvalidResponse);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            throw new InboxAnalyzerException("timeout");
+            throw new InboxAnalyzerException(InboxAnalysisCode.Timeout);
         }
 
         if (!string.IsNullOrEmpty(completion.Refusal))
         {
-            throw new InboxAnalyzerException("refused");
+            throw new InboxAnalyzerException(InboxAnalysisCode.Refused);
         }
 
         if (completion.FinishReason != ChatFinishReason.Stop || completion.Content.Count != 1 ||
             completion.Content[0].Kind != ChatMessageContentPartKind.Text)
         {
-            throw new InboxAnalyzerException("incomplete_response");
+            throw new InboxAnalyzerException(InboxAnalysisCode.IncompleteResponse);
         }
 
         return new(completion.Content[0].Text, completion.Model, completion.Id,
             completion.Usage?.InputTokenCount, completion.Usage?.OutputTokenCount);
     }
 
-    private static string Classify(ClientResultException exception)
+    private static InboxAnalysisCode Classify(ClientResultException exception)
     {
         if (exception.Status == 429)
         {
@@ -87,21 +87,21 @@ public sealed class OpenAIInboxAnalyzer(ChatClient client, IOptions<OpenAIInboxA
                         code.ValueKind == JsonValueKind.String &&
                         code.GetString() is "insufficient_quota" or "billing_hard_limit_reached")
                     {
-                        return "budget_limit";
+                        return InboxAnalysisCode.BudgetLimit;
                     }
                 }
             }
             catch (JsonException) { }
 
-            return "rate_limit";
+            return InboxAnalysisCode.RateLimit;
         }
 
         return exception.Status switch
         {
-            401 or 403 => "configuration",
-            0 or 408 or 409 => "provider_failure",
-            >= 500 => "provider_failure",
-            _ => "permanent_failure"
+            401 or 403 => InboxAnalysisCode.Configuration,
+            0 or 408 or 409 => InboxAnalysisCode.ProviderFailure,
+            >= 500 => InboxAnalysisCode.ProviderFailure,
+            _ => InboxAnalysisCode.PermanentFailure
         };
     }
 }

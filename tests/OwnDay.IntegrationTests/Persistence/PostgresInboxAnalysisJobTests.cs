@@ -59,7 +59,7 @@ public sealed class PostgresInboxAnalysisJobTests : IAsyncLifetime
     {
         await using var db = Db();
         var item = InboxItem.Capture(Owner, "private", DateTime.UtcNow);
-        db.InboxAnalysisJobs.Add(new() { Item = item, UserId = Owner, CreatedAt = DateTime.UtcNow, AvailableAt = DateTime.UtcNow });
+        db.InboxAnalysisJobs.Add(InboxAnalysisJob.Schedule(item));
         // AddAsync must attempt to insert its own job too: the unique constraint rejects the entire SaveChanges.
         await Assert.ThrowsAsync<DbUpdateException>(() => new EfInboxItemStore(db).AddAsync(item, Token));
         await using var reader = Db();
@@ -162,7 +162,7 @@ public sealed class PostgresInboxAnalysisJobTests : IAsyncLifetime
         }
 
         await using var verify = Db();
-        Assert.Null(await Jobs(verify).FinishAsync(lease, new("validated"), null, Token));
+        Assert.Null(await Jobs(verify).FinishAsync(lease, new(InboxAnalysisCode.Validated), null, Token));
         Assert.Null(await Jobs(verify).ClaimAsync(TimeSpan.FromMinutes(2), Token));
         Assert.Equal(1, ai.Calls);
         Assert.Single(await verify.InboxAnalyses.ToListAsync(Token));
@@ -176,10 +176,10 @@ public sealed class PostgresInboxAnalysisJobTests : IAsyncLifetime
     }
 
     [Theory]
-    [InlineData("provider_failure")]
-    [InlineData("rate_limit")]
-    [InlineData("timeout")]
-    public async Task ProcessJobAsync_TransientFailure_RetriesSameVersionWithBackoff(string code)
+    [InlineData(InboxAnalysisCode.ProviderFailure)]
+    [InlineData(InboxAnalysisCode.RateLimit)]
+    [InlineData(InboxAnalysisCode.Timeout)]
+    public async Task ProcessJobAsync_TransientFailure_RetriesSameVersionWithBackoff(InboxAnalysisCode code)
     {
         await CaptureAsync();
         var calls = 0;
@@ -204,14 +204,14 @@ public sealed class PostgresInboxAnalysisJobTests : IAsyncLifetime
     }
 
     [Theory]
-    [InlineData("refused")]
-    [InlineData("incomplete_response")]
-    [InlineData("context_limit")]
-    [InlineData("configuration")]
-    [InlineData("budget_limit")]
-    [InlineData("permanent_failure")]
-    [InlineData("invalid_response")]
-    public async Task ProcessJobAsync_PermanentFailure_StopsWithoutChangingInbox(string code)
+    [InlineData(InboxAnalysisCode.Refused)]
+    [InlineData(InboxAnalysisCode.IncompleteResponse)]
+    [InlineData(InboxAnalysisCode.ContextLimit)]
+    [InlineData(InboxAnalysisCode.Configuration)]
+    [InlineData(InboxAnalysisCode.BudgetLimit)]
+    [InlineData(InboxAnalysisCode.PermanentFailure)]
+    [InlineData(InboxAnalysisCode.InvalidResponse)]
+    public async Task ProcessJobAsync_PermanentFailure_StopsWithoutChangingInbox(InboxAnalysisCode code)
     {
         await CaptureAsync();
         var ai = new FakeAnalyzer((_, _) => throw new InboxAnalyzerException(code));
@@ -219,7 +219,7 @@ public sealed class PostgresInboxAnalysisJobTests : IAsyncLifetime
         await using var db = Db();
         var job = await db.InboxAnalysisJobs.SingleAsync(Token);
         Assert.Equal(InboxAnalysisJobStatus.Failed, job.Status);
-        Assert.Equal(code, job.LastCode);
+        Assert.Equal(code.ToStorageValue(), job.LastCode);
         Assert.Null(await Jobs(db).ClaimAsync(TimeSpan.FromMinutes(2), Token));
         Assert.NotEqual(InboxAnalysisStatus.Pending, (await db.InboxAnalyses.SingleAsync(Token)).Status);
         Assert.Equal(InboxItemStatus.Active, (await db.InboxItems.SingleAsync(Token)).Status);
@@ -234,7 +234,7 @@ public sealed class PostgresInboxAnalysisJobTests : IAsyncLifetime
         string model, string schema, string prompt)
     {
         await CaptureAsync();
-        await RunAsync(new FakeAnalyzer((_, _) => throw new InboxAnalyzerException("provider_failure")));
+        await RunAsync(new FakeAnalyzer((_, _) => throw new InboxAnalyzerException(InboxAnalysisCode.ProviderFailure)));
         Guid analysisId;
         await using (var db = Db()) { analysisId = (await db.InboxAnalyses.SingleAsync(Token)).Id; }
 
@@ -273,7 +273,7 @@ public sealed class PostgresInboxAnalysisJobTests : IAsyncLifetime
         await CaptureAsync();
         var original = legacy ? new InboxAnalyzerDescriptor("gpt-6-luna", "v1", "v1")
             : new("gpt-6-luna", "v1", "v1", "low", 8192, 60);
-        await RunAsync(new FakeAnalyzer((_, _) => throw new InboxAnalyzerException("provider_failure"))
+        await RunAsync(new FakeAnalyzer((_, _) => throw new InboxAnalyzerException(InboxAnalysisCode.ProviderFailure))
         {
             Descriptor = original
         });
@@ -314,7 +314,7 @@ public sealed class PostgresInboxAnalysisJobTests : IAsyncLifetime
     public async Task ProcessJobAsync_ExhaustedRetries_TerminatesPendingVersion()
     {
         await CaptureAsync();
-        var ai = new FakeAnalyzer((_, _) => throw new InboxAnalyzerException("provider_failure"));
+        var ai = new FakeAnalyzer((_, _) => throw new InboxAnalyzerException(InboxAnalysisCode.ProviderFailure));
         var options = new InboxAnalysisProcessingOptions { MaxAttempts = 2 };
         await RunAsync(ai, options);
         await MakeReadyAsync();
@@ -383,7 +383,7 @@ public sealed class PostgresInboxAnalysisJobTests : IAsyncLifetime
         Assert.NotEqual(old.Token, current.Token);
         await using (var stale = Db())
         {
-            Assert.Null(await Jobs(stale).FinishAsync(old, new("permanent_failure"), null, Token));
+            Assert.Null(await Jobs(stale).FinishAsync(old, new(InboxAnalysisCode.PermanentFailure), null, Token));
         }
 
         var ai = new FakeAnalyzer((_, _) => Task.FromResult(Response()));

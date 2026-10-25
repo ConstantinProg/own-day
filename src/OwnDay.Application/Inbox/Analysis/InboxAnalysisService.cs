@@ -54,7 +54,7 @@ public sealed class InboxAnalysisService(
 
         var request = new InboxAnalysisRequest(item.OriginalText, item.CapturedAt, context, SupportedTypes);
         var outcome = await EvaluateAsync(request, cancellationToken);
-        analysis.Finish(Status(outcome), Now(analysis), outcome.DiagnosticsJson, outcome.Output, outcome.Model);
+        analysis.Finish(outcome.Status, Now(analysis), outcome.DiagnosticsJson, outcome.Output, outcome.Model);
         await analyses.SaveAsync(analysis, cancellationToken);
         return analysis;
     }
@@ -66,15 +66,15 @@ public sealed class InboxAnalysisService(
         var item = await inbox.FindAsync(lease.UserId, lease.ItemId, cancellationToken);
         if (item?.Status != InboxItemStatus.Active)
         {
-            outcome = Failure("item_inactive");
+            outcome = InboxAnalysisOutcome.Failure(InboxAnalysisCode.ItemInactive);
         }
         else if (lease.Attempt > options.MaxAttempts)
         {
-            outcome = Failure("attempts_exhausted");
+            outcome = InboxAnalysisOutcome.Failure(InboxAnalysisCode.AttemptsExhausted);
         }
         else if (item.OriginalText.Length > MaxInputCharacters)
         {
-            outcome = Failure("input_limit");
+            outcome = InboxAnalysisOutcome.Failure(InboxAnalysisCode.InputLimit);
         }
         else
         {
@@ -85,19 +85,19 @@ public sealed class InboxAnalysisService(
                 Fingerprint(item.OriginalText), cancellationToken);
             if (analysis is null)
             {
-                return Report(await jobs.FinishAsync(lease, Failure("item_inactive"), null, cancellationToken));
+                return Report(await jobs.FinishAsync(lease, InboxAnalysisOutcome.Failure(InboxAnalysisCode.ItemInactive), null, cancellationToken));
             }
 
             if (analysis.Status != InboxAnalysisStatus.Pending)
             {
-                return Report(await jobs.FinishAsync(lease, Failure("already_finished"), null, cancellationToken));
+                return Report(await jobs.FinishAsync(lease, InboxAnalysisOutcome.Failure(InboxAnalysisCode.AlreadyFinished), null, cancellationToken));
             }
 
             var descriptor = new InboxAnalyzerDescriptor(analysis.Model, analysis.SchemaVersion, analysis.PromptVersion,
                 analysis.ReasoningEffort, analysis.MaxOutputTokens, analysis.TimeoutSeconds);
             if (descriptor != analyzer.Descriptor)
             {
-                return Report(await jobs.FinishAsync(lease, Failure("descriptor_mismatch"), null, cancellationToken));
+                return Report(await jobs.FinishAsync(lease, InboxAnalysisOutcome.Failure(InboxAnalysisCode.DescriptorMismatch), null, cancellationToken));
             }
 
             // A retry uses the committed context snapshot of the logical analysis.
@@ -112,7 +112,7 @@ public sealed class InboxAnalysisService(
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
-                outcome = Failure("timeout");
+                outcome = InboxAnalysisOutcome.Failure(InboxAnalysisCode.Timeout);
             }
         }
 
@@ -121,15 +121,8 @@ public sealed class InboxAnalysisService(
         return Report(saved);
     }
 
-    private static string Report(InboxAnalysisJobResult? result) => result is null ? "lease_lost"
-        : result.Status == InboxAnalysisJobStatus.Ready ? "retry_" + result.Code : result.Code;
-
-    public static InboxAnalysisStatus Status(InboxAnalysisOutcome outcome) => outcome.Output is not null
-        ? InboxAnalysisStatus.Completed : outcome.Code == "invalid_response"
-            ? InboxAnalysisStatus.InvalidResponse : InboxAnalysisStatus.Failed;
-
-    private static InboxAnalysisOutcome Failure(string code) => new(code,
-        DiagnosticsJson: JsonSerializer.Serialize(new { code }, InboxAnalysisJson.Options));
+    private static string Report(InboxAnalysisJobResult? result) => result is null ? InboxAnalysisCode.LeaseLost.ToStorageValue()
+        : result.Status == InboxAnalysisJobStatus.Ready ? "retry_" + result.Code.ToStorageValue() : result.Code.ToStorageValue();
 
     private async Task<InboxAnalysisOutcome> EvaluateAsync(InboxAnalysisRequest request, CancellationToken cancellationToken)
     {
@@ -140,22 +133,24 @@ public sealed class InboxAnalysisService(
         }
         catch (InboxAnalyzerException exception)
         {
-            var code = exception.Code is "refused" or "incomplete_response" or "timeout" or "context_limit"
-                or "rate_limit" or "budget_limit" or "configuration" or "permanent_failure" or "invalid_response"
-                ? exception.Code : "provider_failure";
-            return Failure(code);
+            var code = exception.Code is InboxAnalysisCode.Refused or InboxAnalysisCode.IncompleteResponse
+                or InboxAnalysisCode.Timeout or InboxAnalysisCode.ContextLimit or InboxAnalysisCode.RateLimit
+                or InboxAnalysisCode.BudgetLimit or InboxAnalysisCode.Configuration
+                or InboxAnalysisCode.PermanentFailure or InboxAnalysisCode.InvalidResponse
+                ? exception.Code : InboxAnalysisCode.ProviderFailure;
+            return InboxAnalysisOutcome.Failure(code);
         }
 
         cancellationToken.ThrowIfCancellationRequested();
         var output = validator.ParseAndValidate(response.Json, request);
         var diagnostics = JsonSerializer.Serialize(new
         {
-            code = output is null ? "invalid_response" : "validated",
+            code = (output is null ? InboxAnalysisCode.InvalidResponse : InboxAnalysisCode.Validated).ToStorageValue(),
             requestId = response.RequestId,
             inputTokens = response.InputTokens,
             outputTokens = response.OutputTokens
         }, InboxAnalysisJson.Options);
-        return new(output is null ? "invalid_response" : "validated", output, response.Model, diagnostics);
+        return new(output is null ? InboxAnalysisCode.InvalidResponse : InboxAnalysisCode.Validated, output, response.Model, diagnostics);
     }
 
     public Task<IReadOnlyList<InboxAnalysis>> GetAsync(UserId userId, long itemId, CancellationToken cancellationToken)

@@ -10,10 +10,10 @@ public sealed class TelegramInboxPresenter(StructuredItemService structured)
 {
     public async Task<IReadOnlyList<string>> RenderAsync(UserId user, InboxDraftResult result, string locale, CancellationToken token)
     {
-        if (result.Outcome == InboxDraftOutcome.Prompt)
+        if (result is InboxDraftResult.Prompt prompt)
         {
-            var draft = result.Draft ?? throw new InvalidOperationException("Prompt requires a draft.");
-            var item = result.Item ?? throw new InvalidOperationException("Prompt requires an inbox item.");
+            var draft = prompt.Draft;
+            var item = prompt.Item;
             return draft.Step switch
             {
                 InboxDraftStep.Target => [TelegramTexts.Get(locale, "inbox.target.prompt", item.Id, Short(item.OriginalText))],
@@ -25,10 +25,9 @@ public sealed class TelegramInboxPresenter(StructuredItemService structured)
             };
         }
 
-        if (result.Outcome == InboxDraftOutcome.Processed)
+        if (result is InboxDraftResult.Processed processed)
         {
-            var draft = result.Draft ?? throw new InvalidOperationException("Processed result requires a draft.");
-            return [TelegramTexts.Get(locale, "inbox.processed", draft.InboxItemId, Label(draft.TargetKind!.Value, locale), result.TargetId)];
+            return [TelegramTexts.Get(locale, "inbox.processed", processed.ItemId, Label(processed.TargetKind, locale), processed.TargetId)];
         }
 
         var key = result.Outcome switch
