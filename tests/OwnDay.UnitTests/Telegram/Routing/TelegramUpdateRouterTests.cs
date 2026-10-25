@@ -16,6 +16,45 @@ public sealed class TelegramUpdateRouterTests
         Options.Create(new TelegramOptions { BotUsername = "OwnDayBot" }));
 
     [Theory]
+    [InlineData("iu:17", true)]
+    [InlineData("iu:0", false)]
+    [InlineData("iu:-1", false)]
+    [InlineData("iu:17:other", false)]
+    public void Route_UndoCallback_ValidatesItemIdentity(string data, bool valid)
+    {
+        var result = _router.Route(CreateCallback(data));
+        if (valid)
+        {
+            var dispatch = Assert.IsType<TelegramUpdateRouteResult.Dispatch>(result);
+            Assert.Equal("inbox_undo", dispatch.Command.Name);
+            Assert.Equal("17", dispatch.Command.Arguments);
+            Assert.Equal(new(1), dispatch.Command.UserId);
+        }
+        else
+        {
+            Assert.IsType<TelegramUpdateRouteResult.Ignore>(result);
+        }
+    }
+
+    [Theory]
+    [InlineData("group")]
+    [InlineData("bot")]
+    [InlineData("foreign-chat")]
+    [InlineData("missing-message")]
+    public void Route_UntrustedUndoCallback_IgnoresUpdate(string scenario)
+    {
+        var update = CreateCallback("iu:17");
+        switch (scenario)
+        {
+            case "group": update.CallbackQuery!.Message!.Chat.Type = ChatType.Group; break;
+            case "bot": update.CallbackQuery!.From.IsBot = true; break;
+            case "foreign-chat": update.CallbackQuery!.Message!.Chat.Id = 2; break;
+            case "missing-message": update.CallbackQuery!.Message = null; break;
+        }
+        Assert.IsType<TelegramUpdateRouteResult.Ignore>(_router.Route(update));
+    }
+
+    [Theory]
     [InlineData(true, "inbox_accept")]
     [InlineData(false, "inbox_reject")]
     public void Route_InboxCallback_UsesAuthenticatedSenderAndStableAnalysisIdentity(bool accept, string expected)

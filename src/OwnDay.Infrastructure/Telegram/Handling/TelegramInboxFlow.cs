@@ -17,6 +17,31 @@ public sealed class TelegramInboxFlow(
     OwnDayDbContext db,
     InboxAutomaticProcessingService automatic)
 {
+    public async Task<IReadOnlyList<string>> UndoAsync(UserId user, string argument, string locale, CancellationToken token)
+    {
+        if (!TryParseId(argument.Trim(), out var id))
+        {
+            return [TelegramTexts.Get(locale, "undo.usage")];
+        }
+        var result = await automatic.UndoAsync(user, id, token);
+        if (result.FeedbackQueued)
+        {
+            return [];
+        }
+        if (result.Outcome == InboxUndoOutcome.Undone)
+        {
+            var application = await db.InboxAutomaticApplications.AsNoTracking()
+                .SingleAsync(a => a.UserId == user && a.InboxItemId == id && a.UndoneAt != null, token);
+            return [TelegramInboxFeedback.Render(application, InboxAnalysisStatus.Completed, user.Value, locale).Text];
+        }
+        return [TelegramTexts.Get(locale, result.Outcome switch
+        {
+            InboxUndoOutcome.AlreadyUndone => "undo.already",
+            InboxUndoOutcome.Conflict => "undo.conflict",
+            _ => "undo.unavailable"
+        }, id)];
+    }
+
     public async Task<IReadOnlyList<string>> ResolveAsync(UserId user, string argument, bool accept, string locale,
         CancellationToken token)
     {
@@ -59,6 +84,11 @@ public sealed class TelegramInboxFlow(
         if (item.Status == InboxItemStatus.Discarded)
         {
             return [TelegramTexts.Get(locale, "inbox.discard.already", item.Id) + "\n" + original];
+        }
+        if (item.Status == InboxItemStatus.Processed && application?.UndoneAt is not null)
+        {
+            return [TelegramTexts.Get(locale, "inbox.processed", item.Id,
+                TelegramInboxPresenter.Label(item.TargetKind!.Value, locale), item.TargetId) + "\n" + original];
         }
         if (item.Status == InboxItemStatus.Processed && application?.Route != InboxPolicyRoute.AutoApply &&
             application?.ConfirmationOutcome != InboxConfirmationOutcome.Applied)

@@ -50,6 +50,8 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
 
         modelBuilder.Entity("OwnDay.Domain.Inbox.InboxItem", b =>
         {
+                b.Property<bool>("ManualProcessingOnly").HasColumnType("boolean").HasColumnName("manual_processing_only");
+
             b.Property<long>("Id").ValueGeneratedOnAdd().HasColumnType("bigint").HasColumnName("id");
             NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
             b.Property<DateTime>("CapturedAt").HasColumnType("timestamp with time zone").HasColumnName("captured_at");
@@ -540,6 +542,9 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
             });
         modelBuilder.Entity("OwnDay.Application.Inbox.InboxAutomaticApplication", b =>
             {
+                b.Property<DateTime?>("UndoneAt").HasColumnType("timestamp with time zone").HasColumnName("undone_at");
+                b.Property<string>("UndoStateJson").IsRequired().HasColumnType("jsonb").HasColumnName("undo_state");
+
                 b.Property<int?>("ConfirmationOutcome")
                     .HasColumnType("integer")
                     .HasColumnName("confirmation_outcome");

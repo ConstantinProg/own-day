@@ -61,6 +61,8 @@ public sealed class OwnDayDbContext(DbContextOptions<OwnDayDbContext> options)
             entity.Property(a => a.TargetsJson).HasColumnType("jsonb").HasColumnName("targets");
             entity.Property(a => a.ConfirmationOutcome).HasColumnName("confirmation_outcome");
             entity.Property(a => a.ResolvedAt).HasColumnName("resolved_at");
+            entity.Property(a => a.UndoneAt).HasColumnName("undone_at");
+            entity.Property(a => a.UndoStateJson).HasColumnType("jsonb").HasColumnName("undo_state");
             entity.Property(a => a.ConfirmedTargetsJson).HasColumnType("jsonb").HasColumnName("confirmed_targets");
             entity.HasOne<InboxAnalysis>().WithMany().HasForeignKey(a => a.AnalysisId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<InboxItem>().WithMany().HasForeignKey(a => new { a.InboxItemId, a.UserId })
@@ -108,6 +110,7 @@ public sealed class OwnDayDbContext(DbContextOptions<OwnDayDbContext> options)
             entity.Property(item => item.OriginalText).HasColumnType("text").HasColumnName("original_text");
             entity.Property(item => item.CapturedAt).HasColumnName("captured_at");
             entity.Property(item => item.Status).IsConcurrencyToken().HasColumnName("status");
+            entity.Property(item => item.ManualProcessingOnly).HasColumnName("manual_processing_only");
             entity.Property(item => item.ProcessedAt).HasColumnName("processed_at");
             entity.Property(item => item.DiscardedAt).HasColumnName("discarded_at");
             entity.Property(item => item.TargetKind).HasColumnName("target_kind");

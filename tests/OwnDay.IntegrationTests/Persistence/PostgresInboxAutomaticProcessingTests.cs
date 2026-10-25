@@ -25,7 +25,7 @@ using Xunit;
 namespace OwnDay.IntegrationTests.Persistence;
 
 [Trait("Requires", "PostgreSQL via OWNDAY_TEST_POSTGRES_CONNECTION")]
-public sealed class PostgresInboxAutomaticProcessingTests : IAsyncLifetime
+public sealed partial class PostgresInboxAutomaticProcessingTests : IAsyncLifetime
 {
     private readonly string _schema = "ownday_test_" + Guid.NewGuid().ToString("N");
     private readonly CancellationTokenSource _deadline = new(TimeSpan.FromSeconds(60));
@@ -96,7 +96,7 @@ public sealed class PostgresInboxAutomaticProcessingTests : IAsyncLifetime
         Assert.Equal(1, await CountTargetsAsync(restarted));
         var notification = Assert.Single(await restarted.TelegramOutboxMessages.ToListAsync(Token));
         Assert.Equal(analysisId, notification.Id);
-        Assert.Null(notification.ReplyMarkupJson);
+        Assert.Contains("iu:" + itemId, notification.ReplyMarkupJson, StringComparison.Ordinal);
         Assert.Contains("/inbox_result " + itemId, notification.Text, StringComparison.Ordinal);
         if (kind == InboxTargetKind.WaitingFor)
         {

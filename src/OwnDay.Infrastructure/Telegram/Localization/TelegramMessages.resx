@@ -257,4 +257,12 @@ More: /done &lt;id&gt; — complete a task; /start, /help, /ping, /language.</va
   <data name="auto.already_applied" xml:space="preserve"><value>This proposal has already been applied. No new entities were created.</value></data>
   <data name="auto.already_rejected" xml:space="preserve"><value>This proposal has already been rejected. The original entry is saved.</value></data>
   <data name="auto.original" xml:space="preserve"><value>Original entry #{0}: {1}</value></data>
+  <data name="undo.usage" xml:space="preserve"><value>Usage: /inbox_undo &lt;inbox ID&gt;.</value></data>
+  <data name="undo.button" xml:space="preserve"><value>Undo entire result</value></data>
+  <data name="undo.offer" xml:space="preserve"><value>Undo removes every entity created by this processing, if unchanged. /inbox_undo {0}</value></data>
+  <data name="undo.summary" xml:space="preserve"><value>Entities affected: {0}.</value></data>
+  <data name="undo.done" xml:space="preserve"><value>Processing of inbox #{0} undone. Original entry restored. Continue manually: /inbox {0}. Automatic processing is disabled for this entry.</value></data>
+  <data name="undo.already" xml:space="preserve"><value>Inbox #{0} was already undone. No further entities changed. Continue manually: /inbox {0}.</value></data>
+  <data name="undo.conflict" xml:space="preserve"><value>Cannot safely undo inbox #{0}: a created entity was changed, completed, removed or linked to other data, or its original state cannot be verified. Nothing was removed. Review /inbox_result {0}.</value></data>
+  <data name="undo.unavailable" xml:space="preserve"><value>No automatic result available to undo for this inbox entry.</value></data>
 </root>

@@ -21,9 +21,20 @@ public enum InboxConfirmationOutcome
 public sealed record InboxConfirmationResult(InboxConfirmationOutcome? Outcome, long? InboxItemId, bool Changed,
     bool FeedbackQueued = false);
 
-// Original assessment is retained; confirmation resolution is written once under the Inbox lock.
+public enum InboxUndoOutcome
+{
+    Undone,
+    AlreadyUndone,
+    Unavailable,
+    Conflict
+}
+public sealed record InboxUndoResult(InboxUndoOutcome Outcome, long InboxItemId, bool FeedbackQueued = false);
+
+// Original assessment is retained; confirmation resolution and Undo timestamp are written once under the Inbox lock.
 public sealed class InboxAutomaticApplication
 {
+    public DateTime? UndoneAt { get; set; }
+    public string UndoStateJson { get; set; } = "[]";
     public Guid AnalysisId { get; init; }
     public long InboxItemId { get; init; }
     public UserId UserId { get; init; }
@@ -45,6 +56,10 @@ public interface IInboxAutomaticProcessingStore
     // Called inside the existing Inbox transaction/lock; referenced projects stay locked until commit.
     Task<InboxPolicySnapshot?> ReadLockedAsync(InboxItem item, Guid analysisId, CancellationToken cancellationToken);
     void Add(InboxAutomaticApplication application);
+    Task<InboxAutomaticApplication?> FindAppliedAsync(UserId userId, long itemId, CancellationToken cancellationToken);
+    Task CaptureUndoStateAsync(InboxAutomaticApplication application, CancellationToken cancellationToken);
+    // Check and remove the complete batch under target locks; false must leave all targets untouched.
+    Task<bool> TryRemoveUnchangedTargetsAsync(InboxAutomaticApplication application, CancellationToken cancellationToken);
     // Enlist one logical notification in the caller's transaction; return false if no destination exists.
     Task<bool> QueueFeedbackAsync(InboxAutomaticApplication application, InboxAnalysisStatus status, CancellationToken cancellationToken);
 }
@@ -106,6 +121,7 @@ public sealed class InboxAutomaticProcessingService(
                 ProposalsJson = JsonSerializer.Serialize(snapshot.Analysis.Proposals.OrderBy(p => p.Position), InboxAnalysisJson.Options),
                 TargetsJson = JsonSerializer.Serialize(applied, InboxAnalysisJson.Options)
             };
+            await store.CaptureUndoStateAsync(result, token);
             store.Add(result);
             // Inactive/superseded histories must not produce misleading attention notifications.
             if (!decision.Reasons.Contains(InboxPolicyReason.InboxInactive) &&
@@ -114,6 +130,44 @@ public sealed class InboxAutomaticProcessingService(
                 await store.QueueFeedbackAsync(result, snapshot.Analysis.Status, token);
             }
             return result;
+        }, cancellationToken);
+    }
+
+    public Task<InboxUndoResult> UndoAsync(UserId userId, long itemId, CancellationToken cancellationToken)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(userId.Value);
+        return locks.ExecuteLockedAsync(userId, itemId, async (item, token) =>
+        {
+            if (item is null)
+            {
+                return new InboxUndoResult(InboxUndoOutcome.Unavailable, itemId);
+            }
+            var application = await store.FindAppliedAsync(userId, itemId, token);
+            if (application is null)
+            {
+                return new InboxUndoResult(InboxUndoOutcome.Unavailable, itemId);
+            }
+            if (application.UndoneAt is not null)
+            {
+                return new InboxUndoResult(InboxUndoOutcome.AlreadyUndone, itemId);
+            }
+            var targets = JsonSerializer.Deserialize<AppliedInboxProposal[]>(
+                application.ConfirmationOutcome == InboxConfirmationOutcome.Applied
+                    ? application.ConfirmedTargetsJson : application.TargetsJson, InboxAnalysisJson.Options)!;
+            if (item.Status != InboxItemStatus.Processed || targets.Length == 0 ||
+                !item.Targets.Select(t => (t.Kind, t.TargetId)).ToHashSet()
+                    .SetEquals(targets.Select(t => (t.Kind, t.TargetId))) ||
+                !await store.TryRemoveUnchangedTargetsAsync(application, token))
+            {
+                return new InboxUndoResult(InboxUndoOutcome.Conflict, itemId);
+            }
+            if (!item.UndoProcessing(targets.Select(t => new InboxTarget(t.Kind, t.TargetId)).ToArray()))
+            {
+                throw new InvalidOperationException("Inbox result changed while locked.");
+            }
+            application.UndoneAt = clock.GetUtcNow().UtcDateTime;
+            var queued = await store.QueueFeedbackAsync(application, InboxAnalysisStatus.Completed, token);
+            return new InboxUndoResult(InboxUndoOutcome.Undone, itemId, queued);
         }, cancellationToken);
     }
 
@@ -152,6 +206,7 @@ public sealed class InboxAutomaticProcessingService(
             {
                 var targets = await processing.ProcessBatchLockedAsync(userId, item, prepared!.Proposals, token);
                 application.ConfirmedTargetsJson = JsonSerializer.Serialize(targets, InboxAnalysisJson.Options);
+                await store.CaptureUndoStateAsync(application, token);
             }
             application.ConfirmationOutcome = outcome;
             application.ResolvedAt = clock.GetUtcNow().UtcDateTime;

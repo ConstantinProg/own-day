@@ -41,7 +41,8 @@ public enum InboxPolicyReason
     AutonomousApplicationNotValidated,
     CompositeRequiresJointReview,
     MultipleTargetsNotSupported,
-    ProposalBlocked
+    ProposalBlocked,
+    ManualProcessingOnly
 }
 
 public sealed record ProposalPolicyDecision(Guid ProposalId, int Position, InboxTargetKind Kind,

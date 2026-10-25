@@ -17,7 +17,7 @@ using Xunit;
 
 namespace OwnDay.IntegrationTests.Telegram;
 
-public sealed class TelegramInboxFeedbackTests
+public sealed partial class TelegramInboxFeedbackTests
 {
     private static readonly UserId Owner = new(101);
 
@@ -41,7 +41,9 @@ public sealed class TelegramInboxFeedbackTests
         Assert.Contains(label, feedback.Text, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Canonical title", feedback.Text, StringComparison.Ordinal);
         Assert.Contains("/inbox_result 1", feedback.Text, StringComparison.Ordinal);
-        Assert.Null(feedback.ReplyMarkupJson);
+        var keyboard = JsonSerializer.Deserialize<InlineKeyboardMarkup>(feedback.ReplyMarkupJson!)!;
+        Assert.Equal("iu:1", Assert.Single(Assert.Single(keyboard.InlineKeyboard)).CallbackData);
+        Assert.Contains("/inbox_undo 1", feedback.Text, StringComparison.Ordinal);
         Assert.Equal(2, await db.TelegramOutboxMessages.CountAsync()); // Capture reply plus one result.
         Assert.Single((await db.InboxItems.SingleAsync()).Targets);
         await PostTextAsync(client, 2, "/inbox_result 1");

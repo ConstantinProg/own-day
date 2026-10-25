@@ -1,5 +1,9 @@
 # Automatic Inbox processing
 
+Undo is now implemented in [Undo and correction](Phase4-Milestone7-Undo-and-Correction.md).
+The future-Undo discussion below describes the original application audit; new applications also retain a
+creation-state fingerprint for each target. Undo preserves this audit and prevents later AutoApply for that entry.
+
 Telegram result notifications and the compatibility confirmation route are now implemented in
 [Telegram feedback and confirmation](Phase4-Milestone6-Telegram-Feedback.md).
 

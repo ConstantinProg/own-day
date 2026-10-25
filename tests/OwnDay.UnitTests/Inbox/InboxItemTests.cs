@@ -58,6 +58,27 @@ public sealed class InboxItemTests
     }
 
     [Fact]
+    public void UndoProcessing_ExactBatchOnly_RestoresManualProcessingAndRejectsRepeat()
+    {
+        var item = InboxItem.Capture(new UserId(1), "original", Now);
+        InboxTarget[] targets = [new(InboxTargetKind.Action, 17), new(InboxTargetKind.Reference, 18)];
+        Assert.False(item.UndoProcessing(targets));
+        item.ProcessMany(targets, Now);
+        Assert.False(item.UndoProcessing([targets[0]]));
+        Assert.False(item.UndoProcessing([new(InboxTargetKind.Action, 19), targets[1]]));
+        Assert.Equal(2, item.Targets.Count);
+        Assert.True(item.UndoProcessing([targets[1], targets[0]]));
+        Assert.Equal(InboxItemStatus.Active, item.Status);
+        Assert.True(item.ManualProcessingOnly);
+        Assert.Equal("original", item.OriginalText);
+        Assert.Empty(item.Targets);
+        Assert.False(item.UndoProcessing(targets));
+        Assert.True(item.Process(InboxTargetKind.Project, 20, Now));
+        Assert.Equal(20, Assert.Single(item.Targets).TargetId);
+        Assert.True(item.ManualProcessingOnly);
+    }
+
+    [Fact]
     public void Capture_InvalidOwnerOrNonUtcTime_Throws()
     {
         Assert.Throws<ArgumentException>(() => InboxItem.Capture(default, "text", Now));

@@ -14,6 +14,15 @@ public static class TelegramInboxFeedback
     public static TelegramOutboxMessage Render(InboxAutomaticApplication application, InboxAnalysisStatus status,
         long chatId, string locale)
     {
+        if (application.UndoneAt is { } undoneAt)
+        {
+            return new()
+            {
+                Id = Guid.NewGuid(), ChatId = chatId,
+                Text = TelegramTexts.Get(locale, "undo.done", application.InboxItemId) + "\n" + UndoSummary(application, locale),
+                Status = OutboxMessageStatus.Pending, CreatedAt = undoneAt, NextAttemptAt = undoneAt
+            };
+        }
         var resolution = application.ConfirmationOutcome;
         var applied = resolution == InboxConfirmationOutcome.Applied || application.Route == InboxPolicyRoute.AutoApply;
         var confirmation = resolution is null && application.Route == InboxPolicyRoute.RequireConfirmation;
@@ -66,6 +75,12 @@ public static class TelegramInboxFeedback
                 InlineKeyboardButton.WithCallbackData(TelegramTexts.Get(locale, "auto.reject"), $"ia:n:{application.AnalysisId:N}")
             }
         }) : null;
+        if (applied)
+        {
+            text += "\n" + TelegramTexts.Get(locale, "undo.offer", application.InboxItemId) + "\n" + UndoSummary(application, locale);
+            keyboard = new(new[] { new[] { InlineKeyboardButton.WithCallbackData(
+                TelegramTexts.Get(locale, "undo.button"), $"iu:{application.InboxItemId}") } });
+        }
         var now = application.ResolvedAt ?? application.EvaluatedAt;
         return new()
         {
@@ -73,6 +88,15 @@ public static class TelegramInboxFeedback
             ReplyMarkupJson = keyboard is null ? null : JsonSerializer.Serialize(keyboard),
             Status = OutboxMessageStatus.Pending, CreatedAt = now, NextAttemptAt = now
         };
+    }
+
+    public static string UndoSummary(InboxAutomaticApplication application, string locale)
+    {
+        var targets = JsonSerializer.Deserialize<AppliedInboxProposal[]>(
+            application.ConfirmationOutcome == InboxConfirmationOutcome.Applied
+                ? application.ConfirmedTargetsJson : application.TargetsJson, InboxAnalysisJson.Options)!;
+        return TelegramTexts.Get(locale, "undo.summary", targets.Length) + " " + string.Join(", ",
+            targets.GroupBy(t => t.Kind).Select(g => $"{TelegramInboxPresenter.Label(g.Key, locale)}: {g.Count()}"));
     }
 
     private sealed record SavedProposal(Guid Id, Guid AnalysisId, int Position, InboxTargetKind Kind, string Title, string PayloadJson);

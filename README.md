@@ -30,3 +30,8 @@ Telegram captures receive one durable result notification for the entire batch. 
 results retain the entry and offer manual processing; `/inbox_result <id>` opens the saved result and original.
 See [Telegram feedback and confirmation](docs/Phase4-Milestone6-Telegram-Feedback.md) for the migration,
 confirmation buttons, delivery guarantees and example dialogs.
+
+Automatic results can be undone with the **Undo entire result** button or `/inbox_undo <id>`.
+Undo removes the complete unchanged batch and restores the original for manual correction with `/inbox <id>`.
+Changed, completed or subsequently linked results are preserved with an explanation. See
+[Undo and correction](docs/Phase4-Milestone7-Undo-and-Correction.md) for safety rules, migration and Telegram dialogs.

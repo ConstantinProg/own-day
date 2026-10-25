@@ -125,6 +125,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
             {
                 "language" => await _languageFlow.OpenAsync(command.UserId, locale, cancellationToken),
                 "inbox" => await _inboxFlow.OpenAsync(command.UserId, command.Arguments, locale, cancellationToken),
+                "inbox_undo" => await _inboxFlow.UndoAsync(command.UserId, command.Arguments, locale, cancellationToken),
                 "inbox_result" => await _inboxFlow.ResultAsync(command.UserId, command.Arguments, locale, cancellationToken),
                 "inbox_accept" or "inbox_reject" => await _inboxFlow.ResolveAsync(command.UserId, command.Arguments,
                     command.Name == "inbox_accept", locale, cancellationToken),

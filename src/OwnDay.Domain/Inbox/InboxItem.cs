@@ -20,6 +20,7 @@ public sealed class InboxItem
     public string OriginalText { get; private set; } = string.Empty;
     public DateTime CapturedAt { get; private set; }
     public InboxItemStatus Status { get; private set; }
+    public bool ManualProcessingOnly { get; private set; }
     public DateTime? ProcessedAt { get; private set; }
     public DateTime? DiscardedAt { get; private set; }
     public InboxTargetKind? TargetKind { get; private set; }
@@ -67,6 +68,25 @@ public sealed class InboxItem
         _targets.AddRange(targets);
         ProcessedAt = processedAt;
         Status = InboxItemStatus.Processed;
+        return true;
+    }
+
+    public bool UndoProcessing(IReadOnlyList<InboxTarget> expectedTargets)
+    {
+        ArgumentNullException.ThrowIfNull(expectedTargets);
+        if (Status != InboxItemStatus.Processed || expectedTargets.Count == 0 ||
+            !_targets.Select(t => (t.Kind, t.TargetId)).OrderBy(t => t.Kind).ThenBy(t => t.TargetId)
+                .SequenceEqual(expectedTargets.Select(t => (t.Kind, t.TargetId)).OrderBy(t => t.Kind).ThenBy(t => t.TargetId)))
+        {
+            return false;
+        }
+
+        _targets.Clear();
+        TargetKind = null;
+        TargetId = null;
+        ProcessedAt = null;
+        Status = InboxItemStatus.Active;
+        ManualProcessingOnly = true;
         return true;
     }
 

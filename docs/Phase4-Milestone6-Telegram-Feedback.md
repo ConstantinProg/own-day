@@ -1,5 +1,9 @@
 # Telegram feedback and confirmation
 
+Successful result notifications now include an accessible Undo button and `/inbox_undo <id>` fallback.
+See [Undo and correction](Phase4-Milestone7-Undo-and-Correction.md) for the added behavior and migration.
+References below to the absence of Undo describe the original feedback implementation.
+
 Automatic processing now commits one Telegram notification alongside the Inbox transition, created targets
 and application audit. The default remains `inbox-policy-v2`: all structurally valid proposals are applied
 as one batch without user confirmation. No model call, new policy setting, Undo or general editor is added.

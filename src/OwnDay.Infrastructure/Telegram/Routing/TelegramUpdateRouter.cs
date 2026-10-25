@@ -38,6 +38,16 @@ public sealed class TelegramUpdateRouter
                 callback.Message.Chat.Id);
         }
 
+        if (update.CallbackQuery is { From.IsBot: false, Message.Chat.Type: ChatType.Private, Data: { } undo } undoCallback &&
+            undoCallback.Message.Chat.Id == undoCallback.From.Id && undo.StartsWith("iu:", StringComparison.Ordinal) &&
+            long.TryParse(undo.AsSpan(3), System.Globalization.NumberStyles.None,
+                System.Globalization.CultureInfo.InvariantCulture, out var itemId) && itemId > 0)
+        {
+            return new TelegramUpdateRouteResult.Dispatch(new ProcessIncomingCommand(
+                "inbox_undo", itemId.ToString(System.Globalization.CultureInfo.InvariantCulture), new UserId(undoCallback.From.Id)),
+                undoCallback.Message.Chat.Id);
+        }
+
         var message = update.Message;
 
         if (message is null ||

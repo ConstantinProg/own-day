@@ -257,4 +257,12 @@
   <data name="auto.already_applied" xml:space="preserve"><value>Это предложение уже применено. Новые сущности не созданы.</value></data>
   <data name="auto.already_rejected" xml:space="preserve"><value>Это предложение уже отклонено. Исходная запись сохранена.</value></data>
   <data name="auto.original" xml:space="preserve"><value>Исходная запись #{0}: {1}</value></data>
+  <data name="undo.usage" xml:space="preserve"><value>Используйте: /inbox_undo &lt;номер Inbox&gt;.</value></data>
+  <data name="undo.button" xml:space="preserve"><value>Отменить весь результат</value></data>
+  <data name="undo.offer" xml:space="preserve"><value>Отмена удалит все сущности этой обработки, если они не изменились. /inbox_undo {0}</value></data>
+  <data name="undo.summary" xml:space="preserve"><value>Затрагиваемых сущностей: {0}.</value></data>
+  <data name="undo.done" xml:space="preserve"><value>Обработка Inbox #{0} отменена. Исходная запись возвращена во входящие. Обработайте вручную: /inbox {0}. Автоматическая обработка этой записи отключена.</value></data>
+  <data name="undo.already" xml:space="preserve"><value>Обработка Inbox #{0} уже отменена. Другие сущности не изменены. Для ручной обработки: /inbox {0}.</value></data>
+  <data name="undo.conflict" xml:space="preserve"><value>Безопасно отменить Inbox #{0} нельзя: созданная сущность изменена, завершена, удалена, связана с другими данными или её исходное состояние нельзя проверить. Ничего не удалено. Посмотрите /inbox_result {0}.</value></data>
+  <data name="undo.unavailable" xml:space="preserve"><value>Автоматический результат для отмены этой записи недоступен.</value></data>
 </root>

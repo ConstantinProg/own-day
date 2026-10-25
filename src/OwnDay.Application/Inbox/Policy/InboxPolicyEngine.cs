@@ -59,6 +59,10 @@ public sealed class InboxPolicyEngine
         {
             return Block(InboxPolicyReason.InboxInactive);
         }
+        if (item.ManualProcessingOnly)
+        {
+            return Block(InboxPolicyReason.ManualProcessingOnly);
+        }
         if (analysis.Status != InboxAnalysisStatus.Completed)
         {
             return Block(InboxPolicyReason.AnalysisNotCompleted);
