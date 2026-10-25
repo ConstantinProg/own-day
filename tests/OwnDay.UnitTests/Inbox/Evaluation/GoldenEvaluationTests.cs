@@ -135,6 +135,17 @@ public sealed class GoldenEvaluationTests : IDisposable
     }
 
     [Fact]
+    public async Task Main_InvalidDataset_ReturnsInvalidConfigurationExitCode()
+    {
+        Directory.CreateDirectory(_directory);
+        var path = Path.Combine(_directory, "invalid-dataset.json");
+        await File.WriteAllTextAsync(path, """{"version":"","scenarios":[]}""");
+
+        Assert.Equal(2, await OwnDay.InboxEvaluation.Program.Main(["validate", "--dataset", path]));
+        Assert.Equal(2, await OwnDay.InboxEvaluation.Program.Main(["run", "--dataset", path, "--max-requests", "1"]));
+    }
+
+    [Fact]
     public async Task RunAsync_RequestBudgetAndExistingOutput_RejectsWithoutCallsOrOverwrites()
     {
         var dataset = await LoadAsync();
@@ -205,6 +216,8 @@ public sealed class GoldenEvaluationTests : IDisposable
         review.Cases[0].Dimensions["canonicalization"] = new("uncertain", "Недостаточно информации для оценки");
         await EvaluationReports.WriteAsync(path, review);
         await Assert.ThrowsAsync<InvalidDataException>(() => EvaluationReports.ReviewAsync(_directory, CancellationToken.None));
+        Assert.Equal(2, await OwnDay.InboxEvaluation.Program.Main(["review", "--run", _directory]));
+        Assert.False(File.Exists(Path.Combine(_directory, "manual-summary.json")));
         await EvaluationReports.WriteAsync(path, review with { Reviewer = "Test reviewer" });
         await EvaluationReports.ReviewAsync(_directory, CancellationToken.None);
         using var summary = JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(_directory, "manual-summary.json")));
@@ -236,6 +249,10 @@ public sealed class GoldenEvaluationTests : IDisposable
         await EvaluationReports.WriteAsync(manifestPath, manifest with { ScorerVersion = "different-scorer" });
         await Assert.ThrowsAsync<InvalidDataException>(() => EvaluationReports.CompareAsync(before, after,
             Path.Combine(_directory, "different-scorer.json"), CancellationToken.None));
+        var incompatibleComparison = Path.Combine(_directory, "incompatible-comparison.json");
+        Assert.Equal(2, await OwnDay.InboxEvaluation.Program.Main(["compare", "--baseline", before,
+            "--candidate", after, "--output", incompatibleComparison]));
+        Assert.False(File.Exists(incompatibleComparison));
     }
 
     private static Task<GoldenDataset> LoadAsync() => GoldenDataset.LoadAsync(Path.Combine(AppContext.BaseDirectory, "GoldenDataset", "golden-v2.json"), CancellationToken.None);

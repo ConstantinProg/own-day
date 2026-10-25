@@ -132,7 +132,7 @@ public static class Program
             Console.Error.WriteLine($"Invalid JSON near line {exception.LineNumber}, byte {exception.BytePositionInLine}.");
             return 2;
         }
-        catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException)
+        catch (Exception exception) when (exception is ArgumentException or InvalidDataException or IOException or UnauthorizedAccessException)
         {
             // Invalid config/dataset exceptions can embed secret values. Report types only.
             Console.Error.WriteLine($"Evaluation failed ({exception.GetType().Name}). Check options, dataset and output directory; use help.");
