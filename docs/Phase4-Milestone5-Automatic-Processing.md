@@ -53,6 +53,11 @@ that a result was committed. A new analysis version is needed to reconsider a pe
 `InboxProcessingService` target creation. Domain construction and transitions remain in Domain. The manual
 single-target processing path uses the same construction and stores, with its existing validations and defaults.
 
+Policy evaluation retains the validated proposals and context long enough to prepare typed commands without
+parsing them again. Each command carries its proposal UUID through target creation into the audit mapping.
+Single-target and batch processing explicitly finalize the Inbox after shared target creation; target creation
+alone does not report the Inbox as processed. The v1 and v2 proposal rules and aggregation remain separate.
+
 1. Select a terminal saved analysis with no application record. This query only discovers work; it grants no permission.
 2. Acquire the owner-qualified Inbox row using the existing PostgreSQL `FOR UPDATE` lock.
 3. Return an existing application record for the same analysis if present.

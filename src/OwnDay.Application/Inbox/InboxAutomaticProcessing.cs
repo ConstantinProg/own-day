@@ -9,6 +9,8 @@ namespace OwnDay.Application.Inbox;
 public sealed record InboxApplicationCandidate(UserId UserId, long InboxItemId, Guid AnalysisId);
 public sealed record AppliedInboxProposal(Guid ProposalId, InboxTargetKind Kind, long TargetId, long? ProjectId);
 
+internal sealed record PreparedInboxProposal(Guid ProposalId, ProcessInboxItem Command);
+
 // Immutable application history, committed in the same transaction as the domain targets.
 public sealed class InboxAutomaticApplication
 {
@@ -70,17 +72,12 @@ public sealed class InboxAutomaticProcessingService(
             {
                 return null;
             }
-            var decision = policy.Evaluate(userId, itemId, analysisId, snapshot, InboxPolicyEngine.Version);
-            var applied = new List<AppliedInboxProposal>();
+            var evaluation = policy.PrepareApplication(userId, itemId, analysisId, snapshot);
+            var decision = evaluation.Decision;
+            IReadOnlyList<AppliedInboxProposal> applied = [];
             if (decision.Route == InboxPolicyRoute.AutoApply)
             {
-                var rows = snapshot.Analysis.Proposals.OrderBy(p => p.Position).ToArray();
-                var commands = rows.Select(row => ToCommand(itemId, row.ReadProposal(), snapshot)).ToArray();
-                var targets = await processing.ProcessBatchLockedAsync(userId, item, commands, token);
-                for (var i = 0; i < targets.Count; i++)
-                {
-                    applied.Add(new(rows[i].Id, targets[i].Kind, targets[i].TargetId, commands[i].ProjectId));
-                }
+                applied = await processing.ProcessBatchLockedAsync(userId, item, evaluation.Proposals, token);
             }
             var result = new InboxAutomaticApplication
             {
@@ -93,17 +90,5 @@ public sealed class InboxAutomaticProcessingService(
             store.Add(result);
             return result;
         }, cancellationToken);
-    }
-
-    private static ProcessInboxItem ToCommand(long itemId, InboxProposal proposal, InboxPolicySnapshot snapshot)
-    {
-        // Project candidates are alternatives. Drop an optional link if it is ambiguous, stale or unavailable.
-        var context = JsonSerializer.Deserialize<InboxAnalysisContext>(snapshot.Analysis.ContextJson, InboxAnalysisJson.Options)!;
-        long? projectId = proposal.ProjectIds.Length == 1 && snapshot.ActiveOwnedProjects.Any(p =>
-            p.Id == proposal.ProjectIds[0] && context.Projects.Contains(p)) ? proposal.ProjectIds[0] : null;
-        // All current targets have one 200-character primary text field. Keep the canonical title;
-        // additional description and unresolved dates remain intact in analysis and audit.
-        return new(itemId, proposal.Kind, proposal.Title, projectId,
-            proposal.Properties.Source, proposal.Properties.WaitingSince?.UtcDateTime);
     }
 }

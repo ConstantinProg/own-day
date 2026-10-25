@@ -1,8 +1,13 @@
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using OwnDay.Application.Actions;
 using OwnDay.Application.Inbox;
+using OwnDay.Application.Inbox.Analysis;
+using OwnDay.Application.Inbox.Policy;
 using OwnDay.Application.StructuredItems;
 using OwnDay.Domain;
 using OwnDay.Domain.Inbox;
@@ -16,6 +21,105 @@ public sealed class InboxProcessingTests
     private static readonly UserId Alice = new(101);
     private static readonly UserId Bob = new(102);
     private static readonly DateTime Now = new(2026, 9, 27, 10, 0, 0, DateTimeKind.Utc);
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public async Task ApplyAsync_Composite_PreservesProposalMappingsAndRejectsInvalidBatch(bool invalid, bool renameProject)
+    {
+        await using var connection = await OpenAsync();
+        var options = Options(connection);
+        long itemId;
+        long projectId;
+        Guid analysisId;
+        Dictionary<Guid, InboxProposal> proposals;
+        await using (var setup = new OwnDayDbContext(options))
+        {
+            var project = await Structured(setup, new FixedClock()).CreateProjectAsync(Alice, "Project", CancellationToken.None);
+            projectId = project.Id;
+            var item = await Capture(setup, new FixedClock(), Alice, "raw");
+            itemId = item.Id;
+            var context = new InboxAnalysisContext(null, [new(project.Id, project.Title, project.CreatedAt)], false);
+            var contextJson = JsonSerializer.Serialize(context, InboxAnalysisJson.Options);
+            var analysis = InboxAnalysis.Start(Alice, item.Id, 1, new("fake", "inbox-v1", "test"),
+                contextJson, Hash(contextJson), Hash(item.OriginalText), Now);
+            analysis.Finish(InboxAnalysisStatus.Completed, Now, "{}", new()
+            {
+                Items =
+                [
+                    Proposal(InboxTargetKind.Action, "First", [project.Id]),
+                    Proposal(InboxTargetKind.Reference, "Reference", []),
+                    Proposal(InboxTargetKind.Action, invalid ? " " : "Second", [])
+                ]
+            });
+            proposals = analysis.Proposals.ToDictionary(p => p.Id, p => p.ReadProposal());
+            // Mapping must use saved positions/identities rather than the navigation's in-memory order.
+            analysis.Proposals.Reverse();
+            setup.InboxAnalyses.Add(analysis);
+            if (renameProject)
+            {
+                setup.Entry(project).Property(p => p.Title).CurrentValue = "Renamed";
+            }
+            await setup.SaveChangesAsync();
+            analysisId = analysis.Id;
+        }
+
+        await using var db = new OwnDayDbContext(options);
+        var service = new InboxAutomaticProcessingService(new EfInboxProcessingStore(db),
+            new EfInboxAutomaticProcessingStore(db), new(), Processor(db, new FixedClock()), new FixedClock());
+        var result = await service.ApplyAsync(Alice, itemId, analysisId, CancellationToken.None);
+        Assert.NotNull(result);
+        var itemAfter = await db.InboxItems.SingleAsync();
+        var applied = JsonSerializer.Deserialize<AppliedInboxProposal[]>(result.TargetsJson, InboxAnalysisJson.Options)!;
+        if (invalid)
+        {
+            Assert.Equal(InboxPolicyRoute.KeepInInbox, result.Route);
+            Assert.Equal(InboxItemStatus.Active, itemAfter.Status);
+            Assert.Empty(applied);
+            Assert.Empty(itemAfter.Targets);
+            Assert.Empty(await db.Actions.ToListAsync());
+            Assert.Empty(await db.References.ToListAsync());
+            return;
+        }
+
+        Assert.Equal(InboxPolicyRoute.AutoApply, result.Route);
+        Assert.Equal(InboxItemStatus.Processed, itemAfter.Status);
+        Assert.Equal(3, applied.Length);
+        Assert.Equal(3, itemAfter.Targets.Count);
+        Assert.Equal(proposals.Keys.OrderBy(id => id), applied.Select(p => p.ProposalId).OrderBy(id => id));
+        foreach (var mapping in applied)
+        {
+            var proposal = proposals[mapping.ProposalId];
+            Assert.Equal(proposal.Kind, mapping.Kind);
+            if (mapping.Kind == InboxTargetKind.Action)
+            {
+                var action = await db.Actions.SingleAsync(a => a.Id == mapping.TargetId);
+                Assert.Equal(proposal.Title, action.Title);
+                long? expectedProject = proposal.ProjectIds.Length == 1 && !renameProject ? projectId : null;
+                Assert.Equal(expectedProject, action.ProjectId);
+                Assert.Equal(expectedProject, mapping.ProjectId);
+            }
+            else
+            {
+                Assert.Equal(proposal.Title, (await db.References.SingleAsync(r => r.Id == mapping.TargetId)).Text);
+                Assert.Null(mapping.ProjectId);
+            }
+        }
+
+        var repeated = await service.ApplyAsync(Alice, itemId, analysisId, CancellationToken.None);
+        Assert.Equal(result.TargetsJson, repeated!.TargetsJson);
+        Assert.Equal(2, await db.Actions.CountAsync());
+        Assert.Single(await db.References.ToListAsync());
+    }
+
+    private static InboxProposal Proposal(InboxTargetKind kind, string title, long[] projectIds) => new()
+    {
+        Kind = kind, Title = title, Description = null, ProjectIds = projectIds, Ambiguities = [],
+        Properties = new() { Source = null, WaitingSince = null, WaitingSinceEvidence = null, UnresolvedDateText = null }
+    };
+
+    private static string Hash(string value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
 
     [Theory]
     [InlineData(InboxTargetKind.Action)]

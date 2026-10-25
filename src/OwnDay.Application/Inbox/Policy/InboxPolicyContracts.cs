@@ -56,6 +56,10 @@ public sealed record InboxPolicyDecision(string PolicyVersion, Guid AnalysisId, 
 public sealed record InboxPolicySnapshot(InboxItem Item, InboxAnalysis Analysis, int LatestAnalysisVersion,
     IReadOnlyList<AnalysisProject> ActiveOwnedProjects);
 
+// Prepared and consumed inside the same Inbox transaction; never a persisted permission token.
+internal sealed record InboxApplicationPreparation(InboxPolicyDecision Decision,
+    IReadOnlyList<PreparedInboxProposal> Proposals);
+
 public interface IInboxPolicyStore
 {
     // A coherent, detached, owner-qualified read of the saved analysis and current referenced projects.

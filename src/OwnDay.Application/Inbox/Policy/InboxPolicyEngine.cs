@@ -16,15 +16,25 @@ public sealed class InboxPolicyEngine
 
     public InboxPolicyDecision Evaluate(UserId userId, long itemId, Guid analysisId,
         InboxPolicySnapshot? snapshot, string policyVersion)
+        => EvaluateCore(userId, itemId, analysisId, snapshot, policyVersion).Decision;
+
+    internal InboxApplicationPreparation PrepareApplication(UserId userId, long itemId, Guid analysisId,
+        InboxPolicySnapshot snapshot)
+        => EvaluateCore(userId, itemId, analysisId, snapshot, Version);
+
+    private static InboxApplicationPreparation EvaluateCore(UserId userId, long itemId, Guid analysisId,
+        InboxPolicySnapshot? snapshot, string policyVersion)
     {
         var reasons = new List<InboxPolicyReason>();
         var decisions = new List<ProposalPolicyDecision>();
+        var prepared = new List<PreparedInboxProposal>();
         var fingerprint = snapshot is null ? string.Empty : ComputeStateFingerprint(snapshot);
 
-        InboxPolicyDecision Result(InboxPolicyRoute route) => new(policyVersion, analysisId, itemId,
-            snapshot?.Analysis.Version, fingerprint, route, Array.AsReadOnly(reasons.Distinct().ToArray()),
-            decisions.AsReadOnly());
-        InboxPolicyDecision Block(InboxPolicyReason reason)
+        InboxApplicationPreparation Result(InboxPolicyRoute route) => new(
+            new(policyVersion, analysisId, itemId, snapshot?.Analysis.Version, fingerprint, route,
+                Array.AsReadOnly(reasons.Distinct().ToArray()), decisions.AsReadOnly()),
+            route == InboxPolicyRoute.AutoApply ? prepared.AsReadOnly() : Array.Empty<PreparedInboxProposal>());
+        InboxApplicationPreparation Block(InboxPolicyReason reason)
         {
             reasons.Add(reason);
             return Result(InboxPolicyRoute.KeepInInbox);
@@ -77,46 +87,100 @@ public sealed class InboxPolicyEngine
         }
 
         var request = new InboxAnalysisRequest(item.OriginalText, item.CapturedAt, context, InboxAnalysisService.SupportedTypes);
+        var validations = ValidateProposals(rows, request);
+        if (policyVersion == Version)
+        {
+            decisions.AddRange(EvaluateV2Proposals(validations));
+            var route = AggregateV2(decisions, reasons);
+            if (route == InboxPolicyRoute.AutoApply)
+            {
+                foreach (var validation in validations)
+                {
+                    if (validation.Proposal is { } proposal)
+                    {
+                        prepared.Add(new(validation.Row.Id, ToCommand(itemId, proposal, context, currentProjects)));
+                    }
+                }
+            }
+            return Result(route);
+        }
+
+        decisions.AddRange(EvaluateV1Proposals(validations, context, currentProjects));
+        return Result(AggregateV1(decisions, reasons));
+    }
+
+    private static IReadOnlyList<ProposalValidation> ValidateProposals(InboxAnalysisProposal[] rows,
+        InboxAnalysisRequest request)
+    {
         var validator = new InboxAnalysisValidator();
+        var validations = new List<ProposalValidation>();
         foreach (var row in rows)
         {
             var proposal = validator.ParseAndValidateProposal(row.PayloadJson, request);
-            if (proposal is null || proposal.Kind != row.Kind || proposal.Title != row.Title)
-            {
-                decisions.Add(new(row.Id, row.Position, row.Kind, InboxPolicyRoute.KeepInInbox,
-                    Array.AsReadOnly(new[] { InboxPolicyReason.InvalidProposal })));
-                continue;
-            }
-            decisions.Add(policyVersion == Version
-                ? new(row.Id, row.Position, row.Kind, InboxPolicyRoute.AutoApply, Array.Empty<InboxPolicyReason>())
-                : EvaluateProposal(row, proposal, context, currentProjects));
+            validations.Add(new(row, proposal is not null && proposal.Kind == row.Kind && proposal.Title == row.Title
+                ? proposal : null));
         }
+        return validations.AsReadOnly();
+    }
 
-        if (policyVersion == Version)
-        {
-            if (decisions.Any(p => p.Route == InboxPolicyRoute.KeepInInbox))
-            {
-                reasons.Add(InboxPolicyReason.ProposalBlocked);
-            }
-            reasons.AddRange(decisions.SelectMany(p => p.Reasons));
-            return Result(decisions.All(p => p.Route == InboxPolicyRoute.AutoApply)
-                ? InboxPolicyRoute.AutoApply : InboxPolicyRoute.KeepInInbox);
-        }
+    private static IEnumerable<ProposalPolicyDecision> EvaluateV2Proposals(IReadOnlyList<ProposalValidation> proposals) =>
+        proposals.Select(p => p.Proposal is null ? InvalidProposal(p.Row)
+            : new ProposalPolicyDecision(p.Row.Id, p.Row.Position, p.Row.Kind,
+                InboxPolicyRoute.AutoApply, Array.Empty<InboxPolicyReason>()));
 
-        if (rows.Length > 1)
+    private static IEnumerable<ProposalPolicyDecision> EvaluateV1Proposals(IReadOnlyList<ProposalValidation> proposals,
+        InboxAnalysisContext context, IReadOnlyList<AnalysisProject> currentProjects) =>
+        proposals.Select(p => p.Proposal is { } proposal
+            ? EvaluateV1Proposal(p.Row, proposal, context, currentProjects) : InvalidProposal(p.Row));
+
+    private static ProposalPolicyDecision InvalidProposal(InboxAnalysisProposal row) =>
+        new(row.Id, row.Position, row.Kind, InboxPolicyRoute.KeepInInbox,
+            Array.AsReadOnly(new[] { InboxPolicyReason.InvalidProposal }));
+
+    private static InboxPolicyRoute AggregateV2(IReadOnlyList<ProposalPolicyDecision> decisions,
+        List<InboxPolicyReason> reasons)
+    {
+        AddProposalReasons(decisions, reasons);
+        return decisions.All(p => p.Route == InboxPolicyRoute.AutoApply)
+            ? InboxPolicyRoute.AutoApply : InboxPolicyRoute.KeepInInbox;
+    }
+
+    private static InboxPolicyRoute AggregateV1(IReadOnlyList<ProposalPolicyDecision> decisions,
+        List<InboxPolicyReason> reasons)
+    {
+        if (decisions.Count > 1)
         {
             reasons.Add(InboxPolicyReason.CompositeRequiresJointReview);
             // Preserve the historical single-target restriction when replaying v1.
             reasons.Add(InboxPolicyReason.MultipleTargetsNotSupported);
         }
+        AddProposalReasons(decisions, reasons);
+        return decisions.Count > 1 || decisions.Any(p => p.Route == InboxPolicyRoute.KeepInInbox)
+            ? InboxPolicyRoute.KeepInInbox : InboxPolicyRoute.RequireConfirmation;
+    }
+
+    private static void AddProposalReasons(IReadOnlyList<ProposalPolicyDecision> decisions,
+        List<InboxPolicyReason> reasons)
+    {
         if (decisions.Any(p => p.Route == InboxPolicyRoute.KeepInInbox))
         {
             reasons.Add(InboxPolicyReason.ProposalBlocked);
         }
         reasons.AddRange(decisions.SelectMany(p => p.Reasons));
-        return Result(rows.Length > 1 || decisions.Any(p => p.Route == InboxPolicyRoute.KeepInInbox)
-            ? InboxPolicyRoute.KeepInInbox : InboxPolicyRoute.RequireConfirmation);
     }
+
+    private static ProcessInboxItem ToCommand(long itemId, InboxProposal proposal,
+        InboxAnalysisContext context, IReadOnlyList<AnalysisProject> currentProjects)
+    {
+        // Project candidates are alternatives. Drop an optional link if it is ambiguous, stale or unavailable.
+        long? projectId = proposal.ProjectIds.Length == 1 && currentProjects.Any(p =>
+            p.Id == proposal.ProjectIds[0] && context.Projects.Contains(p)) ? proposal.ProjectIds[0] : null;
+        // Keep the canonical title; extra descriptions and unresolved dates remain in analysis and audit.
+        return new(itemId, proposal.Kind, proposal.Title, projectId,
+            proposal.Properties.Source, proposal.Properties.WaitingSince?.UtcDateTime);
+    }
+
+    private sealed record ProposalValidation(InboxAnalysisProposal Row, InboxProposal? Proposal);
 
     private static string ComputeStateFingerprint(InboxPolicySnapshot snapshot)
     {
@@ -163,7 +227,7 @@ public sealed class InboxPolicyEngine
         rows.Length is >= 1 and <= 20 && rows.Select(p => p.Id).Distinct().Count() == rows.Length &&
         !rows.Where((p, index) => p.Id == Guid.Empty || p.AnalysisId != analysisId || p.Position != index).Any();
 
-    private static ProposalPolicyDecision EvaluateProposal(InboxAnalysisProposal row, InboxProposal proposal,
+    private static ProposalPolicyDecision EvaluateV1Proposal(InboxAnalysisProposal row, InboxProposal proposal,
         InboxAnalysisContext context, IReadOnlyList<AnalysisProject> currentProjects)
     {
         var reasons = new List<InboxPolicyReason> { InboxPolicyReason.AutonomousApplicationNotValidated };

@@ -69,8 +69,7 @@ public sealed class InboxProcessingService(
         UserId userId,
         InboxItem? item,
         ProcessInboxItem command,
-        CancellationToken cancellationToken,
-        bool finalize = true)
+        CancellationToken cancellationToken)
     {
         if (item is null)
         {
@@ -87,16 +86,29 @@ public sealed class InboxProcessingService(
             return new(ProcessInboxItemStatus.Discarded);
         }
 
+        var creation = await CreateTargetAsync(userId, command, cancellationToken);
+        if (creation.Target is not { } target)
+        {
+            return new(creation.FailureStatus);
+        }
+
+        item.Process(target.Kind, target.TargetId, timeProvider.GetUtcNow().UtcDateTime);
+        return new(ProcessInboxItemStatus.Processed, target.Kind, target.TargetId);
+    }
+
+    private async Task<TargetCreationResult> CreateTargetAsync(UserId userId, ProcessInboxItem command,
+        CancellationToken cancellationToken)
+    {
         if (!Enum.IsDefined(command.TargetKind) ||
             (command.TargetKind == InboxTargetKind.Project && command.ProjectId is not null) ||
             (command.TargetKind != InboxTargetKind.WaitingFor && (command.Source is not null || command.WaitingSince is not null)))
         {
-            return new(ProcessInboxItemStatus.InvalidTargetData);
+            return new(null, ProcessInboxItemStatus.InvalidTargetData);
         }
 
         if (command.ProjectId <= 0)
         {
-            return new(ProcessInboxItemStatus.InvalidProject);
+            return new(null, ProcessInboxItemStatus.InvalidProject);
         }
 
         // Only domain construction errors are input errors. Storage failures propagate.
@@ -132,42 +144,49 @@ public sealed class InboxProcessingService(
         }
         catch (ArgumentException)
         {
-            return new(ProcessInboxItemStatus.InvalidTargetData);
+            return new(null, ProcessInboxItemStatus.InvalidTargetData);
         }
 
         if (command.ProjectId is long projectId &&
             !await structuredItems.ProjectBelongsToAsync(projectId, userId, cancellationToken))
         {
-            return new(ProcessInboxItemStatus.InvalidProject);
+            return new(null, ProcessInboxItemStatus.InvalidProject);
         }
 
         var targetId = await saveTarget(cancellationToken);
 
-        if (finalize)
-        {
-            item.Process(command.TargetKind, targetId, timeProvider.GetUtcNow().UtcDateTime);
-        }
-        return new(ProcessInboxItemStatus.Processed, command.TargetKind, targetId);
+        return new(new InboxTarget(command.TargetKind, targetId));
     }
 
     // The caller owns the existing Inbox lock and transaction. A failure must escape to roll back every target.
-    internal async Task<IReadOnlyList<InboxTarget>> ProcessBatchLockedAsync(UserId userId, InboxItem item,
-        IReadOnlyList<ProcessInboxItem> commands, CancellationToken cancellationToken)
+    internal async Task<IReadOnlyList<AppliedInboxProposal>> ProcessBatchLockedAsync(UserId userId, InboxItem item,
+        IReadOnlyList<PreparedInboxProposal> proposals, CancellationToken cancellationToken)
     {
-        var targets = new List<InboxTarget>();
-        foreach (var command in commands)
+        if (item.Status != InboxItemStatus.Active)
         {
-            var result = await ProcessLockedAsync(userId, item, command, cancellationToken, finalize: false);
-            if (result.Status != ProcessInboxItemStatus.Processed)
+            throw new InvalidOperationException("Inbox item is no longer active.");
+        }
+
+        var targets = new List<InboxTarget>();
+        var applied = new List<AppliedInboxProposal>();
+        foreach (var proposal in proposals)
+        {
+            var creation = await CreateTargetAsync(userId, proposal.Command, cancellationToken);
+            if (creation.Target is not { } target)
             {
-                throw new InvalidOperationException("Validated automatic target could not be created.");
+                throw new InvalidOperationException($"Validated automatic target could not be created: {creation.FailureStatus}.");
             }
-            targets.Add(new(command.TargetKind, result.TargetId!.Value));
+
+            targets.Add(target);
+            applied.Add(new(proposal.ProposalId, target.Kind, target.TargetId, proposal.Command.ProjectId));
         }
         if (!item.ProcessMany(targets, timeProvider.GetUtcNow().UtcDateTime))
         {
             throw new InvalidOperationException("Inbox item is no longer active.");
         }
-        return targets.AsReadOnly();
+        return applied.AsReadOnly();
     }
+
+    private sealed record TargetCreationResult(InboxTarget? Target,
+        ProcessInboxItemStatus FailureStatus = ProcessInboxItemStatus.InvalidTargetData);
 }
