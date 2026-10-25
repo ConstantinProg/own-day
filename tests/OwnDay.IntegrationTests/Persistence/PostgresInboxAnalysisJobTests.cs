@@ -226,6 +226,40 @@ public sealed class PostgresInboxAnalysisJobTests : IAsyncLifetime
         Assert.Equal(1, ai.Calls);
     }
 
+    [Theory]
+    [InlineData("other-model", "v1", "v1")]
+    [InlineData("fake", "v2", "v1")]
+    [InlineData("fake", "v1", "v2")]
+    public async Task ProcessJobAsync_DescriptorChangesBetweenAttempts_TerminatesSameVersionWithoutProviderCall(
+        string model, string schema, string prompt)
+    {
+        await CaptureAsync();
+        await RunAsync(new FakeAnalyzer((_, _) => throw new InboxAnalyzerException("provider_failure")));
+        Guid analysisId;
+        await using (var db = Db()) { analysisId = (await db.InboxAnalyses.SingleAsync(Token)).Id; }
+
+        await MakeReadyAsync();
+        var ai = new FakeAnalyzer((_, _) => Task.FromResult(Response())) { Descriptor = new(model, schema, prompt) };
+        await RunAsync(ai);
+
+        await using var verify = Db();
+        var job = await verify.InboxAnalysisJobs.SingleAsync(Token);
+        var analysis = Assert.Single(await verify.InboxAnalyses.ToListAsync(Token));
+        Assert.Equal(InboxAnalysisJobStatus.Failed, job.Status);
+        Assert.Equal("descriptor_mismatch", job.LastCode);
+        Assert.Equal(analysisId, job.AnalysisId);
+        Assert.Equal(analysisId, analysis.Id);
+        Assert.Equal(1, analysis.Version);
+        Assert.Equal(InboxAnalysisStatus.Failed, analysis.Status);
+        Assert.NotNull(analysis.CompletedAt);
+        Assert.Equal("{\"code\":\"descriptor_mismatch\"}", analysis.DiagnosticsJson);
+        Assert.Equal(new("fake", "v1", "v1"), new InboxAnalyzerDescriptor(analysis.Model, analysis.SchemaVersion, analysis.PromptVersion));
+        Assert.Empty(await verify.Set<InboxAnalysisProposal>().ToListAsync(Token));
+        Assert.Null(await Jobs(verify).ClaimAsync(TimeSpan.FromMinutes(2), Token));
+        Assert.Equal(0, ai.Calls);
+        Assert.Equal(InboxItemStatus.Active, (await verify.InboxItems.SingleAsync(Token)).Status);
+    }
+
     [Fact]
     public async Task ProcessJobAsync_ExhaustedRetries_TerminatesPendingVersion()
     {
@@ -394,7 +428,10 @@ public sealed class PostgresInboxAnalysisJobTests : IAsyncLifetime
         }
 
         await MakeReadyAsync();
-        var ai = new FakeAnalyzer((_, _) => throw new InvalidOperationException("Result already exists"));
+        var ai = new FakeAnalyzer((_, _) => throw new InvalidOperationException("Result already exists"))
+        {
+            Descriptor = new("other-model", "v2", "v2")
+        };
         await RunAsync(ai);
         await using var verify = Db();
         Assert.Equal(InboxAnalysisJobStatus.Completed, (await verify.InboxAnalysisJobs.SingleAsync(Token)).Status);
@@ -589,7 +626,7 @@ public sealed class PostgresInboxAnalysisJobTests : IAsyncLifetime
     {
         private int _calls;
         public int Calls => Volatile.Read(ref _calls);
-        public InboxAnalyzerDescriptor Descriptor => new("fake", "v1", "v1");
+        public InboxAnalyzerDescriptor Descriptor { get; init; } = new("fake", "v1", "v1");
         public Task<InboxAnalyzerResponse> AnalyzeAsync(InboxAnalysisRequest request, CancellationToken cancellationToken)
         {
             Interlocked.Increment(ref _calls);

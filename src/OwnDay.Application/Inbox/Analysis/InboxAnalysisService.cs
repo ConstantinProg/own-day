@@ -93,6 +93,12 @@ public sealed class InboxAnalysisService(
                 return Report(await jobs.FinishAsync(lease, Failure("already_finished"), null, cancellationToken));
             }
 
+            var descriptor = new InboxAnalyzerDescriptor(analysis.Model, analysis.SchemaVersion, analysis.PromptVersion);
+            if (descriptor != analyzer.Descriptor)
+            {
+                return Report(await jobs.FinishAsync(lease, Failure("descriptor_mismatch"), null, cancellationToken));
+            }
+
             // A retry uses the committed context snapshot of the logical analysis.
             context = JsonSerializer.Deserialize<InboxAnalysisContext>(analysis.ContextJson, InboxAnalysisJson.Options)!;
             var request = new InboxAnalysisRequest(item.OriginalText, item.CapturedAt, context, SupportedTypes);

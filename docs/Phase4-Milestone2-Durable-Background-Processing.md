@@ -25,6 +25,11 @@ input bounds and the attempt budget before using AI. Under short job and Inbox r
 state/lease, allocates an analysis version under the existing Inbox lock, and atomically links it to the job.
 This transaction commits before the provider is called. Subsequent attempts load that analysis and its saved
 context snapshot. Parsing, independent validation, timeout handling and retry policy belong to Application.
+Before invoking the provider, a Pending analysis must match the current analyzer's model, schema version and prompt
+version. A mismatch after deployment or configuration changes terminates the job and analysis as Failed
+(`descriptor_mismatch`) without a provider call or retry, preserving the original metadata. An operator can request
+a new manual analysis version with the current descriptor. Already finished results are acknowledged independently
+of descriptor changes.
 The manual `AnalyzeAsync` operator command still deliberately allocates a new version on each invocation.
 Manual and automatic analyses can coexist without overwriting one another.
 
@@ -106,6 +111,7 @@ SDK retries remain disabled; the durable job exclusively controls retries and co
 | `input_limit`, `context_limit` | Stop; do not truncate input or enlarge the budget automatically |
 | HTTP 401/403 `configuration`, 429 quota/billing `budget_limit` | Stop; operator intervention required |
 | Other provider HTTP errors `permanent_failure` | Stop |
+| `descriptor_mismatch` | Stop; request a new manual version after model/schema/prompt changes |
 | Host cancellation | Propagate cancellation; recover after lease expiry |
 | Unexpected runtime/database error | Log safe error type; recover via lease, consuming the finite reservation budget |
 

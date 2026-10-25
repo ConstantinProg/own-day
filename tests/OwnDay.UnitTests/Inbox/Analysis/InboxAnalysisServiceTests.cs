@@ -224,6 +224,69 @@ public sealed class InboxAnalysisServiceTests
         Assert.Contains("invalid_response", saved.DiagnosticsJson);
     }
 
+    [Theory]
+    [InlineData("old-model", "inbox-v1", "test-v1", "descriptor_mismatch")]
+    [InlineData("fake-model", "inbox-v0", "test-v1", "descriptor_mismatch")]
+    [InlineData("fake-model", "inbox-v1", "test-v0", "descriptor_mismatch")]
+    [InlineData("fake-model", "inbox-v1", "test-v1", "validated")]
+    public async Task ProcessJobAsync_ResumedAnalysis_OnlyCallsProviderWithMatchingDescriptor(
+        string model, string schema, string prompt, string expectedCode)
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var item = await fixture.CaptureAsync("Review");
+        var context = JsonSerializer.Serialize(new InboxAnalysisContext(null, [], false), InboxAnalysisJson.Options);
+        var analysis = InboxAnalysis.Start(Alice, item.Id, 1, new(model, schema, prompt), context, "hash", "hash", Now);
+        var jobs = new RecordingJobStore(analysis);
+        var calls = 0;
+        var ai = new FakeAnalyzer((_, _) =>
+        {
+            calls++;
+            return Task.FromResult(Response(InboxAnalysisValidatorTests.Proposal(InboxTargetKind.Action, "Review")));
+        });
+        var lease = new InboxAnalysisLease(Guid.NewGuid(), Guid.NewGuid(), Alice, item.Id, 2);
+
+        var code = await fixture.Service(ai).ProcessJobAsync(lease, jobs, new(), TestContextToken);
+
+        Assert.Equal(expectedCode, code);
+        Assert.Equal(expectedCode == "validated" ? 1 : 0, calls);
+        Assert.Equal(expectedCode, jobs.Outcome!.Code);
+        Assert.Null(jobs.RetryAfter);
+        if (expectedCode == "descriptor_mismatch")
+        {
+            Assert.Null(jobs.Outcome.Output);
+            Assert.Equal("{\"code\":\"descriptor_mismatch\"}", jobs.Outcome.DiagnosticsJson);
+        }
+        else
+        {
+            Assert.NotNull(jobs.Outcome.Output);
+        }
+    }
+
+    private sealed class RecordingJobStore(InboxAnalysis analysis) : IInboxAnalysisJobStore
+    {
+        public InboxAnalysisOutcome? Outcome { get; private set; }
+        public TimeSpan? RetryAfter { get; private set; }
+
+        public Task<InboxAnalysis?> StartAsync(InboxAnalysisLease lease, InboxAnalyzerDescriptor descriptor,
+            string contextJson, string contextFingerprint, string inputFingerprint, CancellationToken cancellationToken) =>
+            Task.FromResult<InboxAnalysis?>(analysis);
+
+        public Task<InboxAnalysisJobResult?> FinishAsync(InboxAnalysisLease lease, InboxAnalysisOutcome outcome,
+            TimeSpan? retryAfter, CancellationToken cancellationToken)
+        {
+            Outcome = outcome;
+            RetryAfter = retryAfter;
+            return Task.FromResult<InboxAnalysisJobResult?>(new(
+                outcome.Output is null ? InboxAnalysisJobStatus.Failed : InboxAnalysisJobStatus.Completed, outcome.Code));
+        }
+
+        public Task<InboxAnalysisLease?> ClaimAsync(TimeSpan lease, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task RecoverAsync(bool processingEnabled, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+    }
+
     private static CancellationToken TestContextToken => CancellationToken.None;
 
     private static InboxAnalyzerResponse Response(params InboxProposal[] proposals) =>
