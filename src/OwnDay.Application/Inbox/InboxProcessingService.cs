@@ -1,4 +1,5 @@
 using OwnDay.Application.Actions;
+using OwnDay.Application.Inbox.Observability;
 using OwnDay.Application.StructuredItems;
 using OwnDay.Domain.Inbox;
 using OwnDay.Domain.Projects;
@@ -15,7 +16,7 @@ public sealed class InboxProcessingService(
     IActionStore actions,
     IStructuredItemStore structuredItems,
     TimeProvider timeProvider,
-    Observability.IInboxTelemetry? telemetry = null)
+    IInboxTelemetry? telemetry = null)
 {
     public Task<ProcessInboxItemResult> ProcessAsync(
         UserId userId,
@@ -94,7 +95,7 @@ public sealed class InboxProcessingService(
         }
 
         item.Process(target.Kind, target.TargetId, timeProvider.GetUtcNow().UtcDateTime);
-        telemetry?.Record(userId, item.Id, "manual", timeProvider.GetUtcNow().UtcDateTime);
+        telemetry?.Record(userId, item.Id, InboxEventCodes.Manual, timeProvider.GetUtcNow().UtcDateTime);
         return new(ProcessInboxItemStatus.Processed, target.Kind, target.TargetId);
     }
 
@@ -156,7 +157,7 @@ public sealed class InboxProcessingService(
         }
 
         var targetId = await saveTarget(cancellationToken);
-        telemetry?.Record(userId, command.InboxItemId, "created", now, command.TargetKind, targetId);
+        telemetry?.Record(userId, command.InboxItemId, InboxEventCodes.Created, now, command.TargetKind, targetId);
 
         return new(new InboxTarget(command.TargetKind, targetId));
     }

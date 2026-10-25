@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using OwnDay.Application.Inbox;
 using OwnDay.Application.Inbox.Analysis;
+using OwnDay.Application.Inbox.Observability;
 
 namespace OwnDay.Infrastructure.OpenAIAnalysis;
 
@@ -61,7 +62,7 @@ public sealed class InboxAnalysisWorker(
             catch (Exception exception)
             {
                 Errors.Add(1);
-                await diagnostics.RecordAsync("background_apply_error", null, token, candidate);
+                await diagnostics.RecordAsync(InboxEventCodes.BackgroundApplyError, null, token, candidate);
                 logger.LogWarning("Inbox automatic application failed for item {InboxItemId}, analysis {AnalysisId} ({ErrorType}); saved analysis will be retried.",
                     candidate?.InboxItemId, candidate?.AnalysisId, exception.GetType().Name);
             }
@@ -83,7 +84,7 @@ public sealed class InboxAnalysisWorker(
             catch (Exception exception)
             {
                 Errors.Add(1);
-                await diagnostics.RecordAsync("background_recovery_error", null, token);
+                await diagnostics.RecordAsync(InboxEventCodes.BackgroundRecoveryError, null, token);
                 logger.LogWarning("Inbox analysis recovery failed ({ErrorType}).", exception.GetType().Name);
             }
 
@@ -130,7 +131,7 @@ public sealed class InboxAnalysisWorker(
             {
                 Errors.Add(1);
                 // Provider bodies, user text and connection strings never enter logs.
-                await diagnostics.RecordAsync("background_analysis_error", activeLease, token);
+                await diagnostics.RecordAsync(InboxEventCodes.BackgroundAnalysisError, activeLease, token);
                 logger.LogWarning("Inbox analysis cycle failed ({ErrorType}); lease will recover unfinished work.",
                     exception.GetType().Name);
             }

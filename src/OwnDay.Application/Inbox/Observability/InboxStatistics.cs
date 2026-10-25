@@ -25,13 +25,26 @@ public sealed record StatisticsPeriod(string Key, DateTime Start, DateTime End)
 public sealed record TokenStatistics(long Input, long Cached, long Output, decimal KnownEstimatedUsd,
     int UnknownInput, int UnknownCached, int UnknownOutput, int UnknownCost)
 {
+    public static TokenStatistics Empty { get; } = new(0, 0, 0, 0, 0, 0, 0, 0);
+
+    public TokenStatistics Add(OpenAIRequestAttempt attempt) => new(
+        Input: Input + (attempt.InputTokens ?? 0),
+        Cached: Cached + (attempt.CachedInputTokens ?? 0),
+        Output: Output + (attempt.OutputTokens ?? 0),
+        KnownEstimatedUsd: KnownEstimatedUsd + (attempt.EstimatedUsd ?? 0),
+        UnknownInput: UnknownInput + (attempt.InputTokens is null ? 1 : 0),
+        UnknownCached: UnknownCached + (attempt.CachedInputTokens is null ? 1 : 0),
+        UnknownOutput: UnknownOutput + (attempt.OutputTokens is null ? 1 : 0),
+        UnknownCost: UnknownCost + (attempt.EstimatedUsd is null ? 1 : 0));
+
     public static TokenStatistics Aggregate(IEnumerable<OpenAIRequestAttempt> attempts)
     {
-        var rows = attempts.ToArray();
-        return new(rows.Sum(a => (long?)a.InputTokens ?? 0), rows.Sum(a => (long?)a.CachedInputTokens ?? 0),
-            rows.Sum(a => (long?)a.OutputTokens ?? 0), rows.Sum(a => a.EstimatedUsd ?? 0),
-            rows.Count(a => a.InputTokens is null), rows.Count(a => a.CachedInputTokens is null),
-            rows.Count(a => a.OutputTokens is null), rows.Count(a => a.EstimatedUsd is null));
+        var result = Empty;
+        foreach (var attempt in attempts)
+        {
+            result = result.Add(attempt);
+        }
+        return result;
     }
 }
 

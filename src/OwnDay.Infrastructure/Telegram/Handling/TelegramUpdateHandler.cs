@@ -1,5 +1,7 @@
+using System.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Npgsql;
 using OwnDay.Application.Interactions;
 using OwnDay.Infrastructure.Persistence;
 using OwnDay.Infrastructure.Telegram.Cleanup;
@@ -72,10 +74,34 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
             return;
         }
 
+        var statisticsRequest = route is TelegramUpdateRouteResult.Dispatch { Command.Name: "stats" };
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                await HandleRoutedAsync(update, route, statisticsRequest, cancellationToken);
+                return;
+            }
+            catch (Exception exception) when (statisticsRequest && attempt < 3 &&
+                !cancellationToken.IsCancellationRequested && IsSerializationFailure(exception))
+            {
+                // Repeatable Read may reject a concurrent duplicate or language change. The failed
+                // transaction has rolled back; retry deduplication and the entire report in a fresh snapshot.
+                _dbContext.ChangeTracker.Clear();
+            }
+        }
+    }
+
+    private async Task HandleRoutedAsync(Update update, TelegramUpdateRouteResult route, bool statisticsRequest,
+        CancellationToken cancellationToken)
+    {
         var now = _timeProvider.GetUtcNow().UtcDateTime;
 
-        await using var transaction = await _dbContext.Database.BeginTransactionAsync(
-            cancellationToken);
+        // Statistics shares this connection and snapshot with update deduplication and its outbox reply.
+        var isolation = statisticsRequest ? IsolationLevel.RepeatableRead : IsolationLevel.ReadCommitted;
+        await using var transaction = _dbContext.Database.IsNpgsql()
+            ? await _dbContext.Database.BeginTransactionAsync(isolation, cancellationToken)
+            : await _dbContext.Database.BeginTransactionAsync(cancellationToken);
 
         var inserted = await _dbContext.Database.ExecuteSqlInterpolatedAsync(
             $"""
@@ -184,6 +210,10 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
                 update.Message!.Id, chatId, exception.GetType().Name);
         }
     }
+
+    private static bool IsSerializationFailure(Exception exception) => exception is
+        PostgresException { SqlState: PostgresErrorCodes.SerializationFailure } or
+        DbUpdateException { InnerException: PostgresException { SqlState: PostgresErrorCodes.SerializationFailure } };
 
     private async Task AcknowledgeAsync(Update update, CancellationToken token)
     {

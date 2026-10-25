@@ -13,9 +13,12 @@ exclusive end. Today starts at 00:00 UTC; the default starts six calendar days b
 30d starts 29 calendar days before today. Both include the elapsed part of today. All time has no effective
 lower bound. These are calendar periods, not sliding 168/720-hour windows.
 
-PostgreSQL reports read a separate Repeatable Read snapshot, including when invoked inside the webhook's
-transaction. Only the authenticated sender's data is queried. The explicitly labelled service-wide error
-and delivery retry counters contain counts only, without other users' identities or content.
+PostgreSQL reports use a Repeatable Read snapshot on the caller's connection. The `/stats` webhook
+transaction uses Repeatable Read for update deduplication, report reads and the outbox reply together; it does
+not acquire a second connection. Serialization conflicts in a `/stats` webhook retry the whole transaction
+with at most three attempts, preserving update deduplication. Standalone statistics reads open their own Repeatable Read transaction.
+Callers supplying an existing transaction must use Repeatable Read or Serializable isolation. Only the
+authenticated sender's data is queried. The explicitly labelled service-wide error and delivery retry counters contain counts only, without other users' identities or content.
 
 | Metric | Unit, attribution, denominator |
 | --- | --- |
@@ -37,6 +40,10 @@ and delivery retry counters contain counts only, without other users' identities
 | Background errors | Failed job outcomes (including retryable failures, timeout, invalid output and budget refusal) committed with the fenced job completion, plus recorded unexpected analysis/apply-cycle failures for this user. Apply/recovery failures without a user context are labelled service-wide. Provider errors are also shown above as a separate overlapping metric. |
 | Delivery retries/errors | Service-wide outbox delivery attempts after an earlier failure and actual send failures. Their facts survive sent-message cleanup. |
 | Pending / overdue now | Current gauges, independent of the selected historical period. Pending counts logical pending analyses. Overdue jobs have an expired Running lease, or Ready availability more than ten minutes overdue. Disabled backlog can legitimately be overdue. |
+
+Counts, token/cost sums and mean durations are aggregated in SQL. Policy decisions and legacy usage JSON
+are streamed without retaining the full history in memory. Event categories use explicit shared codes;
+unrecognized codes do not enter refusal/error totals merely because of a matching prefix.
 
 Event totals and capture-cohort totals intentionally answer different questions: an entry captured last month can
 be processed this week. Proposal count is never used as an entry count or as an entity-creation count.

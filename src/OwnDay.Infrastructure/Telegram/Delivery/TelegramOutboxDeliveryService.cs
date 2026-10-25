@@ -50,7 +50,7 @@ public sealed class TelegramOutboxDeliveryService
                 {
                     _dbContext.InboxOperationEvents.Add(new InboxOperationEvent
                     {
-                        Code = "background_delivery_retry", At = now
+                        Code = InboxEventCodes.BackgroundDeliveryRetry, At = now
                     });
                 }
                 await _messageSender.SendMessageAsync(
@@ -72,7 +72,7 @@ public sealed class TelegramOutboxDeliveryService
                 message.LastError = exception.GetType().Name;
                 _dbContext.InboxOperationEvents.Add(new InboxOperationEvent
                 {
-                    Code = "background_delivery_error", At = _timeProvider.GetUtcNow().UtcDateTime
+                    Code = InboxEventCodes.BackgroundDeliveryError, At = _timeProvider.GetUtcNow().UtcDateTime
                 });
 
                 if (exception is ApiRequestException { ErrorCode: 400 or 403 or 404 })

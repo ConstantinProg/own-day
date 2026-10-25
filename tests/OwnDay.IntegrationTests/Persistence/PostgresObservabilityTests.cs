@@ -1,7 +1,12 @@
+using System.Data;
+using System.Net;
+using System.Text;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Npgsql;
@@ -77,6 +82,123 @@ public sealed class PostgresObservabilityTests : IAsyncLifetime
         Assert.Equal(200, await verify.OpenAIRequestAttempts.SumAsync(a => a.ChargedTokens));
         Assert.All(await verify.OpenAIRequestAttempts.ToListAsync(), a => Assert.Null(a.FinishedAt));
         Assert.Equal(InboxItemStatus.Active, (await verify.InboxItems.SingleAsync()).Status);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(4)]
+    public async Task Post_ConcurrentDuplicateStatistics_CommitsOneReportWithoutExhaustingPool(int poolSize)
+    {
+        var connection = new NpgsqlConnectionStringBuilder(_connectionString)
+        {
+            Pooling = true, MaxPoolSize = poolSize, MinPoolSize = 0, Timeout = 3
+        }.ConnectionString;
+        try
+        {
+            using var host = new OwnDayHostFactory();
+            using var factory = host.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
+            {
+                services.RemoveAll<DbContextOptions<OwnDayDbContext>>();
+                services.RemoveAll<IDbContextOptionsConfiguration<OwnDayDbContext>>();
+                services.AddDbContext<OwnDayDbContext>(options => options.UseNpgsql(connection));
+            }));
+            using var client = factory.CreateClient();
+            async Task PostAsync()
+            {
+                using var request = new HttpRequestMessage(HttpMethod.Post, "/telegram/webhook");
+                request.Headers.Add("X-Telegram-Bot-Api-Secret-Token", "integration-test-webhook-secret");
+                request.Content = new StringContent("""
+                    {"update_id":9001,"message":{"message_id":91,"date":1792929600,
+                     "from":{"id":101,"is_bot":false,"first_name":"Test","language_code":"en"},
+                     "chat":{"id":101,"type":"private"},"text":"/stats all"}}
+                    """, Encoding.UTF8, "application/json");
+                using var response = await client.SendAsync(request);
+                Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            }
+            await Task.WhenAll(Enumerable.Range(0, 4).Select(_ => PostAsync()));
+            using var scope = factory.Services.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
+            var report = await db.TelegramOutboxMessages.SingleAsync();
+            Assert.Contains("Received: 1.", report.Text, StringComparison.Ordinal);
+            Assert.Single(await db.ProcessedTelegramUpdates.ToListAsync());
+        }
+        finally
+        {
+            using var pool = new NpgsqlConnection(connection);
+            NpgsqlConnection.ClearPool(pool);
+        }
+    }
+
+    [Fact]
+    public async Task ReadAsync_ExistingRepeatableReadTransaction_SeesOwnWritesAndRetainsSnapshot()
+    {
+        await using var db = new OwnDayDbContext(_options);
+        await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.RepeatableRead);
+        db.InboxOperationEvents.Add(new()
+        {
+            UserId = Owner.Value, InboxItemId = _itemId, Code = InboxEventCodes.Manual, At = DateTime.UtcNow
+        });
+        await db.SaveChangesAsync();
+        var period = StatisticsPeriod.Parse("all", DateTime.UtcNow.AddMinutes(1))!;
+        var store = new EfInboxStatisticsStore(db);
+        var first = await store.ReadAsync(Owner, period, CancellationToken.None);
+        Assert.Equal(1, first.ManualInterventions);
+        await using (var other = new OwnDayDbContext(_options))
+        {
+            other.InboxItems.Add(InboxItem.Capture(Owner, "CONCURRENT", DateTime.UtcNow));
+            await other.SaveChangesAsync();
+        }
+        var second = await store.ReadAsync(Owner, period, CancellationToken.None);
+        Assert.Equal(first.Received, second.Received);
+        Assert.Same(transaction, db.Database.CurrentTransaction);
+        await transaction.RollbackAsync();
+        await using var verify = new OwnDayDbContext(_options);
+        Assert.Empty(await verify.InboxOperationEvents.Where(e => e.Code == InboxEventCodes.Manual).ToListAsync());
+    }
+
+    [Fact]
+    public async Task ReadAsync_ExistingReadCommittedTransaction_RejectsIncoherentSnapshot()
+    {
+        await using var db = new OwnDayDbContext(_options);
+        await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new EfInboxStatisticsStore(db)
+            .ReadAsync(Owner, StatisticsPeriod.Parse("all", DateTime.UtcNow)!, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task ReadAsync_MixedAttemptsAndEventCodes_AggregatesUsageAndOnlyRecognizedCategories()
+    {
+        var now = DateTime.UtcNow;
+        await using (var db = new OwnDayDbContext(_options))
+        {
+            db.OpenAIRequestAttempts.AddRange(
+                new() { AnalysisId = _analysisId, UserId = Owner.Value, StartedAt = now, Sequence = 1,
+                    InputTokens = 100, CachedInputTokens = 40, OutputTokens = 20, EstimatedUsd = 0.001m, Code = "response" },
+                new() { AnalysisId = _analysisId, UserId = Owner.Value, StartedAt = now, Sequence = 2,
+                    InputTokens = 50, OutputTokens = 10, EstimatedUsd = 0.002m, Code = "refused" },
+                new() { AnalysisId = _analysisId, UserId = Owner.Value, StartedAt = now, Sequence = 3 },
+                new() { AnalysisId = _analysisId, UserId = 102, StartedAt = now, InputTokens = 999 },
+                new() { AnalysisId = _analysisId, UserId = Owner.Value, StartedAt = now.AddDays(-2), InputTokens = 999 });
+            foreach (var code in new[] { InboxEventCodes.UndoConflict, "undo_unrecognized",
+                InboxEventCodes.AnalysisError(InboxAnalysisCode.Timeout), "background_unrecognized_error" })
+            {
+                db.InboxOperationEvents.Add(new() { UserId = Owner.Value, InboxItemId = _itemId, Code = code, At = now });
+            }
+            db.InboxOperationEvents.Add(new() { Code = InboxEventCodes.BackgroundDeliveryError, At = now });
+            db.InboxOperationEvents.Add(new() { Code = InboxEventCodes.BackgroundDeliveryRetry, At = now });
+            await db.SaveChangesAsync();
+        }
+        await using var verify = new OwnDayDbContext(_options);
+        var stats = await new EfInboxStatisticsStore(verify).ReadAsync(Owner,
+            new("today", now.Date, now.AddMinutes(1)), CancellationToken.None);
+        Assert.Equal(3, stats.ProviderAttempts);
+        Assert.Equal(2, stats.Retries);
+        Assert.Equal(1, stats.ProviderErrors);
+        Assert.Equal(new TokenStatistics(150, 40, 30, 0.003m, 1, 2, 1, 1), stats.Tokens);
+        Assert.Equal(1, stats.UndoRefused);
+        Assert.Equal(1, stats.BackgroundErrors);
+        Assert.Equal(1, stats.GlobalBackgroundErrors);
+        Assert.Equal(1, stats.GlobalBackgroundRetries);
     }
 
     [Fact]

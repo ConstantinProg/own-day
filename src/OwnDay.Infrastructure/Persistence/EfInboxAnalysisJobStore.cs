@@ -28,7 +28,7 @@ public sealed class EfInboxAnalysisJobStore(OwnDayDbContext db, IInboxProcessing
             db.InboxOperationEvents.Add(new InboxOperationEvent
             {
                 Id = token, UserId = job.UserId.Value, InboxItemId = job.InboxItemId,
-                Code = "background_retry", At = await NowAsync(cancellationToken)
+                Code = InboxEventCodes.BackgroundRetry, At = await NowAsync(cancellationToken)
             });
             await db.SaveChangesAsync(cancellationToken);
         }
@@ -103,7 +103,7 @@ public sealed class EfInboxAnalysisJobStore(OwnDayDbContext db, IInboxProcessing
                 db.InboxOperationEvents.Add(new InboxOperationEvent
                 {
                     UserId = job.UserId.Value, InboxItemId = job.InboxItemId,
-                    Code = "background_" + finished.Code.ToStorageValue() + "_error", At = now
+                    Code = InboxEventCodes.AnalysisError(finished.Code), At = now
                 });
             }
             return finished;
