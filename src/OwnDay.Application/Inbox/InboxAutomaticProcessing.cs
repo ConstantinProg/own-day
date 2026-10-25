@@ -11,7 +11,16 @@ public sealed record AppliedInboxProposal(Guid ProposalId, InboxTargetKind Kind,
 
 internal sealed record PreparedInboxProposal(Guid ProposalId, ProcessInboxItem Command);
 
-// Immutable application history, committed in the same transaction as the domain targets.
+public enum InboxConfirmationOutcome
+{
+    Applied,
+    Rejected,
+    Stale
+}
+
+public sealed record InboxConfirmationResult(InboxConfirmationOutcome? Outcome, long? InboxItemId, bool Changed);
+
+// Original assessment is retained; confirmation resolution is written once under the Inbox lock.
 public sealed class InboxAutomaticApplication
 {
     public Guid AnalysisId { get; init; }
@@ -23,6 +32,9 @@ public sealed class InboxAutomaticApplication
     public string DecisionJson { get; init; } = "{}";
     public string ProposalsJson { get; init; } = "[]";
     public string TargetsJson { get; init; } = "[]";
+    public InboxConfirmationOutcome? ConfirmationOutcome { get; set; }
+    public DateTime? ResolvedAt { get; set; }
+    public string ConfirmedTargetsJson { get; set; } = "[]";
 }
 
 public interface IInboxAutomaticProcessingStore
@@ -32,6 +44,8 @@ public interface IInboxAutomaticProcessingStore
     // Called inside the existing Inbox transaction/lock; referenced projects stay locked until commit.
     Task<InboxPolicySnapshot?> ReadLockedAsync(InboxItem item, Guid analysisId, CancellationToken cancellationToken);
     void Add(InboxAutomaticApplication application);
+    // Enlist one logical notification in the caller's transaction; never contact the transport here.
+    Task QueueFeedbackAsync(InboxAutomaticApplication application, InboxAnalysisStatus status, CancellationToken cancellationToken);
 }
 
 public sealed class InboxAutomaticProcessingService(
@@ -53,7 +67,11 @@ public sealed class InboxAutomaticProcessingService(
     }
 
     public Task<InboxAutomaticApplication?> ApplyAsync(UserId userId, long itemId, Guid analysisId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken) =>
+        ApplyAsync(userId, itemId, analysisId, InboxPolicyEngine.Version, cancellationToken);
+
+    public Task<InboxAutomaticApplication?> ApplyAsync(UserId userId, long itemId, Guid analysisId,
+        string policyVersion, CancellationToken cancellationToken)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(userId.Value);
         return locks.ExecuteLockedAsync<InboxAutomaticApplication?>(userId, itemId, async (item, token) =>
@@ -72,7 +90,7 @@ public sealed class InboxAutomaticProcessingService(
             {
                 return null;
             }
-            var evaluation = policy.PrepareApplication(userId, itemId, analysisId, snapshot);
+            var evaluation = policy.PrepareApplication(userId, itemId, analysisId, snapshot, policyVersion);
             var decision = evaluation.Decision;
             IReadOnlyList<AppliedInboxProposal> applied = [];
             if (decision.Route == InboxPolicyRoute.AutoApply)
@@ -88,7 +106,56 @@ public sealed class InboxAutomaticProcessingService(
                 TargetsJson = JsonSerializer.Serialize(applied, InboxAnalysisJson.Options)
             };
             store.Add(result);
+            // Inactive/superseded histories must not produce misleading attention notifications.
+            if (!decision.Reasons.Contains(InboxPolicyReason.InboxInactive) &&
+                snapshot.Analysis.Version == snapshot.LatestAnalysisVersion)
+            {
+                await store.QueueFeedbackAsync(result, snapshot.Analysis.Status, token);
+            }
             return result;
+        }, cancellationToken);
+    }
+
+    public async Task<InboxConfirmationResult> ConfirmAsync(UserId userId, Guid analysisId, bool accept,
+        CancellationToken cancellationToken)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(userId.Value);
+        var found = await store.FindAsync(userId, analysisId, cancellationToken);
+        if (found is null)
+        {
+            return new(null, null, false);
+        }
+        return await locks.ExecuteLockedAsync(userId, found.InboxItemId, async (item, token) =>
+        {
+            var application = await store.FindAsync(userId, analysisId, token);
+            if (item is null || application is null || application.Route != InboxPolicyRoute.RequireConfirmation)
+            {
+                return new InboxConfirmationResult(null, null, false);
+            }
+            if (application.ConfirmationOutcome is { } previous)
+            {
+                return new InboxConfirmationResult(previous, item.Id, false);
+            }
+
+            var snapshot = await store.ReadLockedAsync(item, analysisId, token);
+            var prepared = snapshot is null ? null : policy.PrepareApplication(userId, item.Id, analysisId,
+                snapshot, application.PolicyVersion);
+            var original = JsonSerializer.Deserialize<InboxPolicyDecision>(application.DecisionJson, InboxAnalysisJson.Options);
+            var current = prepared?.Decision;
+            var stale = clock.GetUtcNow().UtcDateTime - application.EvaluatedAt > TimeSpan.FromHours(24) ||
+                current?.Route != InboxPolicyRoute.RequireConfirmation || original is null ||
+                current.StateFingerprint != original.StateFingerprint;
+            var outcome = stale ? InboxConfirmationOutcome.Stale : accept
+                ? InboxConfirmationOutcome.Applied : InboxConfirmationOutcome.Rejected;
+            if (outcome == InboxConfirmationOutcome.Applied)
+            {
+                var targets = await processing.ProcessBatchLockedAsync(userId, item, prepared!.Proposals, token);
+                application.ConfirmedTargetsJson = JsonSerializer.Serialize(targets, InboxAnalysisJson.Options);
+            }
+            application.ConfirmationOutcome = outcome;
+            application.ResolvedAt = clock.GetUtcNow().UtcDateTime;
+            await store.QueueFeedbackAsync(application, snapshot?.Analysis.Status ?? InboxAnalysisStatus.Failed, token);
+            return new InboxConfirmationResult(outcome, item.Id, true);
         }, cancellationToken);
     }
 }

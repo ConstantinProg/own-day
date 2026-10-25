@@ -1,5 +1,8 @@
 # Automatic Inbox processing
 
+Telegram result notifications and the compatibility confirmation route are now implemented in
+[Telegram feedback and confirmation](Phase4-Milestone6-Telegram-Feedback.md).
+
 The application now uses **`inbox-policy-v2`**. This is a personal experiment: a structurally valid AI
 interpretation may be semantically wrong and still be applied. There are no confidence scores, profiles,
 semantic review gates or new policy configuration. The original text and proposals remain available for correction.
@@ -37,8 +40,9 @@ still rejected structurally. No deadline, priority or other unsupported domain p
 
 **RequireConfirmation:** no v2 scenario in the current contract requires it. All required target data is
 already validated, and project links/source are optional while waiting start has an existing default.
-The route remains for v1 compatibility and situations that actually require a user choice; no confirmation
-UI or new mandatory choices are introduced here. Ambiguity in interpretation alone is not such a situation.
+The route remains for v1 compatibility and situations that actually require a user choice. Telegram now handles
+that route with confirmation buttons; no new mandatory choices are introduced in v2. Ambiguity in interpretation
+alone is not such a situation.
 
 **KeepInInbox:** missing/foreign or inactive Inbox, incomplete/failed/invalid/superseded analysis, changed input,
 unsupported schema/version, corrupt or unavailable context, invalid proposal set/payload or domain invariants.
@@ -105,9 +109,10 @@ At this personal-use scale discovery chooses the oldest outstanding analysis, an
 multiple Hosts remain safe under the database locks. A persistent storage failure on that oldest analysis can delay
 later work until the storage problem is fixed. There is no new retry-budget/configuration subsystem.
 
-The Telegram webhook still only captures/schedules analysis and handles manual commands. Existing update
-deduplication, draft concurrency and transactional reply outbox remain in use. Automatic application sends no new
-Telegram reply, so it needs no new outbox intent or delivery path. A draft whose item was automatically processed
+The Telegram webhook captures/schedules analysis and handles manual commands and confirmation callbacks. Existing update
+deduplication, draft concurrency and transactional reply outbox remain in use. Automatic application now enlists
+one result notification in its Inbox processing transaction for entries captured through Telegram.
+A draft whose item was automatically processed
 follows the existing unavailable/processing-unavailable behavior when the user continues or confirms it.
 
 ## Persistence and future Undo

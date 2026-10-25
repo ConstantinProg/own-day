@@ -24,6 +24,7 @@ public sealed class OwnDayDbContext(DbContextOptions<OwnDayDbContext> options)
     public DbSet<InboxAnalysis> InboxAnalyses => Set<InboxAnalysis>();
     public DbSet<InboxAnalysisJob> InboxAnalysisJobs => Set<InboxAnalysisJob>();
     public DbSet<InboxAutomaticApplication> InboxAutomaticApplications => Set<InboxAutomaticApplication>();
+    public DbSet<TelegramInboxDestination> TelegramInboxDestinations => Set<TelegramInboxDestination>();
     public DbSet<InboxDraft> TelegramInboxDrafts => Set<InboxDraft>();
     public DbSet<TelegramUserLanguage> TelegramUserLanguages => Set<TelegramUserLanguage>();
 
@@ -36,6 +37,15 @@ public sealed class OwnDayDbContext(DbContextOptions<OwnDayDbContext> options)
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         InboxAnalysisModel.Configure(modelBuilder);
+        modelBuilder.Entity<TelegramInboxDestination>(entity =>
+        {
+            entity.ToTable("telegram_inbox_destinations");
+            entity.HasKey(d => d.InboxItemId);
+            entity.Property(d => d.InboxItemId).ValueGeneratedNever().HasColumnName("inbox_item_id");
+            entity.Property(d => d.ChatId).HasColumnName("chat_id");
+            entity.Property(d => d.Locale).HasMaxLength(2).HasColumnName("locale");
+            entity.HasOne<InboxItem>().WithMany().HasForeignKey(d => d.InboxItemId).OnDelete(DeleteBehavior.Cascade);
+        });
         modelBuilder.Entity<InboxAutomaticApplication>(entity =>
         {
             entity.ToTable("inbox_automatic_applications");
@@ -49,6 +59,9 @@ public sealed class OwnDayDbContext(DbContextOptions<OwnDayDbContext> options)
             entity.Property(a => a.DecisionJson).HasColumnType("jsonb").HasColumnName("decision");
             entity.Property(a => a.ProposalsJson).HasColumnType("jsonb").HasColumnName("proposals");
             entity.Property(a => a.TargetsJson).HasColumnType("jsonb").HasColumnName("targets");
+            entity.Property(a => a.ConfirmationOutcome).HasColumnName("confirmation_outcome");
+            entity.Property(a => a.ResolvedAt).HasColumnName("resolved_at");
+            entity.Property(a => a.ConfirmedTargetsJson).HasColumnType("jsonb").HasColumnName("confirmed_targets");
             entity.HasOne<InboxAnalysis>().WithMany().HasForeignKey(a => a.AnalysisId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<InboxItem>().WithMany().HasForeignKey(a => new { a.InboxItemId, a.UserId })
                 .HasPrincipalKey(i => new { i.Id, i.UserId }).OnDelete(DeleteBehavior.Restrict);
@@ -228,6 +241,7 @@ public sealed class OwnDayDbContext(DbContextOptions<OwnDayDbContext> options)
             entity.Property(message => message.Id).HasColumnName("id");
             entity.Property(message => message.ChatId).HasColumnName("chat_id");
             entity.Property(message => message.Text).HasColumnName("text");
+            entity.Property(message => message.ReplyMarkupJson).HasColumnName("reply_markup_json");
             entity.Property(message => message.Status).HasColumnName("status");
             entity.Property(message => message.AttemptCount).HasColumnName("attempt_count");
             entity.Property(message => message.NextAttemptAt).HasColumnName("next_attempt_at");

@@ -240,4 +240,21 @@
   <data name="structured.waiting.title" xml:space="preserve">
     <value>Ожидания</value>
   </data>
+  <data name="auto.applied" xml:space="preserve"><value>Входящие #{0}: создано.</value></data>
+  <data name="auto.confirm" xml:space="preserve"><value>Входящие #{0}: подтвердите предложенный результат. Кнопки действуют 24 часа.</value></data>
+  <data name="auto.analysis_failed" xml:space="preserve"><value>Запись #{0} сохранена. Автоматический разбор не удался. Можно разобрать её вручную.</value></data>
+  <data name="auto.attention" xml:space="preserve"><value>Запись #{0} сохранена и требует внимания. Применить результат автоматически не удалось.</value></data>
+  <data name="auto.rejected" xml:space="preserve"><value>Предложение для записи #{0} отклонено. Исходная запись сохранена.</value></data>
+  <data name="auto.stale" xml:space="preserve"><value>Предложение для записи #{0} устарело. Это действие ничего не создало. Проверьте текущее состояние записи.</value></data>
+  <data name="auto.details" xml:space="preserve"><value>Результат и исходный текст: /inbox_result {0}</value></data>
+  <data name="auto.manual" xml:space="preserve"><value>Открыть запись: /inbox_result {0}. Разобрать вручную: /inbox {0}</value></data>
+  <data name="auto.accept" xml:space="preserve"><value>Создать</value></data>
+  <data name="auto.reject" xml:space="preserve"><value>Оставить во входящих</value></data>
+  <data name="auto.source" xml:space="preserve"><value>От кого: {0}</value></data>
+  <data name="auto.since" xml:space="preserve"><value>Начало ожидания (UTC): {0}</value></data>
+  <data name="auto.project" xml:space="preserve"><value>Проект #{0}</value></data>
+  <data name="auto.unavailable" xml:space="preserve"><value>Это предложение недоступно или устарело. Проверьте записи через /inbox.</value></data>
+  <data name="auto.already_applied" xml:space="preserve"><value>Это предложение уже применено. Новые сущности не созданы.</value></data>
+  <data name="auto.already_rejected" xml:space="preserve"><value>Это предложение уже отклонено. Исходная запись сохранена.</value></data>
+  <data name="auto.original" xml:space="preserve"><value>Исходная запись #{0}: {1}</value></data>
 </root>

@@ -213,9 +213,10 @@ public sealed class TelegramWebhookEndpointTests : IClassFixture<OwnDayHostFacto
     {
         public List<SentMessage> Messages { get; } = [];
 
-        public Task SendTextMessageAsync(
+        public Task SendMessageAsync(
             long chatId,
             string text,
+            string? replyMarkupJson,
             CancellationToken cancellationToken = default)
         {
             Messages.Add(new SentMessage(chatId, text, cancellationToken));

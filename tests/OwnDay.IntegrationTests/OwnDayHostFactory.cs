@@ -8,6 +8,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using OwnDay.Infrastructure.Persistence;
 using OwnDay.Infrastructure.Telegram.Cleanup;
+using OwnDay.Infrastructure.Telegram.Delivery;
 
 namespace OwnDay.IntegrationTests;
 
@@ -39,6 +40,8 @@ public sealed class OwnDayHostFactory : WebApplicationFactory<Program>
             services.RemoveAll<IDbContextOptionsConfiguration<OwnDayDbContext>>();
             services.RemoveAll<IHostedService>();
             services.RemoveAll<ITelegramMessageCleaner>();
+            services.RemoveAll<ITelegramCallbackResponder>();
+            services.AddSingleton<ITelegramCallbackResponder, NoOpCallbackResponder>();
             services.AddSingleton<ITelegramMessageCleaner, NoOpTelegramMessageCleaner>();
             services.AddDbContext<OwnDayDbContext>(options => options.UseSqlite(_connection));
         });
@@ -91,5 +94,10 @@ public sealed class OwnDayHostFactory : WebApplicationFactory<Program>
     {
         public Task DeleteMessageAsync(long chatId, int messageId, CancellationToken cancellationToken) =>
             Task.CompletedTask;
+    }
+
+    private sealed class NoOpCallbackResponder : ITelegramCallbackResponder
+    {
+        public Task AnswerAsync(string callbackId, CancellationToken cancellationToken) => Task.CompletedTask;
     }
 }

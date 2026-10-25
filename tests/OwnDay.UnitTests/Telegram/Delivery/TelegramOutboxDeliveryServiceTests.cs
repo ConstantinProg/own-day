@@ -245,9 +245,10 @@ public sealed class TelegramOutboxDeliveryServiceTests
     {
         public List<SentMessage> Messages { get; } = [];
 
-        public Task SendTextMessageAsync(
+        public Task SendMessageAsync(
             long chatId,
             string text,
+            string? replyMarkupJson,
             CancellationToken cancellationToken = default)
         {
             Messages.Add(new SentMessage(chatId, text, cancellationToken));
@@ -263,9 +264,10 @@ public sealed class TelegramOutboxDeliveryServiceTests
     {
         public List<CancellationToken> Tokens { get; } = [];
 
-        public Task SendTextMessageAsync(
+        public Task SendMessageAsync(
             long chatId,
             string text,
+            string? replyMarkupJson,
             CancellationToken cancellationToken = default)
         {
             Tokens.Add(cancellationToken);
@@ -283,18 +285,20 @@ public sealed class TelegramOutboxDeliveryServiceTests
 
     private sealed class FailingMessageSender : ITelegramMessageSender
     {
-        public Task SendTextMessageAsync(
+        public Task SendMessageAsync(
             long chatId,
             string text,
+            string? replyMarkupJson,
             CancellationToken cancellationToken = default) =>
             Task.FromException(new InvalidOperationException("Telegram is unavailable."));
     }
 
     private sealed class ErrorMessageSender(Exception exception) : ITelegramMessageSender
     {
-        public Task SendTextMessageAsync(
+        public Task SendMessageAsync(
             long chatId,
             string text,
+            string? replyMarkupJson,
             CancellationToken cancellationToken = default) => Task.FromException(exception);
     }
 }

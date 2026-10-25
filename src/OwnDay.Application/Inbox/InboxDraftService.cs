@@ -29,8 +29,8 @@ public sealed class InboxDraftService(
                 drafts.Remove(draft);
             }
 
-            await capture.CaptureAsync(user, text, token);
-            return new InboxDraftResult.Notice(expired ? InboxDraftOutcome.Expired : InboxDraftOutcome.Captured);
+            var captured = await capture.CaptureAsync(user, text, token);
+            return new InboxDraftResult.Notice(expired ? InboxDraftOutcome.Expired : InboxDraftOutcome.Captured, captured.Id);
         }
 
         var item = await capture.FindAsync(user, draft.InboxItemId, token);

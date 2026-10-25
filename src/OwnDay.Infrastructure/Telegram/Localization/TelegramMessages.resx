@@ -240,4 +240,21 @@ More: /done &lt;id&gt; — complete a task; /start, /help, /ping, /language.</va
   <data name="structured.waiting.title" xml:space="preserve">
     <value>Waiting</value>
   </data>
+  <data name="auto.applied" xml:space="preserve"><value>Inbox #{0}: created.</value></data>
+  <data name="auto.confirm" xml:space="preserve"><value>Inbox #{0}: confirm the proposed result. Buttons are valid for 24 hours.</value></data>
+  <data name="auto.analysis_failed" xml:space="preserve"><value>Inbox #{0} is saved. Automatic analysis could not finish. You can process it manually.</value></data>
+  <data name="auto.attention" xml:space="preserve"><value>Inbox #{0} is saved and needs attention. The result could not be applied automatically.</value></data>
+  <data name="auto.rejected" xml:space="preserve"><value>Proposal for inbox #{0} rejected. The original entry is saved.</value></data>
+  <data name="auto.stale" xml:space="preserve"><value>Proposal for inbox #{0} is out of date. No entities were created by this action. Open the entry to check its current state.</value></data>
+  <data name="auto.details" xml:space="preserve"><value>Result and original: /inbox_result {0}</value></data>
+  <data name="auto.manual" xml:space="preserve"><value>Open entry: /inbox_result {0}. Manual processing: /inbox {0}</value></data>
+  <data name="auto.accept" xml:space="preserve"><value>Create</value></data>
+  <data name="auto.reject" xml:space="preserve"><value>Keep in inbox</value></data>
+  <data name="auto.source" xml:space="preserve"><value>Source: {0}</value></data>
+  <data name="auto.since" xml:space="preserve"><value>Waiting since (UTC): {0}</value></data>
+  <data name="auto.project" xml:space="preserve"><value>Project #{0}</value></data>
+  <data name="auto.unavailable" xml:space="preserve"><value>This proposal is unavailable or out of date. Use /inbox to check your entries.</value></data>
+  <data name="auto.already_applied" xml:space="preserve"><value>This proposal has already been applied. No new entities were created.</value></data>
+  <data name="auto.already_rejected" xml:space="preserve"><value>This proposal has already been rejected. The original entry is saved.</value></data>
+  <data name="auto.original" xml:space="preserve"><value>Original entry #{0}: {1}</value></data>
 </root>

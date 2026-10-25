@@ -94,6 +94,10 @@ public sealed class PostgresInboxAutomaticProcessingTests : IAsyncLifetime
         Assert.Equal(audit.TargetsJson, repeated!.TargetsJson);
         Assert.True(audit.EvaluatedAt >= item.CapturedAt);
         Assert.Equal(1, await CountTargetsAsync(restarted));
+        var notification = Assert.Single(await restarted.TelegramOutboxMessages.ToListAsync(Token));
+        Assert.Equal(analysisId, notification.Id);
+        Assert.Null(notification.ReplyMarkupJson);
+        Assert.Contains("/inbox_result " + itemId, notification.Text, StringComparison.Ordinal);
         if (kind == InboxTargetKind.WaitingFor)
         {
             var waiting = await restarted.WaitingFors.SingleAsync(Token);
@@ -112,6 +116,9 @@ public sealed class PostgresInboxAutomaticProcessingTests : IAsyncLifetime
         Assert.Equal(1, await db.SomedayMaybes.CountAsync(Token));
         var item = await db.InboxItems.SingleAsync(Token);
         Assert.Equal(3, item.Targets.Count);
+        var notification = Assert.Single(await db.TelegramOutboxMessages.ToListAsync(Token));
+        Assert.Equal(3, notification.Text.Split('\n').Count(line => line.StartsWith("Task #", StringComparison.Ordinal) ||
+            line.StartsWith("Idea #", StringComparison.Ordinal)));
         Assert.Equal(3, JsonSerializer.Deserialize<AppliedInboxProposal[]>(
             (await db.InboxAutomaticApplications.SingleAsync(Token)).TargetsJson, InboxAnalysisJson.Options)!.Length);
     }
@@ -251,12 +258,14 @@ public sealed class PostgresInboxAutomaticProcessingTests : IAsyncLifetime
         await using var verify = Db();
         Assert.Equal(3, await CountTargetsAsync(verify));
         Assert.Single(await verify.InboxAutomaticApplications.ToListAsync(Token));
+        Assert.Single(await verify.TelegramOutboxMessages.ToListAsync(Token));
         Assert.False(await Service(verify).ProcessNextAsync(Token));
     }
 
     [Theory]
     [InlineData("someday_maybes")]
     [InlineData("inbox_automatic_applications")]
+    [InlineData("telegram_outbox_messages")]
     public async Task ApplyAsync_FailureAfterEarlierInserts_RollsBackWholeBatchAndRecovers(string failTable)
     {
         var (itemId, analysisId) = await SeedAsync(Composite());
@@ -270,6 +279,7 @@ public sealed class PostgresInboxAutomaticProcessingTests : IAsyncLifetime
         {
             Assert.Equal(0, await CountTargetsAsync(verify));
             Assert.Empty(await verify.InboxAutomaticApplications.ToListAsync(Token));
+            Assert.Empty(await verify.TelegramOutboxMessages.ToListAsync(Token));
             var item = await verify.InboxItems.SingleAsync(Token);
             Assert.Equal(InboxItemStatus.Active, item.Status);
             Assert.Empty(item.Targets);
@@ -280,6 +290,7 @@ public sealed class PostgresInboxAutomaticProcessingTests : IAsyncLifetime
         Assert.True(await Service(restarted).ProcessNextAsync(Token));
         Assert.False(await Service(restarted).ProcessNextAsync(Token));
         Assert.Equal(3, await CountTargetsAsync(restarted));
+        Assert.Single(await restarted.TelegramOutboxMessages.ToListAsync(Token));
     }
 
     [Fact]
@@ -295,6 +306,7 @@ public sealed class PostgresInboxAutomaticProcessingTests : IAsyncLifetime
         Assert.Equal(InboxPolicyRoute.AutoApply, result!.Route);
         Assert.Equal(3, await CountTargetsAsync(restarted));
         Assert.Single(await restarted.InboxAutomaticApplications.ToListAsync(Token));
+        Assert.Single(await restarted.TelegramOutboxMessages.ToListAsync(Token));
     }
 
     [Theory]
@@ -322,6 +334,10 @@ public sealed class PostgresInboxAutomaticProcessingTests : IAsyncLifetime
             {
                 Assert.Equal(InboxItemStatus.Processed, (await db.InboxItems.SingleAsync(Token)).Status);
                 Assert.Equal(3, await CountTargetsAsync(db));
+                if (alreadyAnalyzed)
+                {
+                    Assert.Single(await db.TelegramOutboxMessages.ToListAsync(Token));
+                }
                 break;
             }
             await Task.Delay(50, Token);
@@ -361,6 +377,7 @@ public sealed class PostgresInboxAutomaticProcessingTests : IAsyncLifetime
         Assert.Equal(result.TargetId, Assert.Single(item.Targets).TargetId);
         Assert.Equal(InboxTargetKind.Reference, item.TargetKind);
         Assert.Equal(1, await CountTargetsAsync(verify));
+        Assert.Empty(await verify.TelegramOutboxMessages.ToListAsync(Token));
     }
 
     [Fact]
@@ -439,6 +456,81 @@ public sealed class PostgresInboxAutomaticProcessingTests : IAsyncLifetime
         Assert.Equal("legacy", item.OriginalText);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ConfirmAsync_ConcurrentAcceptAndReject_CommitExactlyOneResolution(bool acceptFirst)
+    {
+        var (itemId, analysisId) = await SeedAsync([Proposal()]);
+        await using (var db = Db())
+        {
+            var result = await Service(db).ApplyAsync(Owner, itemId, analysisId, InboxPolicyEngine.LegacyVersion, Token);
+            Assert.Equal(InboxPolicyRoute.RequireConfirmation, result!.Route);
+        }
+        var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        async Task<InboxConfirmationResult> RunAsync(bool accept)
+        {
+            await ready.Task.WaitAsync(Token);
+            await using var db = Db();
+            return await Service(db).ConfirmAsync(Owner, analysisId, accept, Token);
+        }
+        var tasks = new[] { RunAsync(acceptFirst), RunAsync(!acceptFirst), RunAsync(true), RunAsync(false) };
+        ready.SetResult();
+        var results = await Task.WhenAll(tasks).WaitAsync(Token);
+        var winner = Assert.Single(results, r => r.Changed);
+        Assert.All(results, r => Assert.Equal(winner.Outcome, r.Outcome));
+        await using var verify = Db();
+        Assert.Equal(winner.Outcome == InboxConfirmationOutcome.Applied ? 1 : 0, await CountTargetsAsync(verify));
+        Assert.Equal(2, await verify.TelegramOutboxMessages.CountAsync(Token)); // Preview and one resolution.
+        Assert.NotNull((await verify.InboxAutomaticApplications.SingleAsync(Token)).ResolvedAt);
+    }
+
+    [Fact]
+    public async Task ConfirmAsync_OutboxFailure_RollsBackResolutionAndTargetsAndRecoversAfterRestart()
+    {
+        var (itemId, analysisId) = await SeedAsync([Proposal()]);
+        await using (var db = Db())
+        {
+            await Service(db).ApplyAsync(Owner, itemId, analysisId, InboxPolicyEngine.LegacyVersion, Token);
+        }
+        await using (var failing = Db(new FailInsert("telegram_outbox_messages")))
+        {
+            await Assert.ThrowsAsync<DbUpdateException>(() => Service(failing).ConfirmAsync(Owner, analysisId, true, Token));
+        }
+        await using var restarted = Db();
+        Assert.Null((await restarted.InboxAutomaticApplications.SingleAsync(Token)).ConfirmationOutcome);
+        Assert.Empty(await restarted.Actions.ToListAsync(Token));
+        Assert.Single(await restarted.TelegramOutboxMessages.ToListAsync(Token));
+        Assert.Equal(InboxConfirmationOutcome.Applied, (await Service(restarted).ConfirmAsync(Owner, analysisId, true, Token)).Outcome);
+        Assert.Single(await restarted.Actions.ToListAsync(Token));
+        Assert.Equal(2, await restarted.TelegramOutboxMessages.CountAsync(Token));
+    }
+
+    [Fact]
+    public async Task ApplyAsync_NoTelegramOrigin_DoesNotInventChatDestination()
+    {
+        var (itemId, analysisId) = await SeedAsync([Proposal()]);
+        await using var db = Db();
+        await db.TelegramInboxDestinations.ExecuteDeleteAsync(Token);
+        await Service(db).ApplyAsync(Owner, itemId, analysisId, Token);
+        Assert.Single(await db.Actions.ToListAsync(Token));
+        Assert.Empty(await db.TelegramOutboxMessages.ToListAsync(Token));
+    }
+
+    [Fact]
+    public async Task ConfirmAsync_Cancelled_DoesNotResolveOfferOrCreateTargets()
+    {
+        var (itemId, analysisId) = await SeedAsync([Proposal()]);
+        await using var db = Db();
+        await Service(db).ApplyAsync(Owner, itemId, analysisId, InboxPolicyEngine.LegacyVersion, Token);
+        using var cancelled = new CancellationTokenSource();
+        cancelled.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Service(db).ConfirmAsync(Owner, analysisId, true, cancelled.Token));
+        Assert.Null((await db.InboxAutomaticApplications.SingleAsync(Token)).ConfirmationOutcome);
+        Assert.Single(await db.TelegramOutboxMessages.ToListAsync(Token));
+        Assert.Empty(await db.Actions.ToListAsync(Token));
+    }
+
     private OwnDayDbContext Db(params IInterceptor[] interceptors) =>
         new(new DbContextOptionsBuilder<OwnDayDbContext>(_options).AddInterceptors(interceptors).Options);
 
@@ -461,6 +553,7 @@ public sealed class PostgresInboxAutomaticProcessingTests : IAsyncLifetime
             Hash(json), Hash(item.OriginalText), now);
         analysis.Finish(InboxAnalysisStatus.Completed, now, "{}", new() { Items = proposals });
         db.InboxAnalyses.Add(analysis);
+        db.TelegramInboxDestinations.Add(new() { InboxItemId = item.Id, ChatId = Owner.Value, Locale = "en" });
         await db.SaveChangesAsync(Token);
         return (item.Id, analysis.Id);
     }

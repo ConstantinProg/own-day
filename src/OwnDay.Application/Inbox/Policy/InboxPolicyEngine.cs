@@ -19,8 +19,8 @@ public sealed class InboxPolicyEngine
         => EvaluateCore(userId, itemId, analysisId, snapshot, policyVersion).Decision;
 
     internal InboxApplicationPreparation PrepareApplication(UserId userId, long itemId, Guid analysisId,
-        InboxPolicySnapshot snapshot)
-        => EvaluateCore(userId, itemId, analysisId, snapshot, Version);
+        InboxPolicySnapshot snapshot, string policyVersion = Version)
+        => EvaluateCore(userId, itemId, analysisId, snapshot, policyVersion);
 
     private static InboxApplicationPreparation EvaluateCore(UserId userId, long itemId, Guid analysisId,
         InboxPolicySnapshot? snapshot, string policyVersion)
@@ -33,7 +33,7 @@ public sealed class InboxPolicyEngine
         InboxApplicationPreparation Result(InboxPolicyRoute route) => new(
             new(policyVersion, analysisId, itemId, snapshot?.Analysis.Version, fingerprint, route,
                 Array.AsReadOnly(reasons.Distinct().ToArray()), decisions.AsReadOnly()),
-            route == InboxPolicyRoute.AutoApply ? prepared.AsReadOnly() : Array.Empty<PreparedInboxProposal>());
+            route != InboxPolicyRoute.KeepInInbox ? prepared.AsReadOnly() : Array.Empty<PreparedInboxProposal>());
         InboxApplicationPreparation Block(InboxPolicyReason reason)
         {
             reasons.Add(reason);
@@ -106,7 +106,18 @@ public sealed class InboxPolicyEngine
         }
 
         decisions.AddRange(EvaluateV1Proposals(validations, context, currentProjects));
-        return Result(AggregateV1(decisions, reasons));
+        var legacyRoute = AggregateV1(decisions, reasons);
+        if (legacyRoute == InboxPolicyRoute.RequireConfirmation)
+        {
+            foreach (var validation in validations)
+            {
+                if (validation.Proposal is { } proposal)
+                {
+                    prepared.Add(new(validation.Row.Id, ToCommand(itemId, proposal, context, currentProjects)));
+                }
+            }
+        }
+        return Result(legacyRoute);
     }
 
     private static IReadOnlyList<ProposalValidation> ValidateProposals(InboxAnalysisProposal[] rows,

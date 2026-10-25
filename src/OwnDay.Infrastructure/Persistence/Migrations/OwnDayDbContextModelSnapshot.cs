@@ -238,6 +238,10 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
 
         modelBuilder.Entity("OwnDay.Infrastructure.Persistence.TelegramOutboxMessage", b =>
         {
+            b.Property<string>("ReplyMarkupJson")
+                .HasColumnType("text")
+                .HasColumnName("reply_markup_json");
+
             b.Property<Guid>("Id")
                 .HasColumnType("uuid")
                 .HasColumnName("id");
@@ -536,6 +540,19 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
             });
         modelBuilder.Entity("OwnDay.Application.Inbox.InboxAutomaticApplication", b =>
             {
+                b.Property<int?>("ConfirmationOutcome")
+                    .HasColumnType("integer")
+                    .HasColumnName("confirmation_outcome");
+
+                b.Property<string>("ConfirmedTargetsJson")
+                    .IsRequired()
+                    .HasColumnType("jsonb")
+                    .HasColumnName("confirmed_targets");
+
+                b.Property<DateTime?>("ResolvedAt")
+                    .HasColumnType("timestamp with time zone")
+                    .HasColumnName("resolved_at");
+
                 b.Property<Guid>("AnalysisId")
                     .HasColumnType("uuid")
                     .HasColumnName("analysis_id");
@@ -628,6 +645,35 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
                     });
 
                 b.Navigation("Targets");
+            });
+        modelBuilder.Entity("OwnDay.Infrastructure.Persistence.TelegramInboxDestination", b =>
+            {
+                b.Property<long>("InboxItemId")
+                    .HasColumnType("bigint")
+                    .HasColumnName("inbox_item_id");
+
+                b.Property<long>("ChatId")
+                    .HasColumnType("bigint")
+                    .HasColumnName("chat_id");
+
+                b.Property<string>("Locale")
+                    .IsRequired()
+                    .HasMaxLength(2)
+                    .HasColumnType("character varying(2)")
+                    .HasColumnName("locale");
+
+                b.HasKey("InboxItemId");
+
+                b.ToTable("telegram_inbox_destinations", (string)null);
+            });
+
+        modelBuilder.Entity("OwnDay.Infrastructure.Persistence.TelegramInboxDestination", b =>
+            {
+                b.HasOne("OwnDay.Domain.Inbox.InboxItem", null)
+                    .WithMany()
+                    .HasForeignKey("InboxItemId")
+                    .OnDelete(DeleteBehavior.Cascade)
+                    .IsRequired();
             });
 #pragma warning restore 612, 618
     }

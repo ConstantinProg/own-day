@@ -143,4 +143,6 @@ dotnet test OwnDay.slnx --configuration Release --no-build -m:1
 
 PostgreSQL tests use GUID-isolated schemas and real migrations. Ordinary checks do not call OpenAI;
 the existing real-provider smoke test remains opt-in. No schema migration or production configuration change
-is required for this read-only capability. Application of proposals and Telegram confirmation are not implemented.
+is required for this read-only capability. Application and Telegram confirmation are documented separately in
+[automatic processing](Phase4-Milestone5-Automatic-Processing.md) and
+[Telegram feedback](Phase4-Milestone6-Telegram-Feedback.md).

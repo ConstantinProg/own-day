@@ -16,6 +16,51 @@ public sealed class TelegramUpdateRouterTests
         Options.Create(new TelegramOptions { BotUsername = "OwnDayBot" }));
 
     [Theory]
+    [InlineData(true, "inbox_accept")]
+    [InlineData(false, "inbox_reject")]
+    public void Route_InboxCallback_UsesAuthenticatedSenderAndStableAnalysisIdentity(bool accept, string expected)
+    {
+        var id = Guid.NewGuid();
+        var update = CreateCallback($"ia:{(accept ? "y" : "n")}:{id:N}");
+        var result = Assert.IsType<TelegramUpdateRouteResult.Dispatch>(_router.Route(update));
+        Assert.Equal(expected, result.Command.Name);
+        Assert.Equal(id.ToString("N"), result.Command.Arguments);
+        Assert.Equal(new(1), result.Command.UserId);
+    }
+
+    [Theory]
+    [InlineData("malformed")]
+    [InlineData("group")]
+    [InlineData("bot")]
+    [InlineData("foreign-chat")]
+    [InlineData("missing-message")]
+    public void Route_UnsupportedOrUntrustedCallback_IgnoresUpdate(string scenario)
+    {
+        var update = CreateCallback($"ia:y:{Guid.NewGuid():N}");
+        var callback = update.CallbackQuery!;
+        switch (scenario)
+        {
+            case "malformed": callback.Data = "ia:y:not-a-guid"; break;
+            case "group": callback.Message!.Chat.Type = ChatType.Group; break;
+            case "bot": callback.From.IsBot = true; break;
+            case "foreign-chat": callback.Message!.Chat.Id = 2; break;
+            case "missing-message": callback.Message = null; break;
+        }
+        Assert.IsType<TelegramUpdateRouteResult.Ignore>(_router.Route(update));
+    }
+
+    private static Update CreateCallback(string data) => new()
+    {
+        Id = 1,
+        CallbackQuery = new()
+        {
+            Id = "callback", ChatInstance = "private-chat", Data = data,
+            From = new() { Id = 1, FirstName = "Test" },
+            Message = new() { Id = 10, Date = DateTime.UtcNow, Chat = new() { Id = 1, Type = ChatType.Private } }
+        }
+    };
+
+    [Theory]
     [InlineData("/start", "start")]
     [InlineData("/help", "help")]
     [InlineData("/ping", "ping")]

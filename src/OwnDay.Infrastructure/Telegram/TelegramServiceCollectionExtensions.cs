@@ -34,6 +34,7 @@ public static class TelegramServiceCollectionExtensions
 
         services.AddSingleton<ITelegramMessageSender, TelegramBotMessageSender>();
         services.AddSingleton<ITelegramMessageCleaner, TelegramBotMessageCleaner>();
+        services.AddSingleton<ITelegramCallbackResponder, TelegramCallbackResponder>();
 
         services.AddSingleton<TelegramCommandParser>();
         services.AddScoped<TelegramActionCommandHandler>();

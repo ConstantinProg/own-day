@@ -2,8 +2,9 @@ namespace OwnDay.Infrastructure.Telegram.Delivery;
 
 public interface ITelegramMessageSender
 {
-    Task SendTextMessageAsync(
+    Task SendMessageAsync(
         long chatId,
         string text,
+        string? replyMarkupJson,
         CancellationToken cancellationToken = default);
 }

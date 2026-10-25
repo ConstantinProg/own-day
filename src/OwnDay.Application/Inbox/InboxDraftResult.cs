@@ -61,12 +61,15 @@ public abstract record InboxDraftResult
 
     public sealed record Notice : InboxDraftResult
     {
-        public Notice(InboxDraftOutcome outcome) : base(outcome)
+        public Notice(InboxDraftOutcome outcome, long? itemId = null) : base(outcome)
         {
             if (!Enum.IsDefined(outcome) || outcome is InboxDraftOutcome.Prompt or InboxDraftOutcome.Processed)
             {
                 throw new ArgumentOutOfRangeException(nameof(outcome));
             }
+            ItemId = itemId;
         }
+
+        public long? ItemId { get; }
     }
 }

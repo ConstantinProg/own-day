@@ -25,3 +25,8 @@ after background analysis. Original text, proposals and application identities r
 See [Automatic processing](docs/Phase4-Milestone5-Automatic-Processing.md) for mapping rules, migration,
 recovery and examples. The historical [v1 policy](docs/Phase4-Milestone4-Deterministic-Policy.md) remains available
 for explicit evaluation and compatibility.
+
+Telegram captures receive one durable result notification for the entire batch. Failed analysis and blocked
+results retain the entry and offer manual processing; `/inbox_result <id>` opens the saved result and original.
+See [Telegram feedback and confirmation](docs/Phase4-Milestone6-Telegram-Feedback.md) for the migration,
+confirmation buttons, delivery guarantees and example dialogs.

@@ -4,6 +4,7 @@ using OwnDay.Application.Interactions;
 using OwnDay.Infrastructure.Persistence;
 using OwnDay.Infrastructure.Telegram.Cleanup;
 using OwnDay.Infrastructure.Telegram.Commands;
+using OwnDay.Infrastructure.Telegram.Delivery;
 using OwnDay.Infrastructure.Telegram.Localization;
 using OwnDay.Infrastructure.Telegram.Routing;
 using Telegram.Bot.Types;
@@ -21,6 +22,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
     private readonly TimeProvider _timeProvider;
     private readonly ITelegramMessageCleaner _messageCleaner;
     private readonly ILogger<TelegramUpdateHandler> _logger;
+    private readonly ITelegramCallbackResponder? _callbackResponder;
 
     public TelegramUpdateHandler(
         TelegramUpdateRouter router,
@@ -31,7 +33,8 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         OwnDayDbContext dbContext,
         TimeProvider timeProvider,
         ITelegramMessageCleaner messageCleaner,
-        ILogger<TelegramUpdateHandler> logger)
+        ILogger<TelegramUpdateHandler> logger,
+        ITelegramCallbackResponder? callbackResponder = null)
     {
         ArgumentNullException.ThrowIfNull(router);
         ArgumentNullException.ThrowIfNull(actionCommandHandler);
@@ -50,6 +53,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         _timeProvider = timeProvider;
         _messageCleaner = messageCleaner;
         _logger = logger;
+        _callbackResponder = callbackResponder;
     }
 
     public async Task HandleAsync(
@@ -80,6 +84,8 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
 
         if (inserted is 0)
         {
+            await transaction.RollbackAsync(cancellationToken);
+            await AcknowledgeAsync(update, cancellationToken);
             return;
         }
 
@@ -95,7 +101,8 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         var user = route is TelegramUpdateRouteResult.Text textRoute
             ? textRoute.UserId
             : ((TelegramUpdateRouteResult.Dispatch)route).Command.UserId;
-        var locale = await _languageFlow.ResolveLocaleAsync(user, update.Message!.From!.LanguageCode, cancellationToken);
+        var sender = update.CallbackQuery?.From ?? update.Message!.From!;
+        var locale = await _languageFlow.ResolveLocaleAsync(user, sender.LanguageCode, cancellationToken);
 
         IReadOnlyList<string> replies;
         long chatId;
@@ -103,7 +110,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         {
             chatId = ordinary.ChatId;
             replies = await _languageFlow.ContinueAsync(ordinary.UserId, ordinary.Value, locale, cancellationToken) ??
-                await _inboxFlow.CaptureOrContinueAsync(ordinary.UserId, ordinary.Value, locale, cancellationToken);
+                await _inboxFlow.CaptureOrContinueAsync(ordinary.UserId, ordinary.Value, locale, cancellationToken, chatId);
         }
         else
         {
@@ -118,6 +125,9 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
             {
                 "language" => await _languageFlow.OpenAsync(command.UserId, locale, cancellationToken),
                 "inbox" => await _inboxFlow.OpenAsync(command.UserId, command.Arguments, locale, cancellationToken),
+                "inbox_result" => await _inboxFlow.ResultAsync(command.UserId, command.Arguments, locale, cancellationToken),
+                "inbox_accept" or "inbox_reject" => await _inboxFlow.ResolveAsync(command.UserId, command.Arguments,
+                    command.Name == "inbox_accept", locale, cancellationToken),
                 "cancel" => await _languageFlow.CancelAsync(command.UserId, cancellationToken)
                     ? [TelegramTexts.Get(locale, "language.canceled")]
                     : await _inboxFlow.CancelAsync(command.UserId, locale, cancellationToken),
@@ -151,6 +161,12 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         await _dbContext.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
+        if (update.CallbackQuery is not null)
+        {
+            await AcknowledgeAsync(update, cancellationToken);
+            return;
+        }
+
         try
         {
             await _messageCleaner.DeleteMessageAsync(chatId, update.Message!.Id, cancellationToken);
@@ -160,6 +176,22 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
             _logger.LogWarning(exception,
                 "Could not delete processed Telegram message {MessageId} from chat {ChatId}.",
                 update.Message!.Id, chatId);
+        }
+    }
+
+    private async Task AcknowledgeAsync(Update update, CancellationToken token)
+    {
+        if (update.CallbackQuery is not { } callback || _callbackResponder is null)
+        {
+            return;
+        }
+        try
+        {
+            await _callbackResponder.AnswerAsync(callback.Id, token);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException && !token.IsCancellationRequested)
+        {
+            _logger.LogWarning("Could not acknowledge Telegram callback ({ErrorType}).", exception.GetType().Name);
         }
     }
 

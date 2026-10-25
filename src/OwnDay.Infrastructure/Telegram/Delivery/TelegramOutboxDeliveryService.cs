@@ -45,9 +45,10 @@ public sealed class TelegramOutboxDeliveryService
         {
             try
             {
-                await _messageSender.SendTextMessageAsync(
+                await _messageSender.SendMessageAsync(
                     message.ChatId,
                     message.Text,
+                    message.ReplyMarkupJson,
                     cancellationToken);
 
                 message.Status = OutboxMessageStatus.Sent;

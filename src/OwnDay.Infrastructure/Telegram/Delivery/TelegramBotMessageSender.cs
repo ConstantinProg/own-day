@@ -1,4 +1,6 @@
+using System.Text.Json;
 using Telegram.Bot;
+using Telegram.Bot.Types.ReplyMarkups;
 
 namespace OwnDay.Infrastructure.Telegram.Delivery;
 
@@ -13,14 +15,10 @@ public sealed class TelegramBotMessageSender : ITelegramMessageSender
         _botClient = botClient;
     }
 
-    public async Task SendTextMessageAsync(
-        long chatId,
-        string text,
-        CancellationToken cancellationToken = default)
+    public async Task SendMessageAsync(long chatId, string text, string? replyMarkupJson, CancellationToken cancellationToken)
     {
-        await _botClient.SendMessage(
-            chatId: chatId,
-            text: text,
+        await _botClient.SendMessage(chatId, text,
+            replyMarkup: replyMarkupJson is null ? null : JsonSerializer.Deserialize<InlineKeyboardMarkup>(replyMarkupJson),
             cancellationToken: cancellationToken);
     }
 }

@@ -6,6 +6,7 @@ using OwnDay.Application.Inbox.Policy;
 using OwnDay.Domain;
 using OwnDay.Domain.Inbox;
 using OwnDay.Domain.Projects;
+using OwnDay.Infrastructure.Telegram.Handling;
 
 namespace OwnDay.Infrastructure.Persistence;
 
@@ -18,9 +19,35 @@ public sealed class EfInboxAutomaticProcessingStore(OwnDayDbContext db) : IInbox
             .Select(a => new InboxApplicationCandidate(a.UserId, a.InboxItemId, a.Id))
             .FirstOrDefaultAsync(cancellationToken);
 
-    public Task<InboxAutomaticApplication?> FindAsync(UserId userId, Guid analysisId, CancellationToken cancellationToken) =>
-        db.InboxAutomaticApplications.AsNoTracking().SingleOrDefaultAsync(
+    public async Task<InboxAutomaticApplication?> FindAsync(UserId userId, Guid analysisId, CancellationToken cancellationToken)
+    {
+        var application = await db.InboxAutomaticApplications.SingleOrDefaultAsync(
             a => a.AnalysisId == analysisId && a.UserId == userId, cancellationToken);
+        if (application is not null)
+        {
+            // Confirmation may have waited for another transaction after its initial discovery read.
+            await db.Entry(application).ReloadAsync(cancellationToken);
+        }
+        return application;
+    }
+
+    public async Task QueueFeedbackAsync(InboxAutomaticApplication application, InboxAnalysisStatus status,
+        CancellationToken cancellationToken)
+    {
+        if (db.Database.CurrentTransaction is null)
+        {
+            throw new InvalidOperationException("Feedback requires the Inbox transaction.");
+        }
+        var destination = await db.TelegramInboxDestinations.AsNoTracking()
+            .SingleOrDefaultAsync(d => d.InboxItemId == application.InboxItemId, cancellationToken);
+        if (destination is null)
+        {
+            return;
+        }
+        var locale = await db.TelegramUserLanguages.Where(l => l.UserId == application.UserId.Value)
+            .Select(l => l.Locale).SingleOrDefaultAsync(cancellationToken) ?? destination.Locale;
+        db.TelegramOutboxMessages.Add(TelegramInboxFeedback.Render(application, status, destination.ChatId, locale));
+    }
 
     public async Task<InboxPolicySnapshot?> ReadLockedAsync(InboxItem item, Guid analysisId, CancellationToken cancellationToken)
     {

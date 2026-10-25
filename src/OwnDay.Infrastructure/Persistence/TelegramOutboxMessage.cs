@@ -7,6 +7,7 @@ public sealed class TelegramOutboxMessage
     public long ChatId { get; init; }
 
     public string Text { get; init; } = string.Empty;
+    public string? ReplyMarkupJson { get; init; }
 
     public OutboxMessageStatus Status { get; set; }
 

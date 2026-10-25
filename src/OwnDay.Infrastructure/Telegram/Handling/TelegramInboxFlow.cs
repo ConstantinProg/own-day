@@ -1,7 +1,11 @@
 using System.Globalization;
+using Microsoft.EntityFrameworkCore;
 using OwnDay.Application.Inbox;
+using OwnDay.Application.Inbox.Analysis;
+using OwnDay.Application.Inbox.Policy;
 using OwnDay.Domain;
 using OwnDay.Domain.Inbox;
+using OwnDay.Infrastructure.Persistence;
 using OwnDay.Infrastructure.Telegram.Localization;
 
 namespace OwnDay.Infrastructure.Telegram.Handling;
@@ -9,11 +13,70 @@ namespace OwnDay.Infrastructure.Telegram.Handling;
 public sealed class TelegramInboxFlow(
     InboxDraftService drafts,
     InboxCaptureService capture,
-    TelegramInboxPresenter presenter)
+    TelegramInboxPresenter presenter,
+    OwnDayDbContext db,
+    InboxAutomaticProcessingService automatic)
 {
-    public async Task<IReadOnlyList<string>> CaptureOrContinueAsync(UserId user, string text, string locale, CancellationToken token)
+    public async Task<IReadOnlyList<string>> ResolveAsync(UserId user, string argument, bool accept, string locale,
+        CancellationToken token)
+    {
+        if (!Guid.TryParseExact(argument.Trim(), "N", out var analysisId))
+        {
+            return [TelegramTexts.Get(locale, "auto.unavailable")];
+        }
+        var result = await automatic.ConfirmAsync(user, analysisId, accept, token);
+        // The first resolution queues its own durable feedback in the same transaction.
+        if (result.Changed)
+        {
+            return [];
+        }
+        return [TelegramTexts.Get(locale, result.Outcome switch
+        {
+            InboxConfirmationOutcome.Applied => "auto.already_applied",
+            InboxConfirmationOutcome.Rejected => "auto.already_rejected",
+            _ => "auto.unavailable"
+        })];
+    }
+
+    public async Task<IReadOnlyList<string>> ResultAsync(UserId user, string argument, string locale, CancellationToken token)
+    {
+        if (!TryParseId(argument.Trim(), out var itemId) || await capture.FindAsync(user, itemId, token) is not { } item)
+        {
+            return [TelegramTexts.Get(locale, "inbox.open.not_found")];
+        }
+        var application = await db.InboxAutomaticApplications.AsNoTracking()
+            .Where(a => a.UserId == user && a.InboxItemId == itemId)
+            .OrderByDescending(a => a.Route == InboxPolicyRoute.AutoApply || a.ConfirmationOutcome == InboxConfirmationOutcome.Applied)
+            .ThenByDescending(a => a.EvaluatedAt).FirstOrDefaultAsync(token);
+        var original = TelegramTexts.Get(locale, "auto.original", item.Id, TelegramInboxPresenter.Short(item.OriginalText));
+        if (item.Status == InboxItemStatus.Discarded)
+        {
+            return [TelegramTexts.Get(locale, "inbox.discard.already", item.Id) + "\n" + original];
+        }
+        if (item.Status == InboxItemStatus.Processed && application?.Route != InboxPolicyRoute.AutoApply &&
+            application?.ConfirmationOutcome != InboxConfirmationOutcome.Applied)
+        {
+            return [TelegramTexts.Get(locale, "inbox.processed", item.Id,
+                TelegramInboxPresenter.Label(item.TargetKind!.Value, locale), item.TargetId) + "\n" + original];
+        }
+        if (application is null)
+        {
+            return [original + "\n" + TelegramTexts.Get(locale, "auto.manual", item.Id)];
+        }
+        var status = await db.InboxAnalyses.Where(a => a.Id == application.AnalysisId).Select(a => a.Status).SingleAsync(token);
+        var feedback = TelegramInboxFeedback.Render(application, status, user.Value, locale);
+        return [feedback.Text + "\n" + TelegramTexts.Get(locale, "auto.original", item.Id,
+            TelegramInboxFeedback.Short(item.OriginalText, Math.Min(500, Math.Max(1, 4020 - feedback.Text.Length))))];
+    }
+
+    public async Task<IReadOnlyList<string>> CaptureOrContinueAsync(UserId user, string text, string locale, CancellationToken token,
+        long? chatId = null)
     {
         var result = await drafts.CaptureOrLoadAsync(user, text, token);
+        if (result is InboxDraftResult.Notice { ItemId: { } capturedId } && chatId is { } destination)
+        {
+            db.TelegramInboxDestinations.Add(new() { InboxItemId = capturedId, ChatId = destination, Locale = locale });
+        }
         if (result is InboxDraftResult.Prompt { Draft: var draft, Item: var item })
         {
             var input = ParseInput(draft.Step, text.Trim());

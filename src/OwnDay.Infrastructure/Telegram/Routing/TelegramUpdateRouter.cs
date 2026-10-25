@@ -28,6 +28,16 @@ public sealed class TelegramUpdateRouter
     {
         ArgumentNullException.ThrowIfNull(update);
 
+        if (update.CallbackQuery is { From.IsBot: false, Message.Chat.Type: ChatType.Private, Data: { } data } callback &&
+            callback.Message.Chat.Id == callback.From.Id && data.Length == 37 &&
+            (data.StartsWith("ia:y:", StringComparison.Ordinal) || data.StartsWith("ia:n:", StringComparison.Ordinal)) &&
+            Guid.TryParseExact(data[5..], "N", out var analysisId))
+        {
+            return new TelegramUpdateRouteResult.Dispatch(new ProcessIncomingCommand(
+                data[3] == 'y' ? "inbox_accept" : "inbox_reject", analysisId.ToString("N"), new UserId(callback.From.Id)),
+                callback.Message.Chat.Id);
+        }
+
         var message = update.Message;
 
         if (message is null ||
