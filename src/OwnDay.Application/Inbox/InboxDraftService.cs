@@ -69,6 +69,38 @@ public sealed class InboxDraftService(
         return new InboxDraftResult.Prompt(draft, item);
     }
 
+    public async Task<InboxDraftResult> ProcessDirectAsync(
+        UserId user, long itemId, InboxTargetKind targetKind, string? text, CancellationToken token)
+    {
+        if (!Enum.IsDefined(targetKind))
+        {
+            throw new ArgumentOutOfRangeException(nameof(targetKind));
+        }
+
+        var result = await OpenAsync(user, itemId, token);
+        if (result is not InboxDraftResult.Prompt prompt)
+        {
+            return result;
+        }
+
+        // Explicit creation follows the editor's validation and defaults optional fields to no link/source.
+        await AdvanceAsync(user, prompt.Draft, prompt.Item, new InboxDraftInput.SelectTarget(targetKind), token);
+        result = await AdvanceAsync(user, prompt.Draft, prompt.Item, new InboxDraftInput.EditText(text), token);
+        while (result is InboxDraftResult.Prompt next)
+        {
+            InboxDraftInput input = next.Draft.Step switch
+            {
+                InboxDraftStep.Source => new InboxDraftInput.SetSource(null),
+                InboxDraftStep.Project => new InboxDraftInput.SelectProject(null),
+                InboxDraftStep.Confirm => new InboxDraftInput.Confirm(),
+                _ => throw new InvalidOperationException("Unexpected direct processing step.")
+            };
+            result = await AdvanceAsync(user, next.Draft, next.Item, input, token);
+        }
+
+        return result;
+    }
+
     public async Task<bool> CancelAsync(UserId user, CancellationToken token)
     {
         var draft = await drafts.FindAsync(user, token);

@@ -14,7 +14,7 @@ namespace OwnDay.Infrastructure.Telegram.Handling;
 
 public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
 {
-    private readonly TelegramStatisticsCommandHandler? _statistics;
+    private readonly TelegramStatisticsCommandHandler _statistics;
     private readonly TelegramActionCommandHandler _actionCommandHandler;
     private readonly TelegramStructuredCommandHandler _structuredCommandHandler;
     private readonly TelegramInboxFlow _inboxFlow;
@@ -31,15 +31,16 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         TelegramStructuredCommandHandler structuredCommandHandler,
         TelegramInboxFlow inboxFlow,
         TelegramLanguageFlow languageFlow,
+        TelegramStatisticsCommandHandler statistics,
         OwnDayDbContext dbContext,
         TimeProvider timeProvider,
         ILogger<TelegramUpdateHandler> logger,
-        ITelegramCallbackResponder? callbackResponder = null,
-        TelegramStatisticsCommandHandler? statistics = null)
+        ITelegramCallbackResponder? callbackResponder = null)
     {
         ArgumentNullException.ThrowIfNull(router);
         ArgumentNullException.ThrowIfNull(actionCommandHandler);
         ArgumentNullException.ThrowIfNull(languageFlow);
+        ArgumentNullException.ThrowIfNull(statistics);
         ArgumentNullException.ThrowIfNull(dbContext);
         ArgumentNullException.ThrowIfNull(timeProvider);
         ArgumentNullException.ThrowIfNull(logger);
@@ -166,8 +167,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
             }
             replies = command.Name switch
             {
-                "stats" => await (_statistics ?? throw new InvalidOperationException("Statistics handler is required."))
-                    .HandleAsync(command.UserId, command.Arguments, locale, cancellationToken),
+                "stats" => await _statistics.HandleAsync(command.UserId, command.Arguments, locale, cancellationToken),
                 "settings" => [TelegramTexts.Get(locale, "settings.menu")],
                 "language" => await _languageFlow.SelectAsync(command.UserId, command.Arguments.Trim(), locale, cancellationToken),
                 "capture" => await _inboxFlow.CaptureAsync(command.UserId, command.Arguments, locale, chatId, cancellationToken),

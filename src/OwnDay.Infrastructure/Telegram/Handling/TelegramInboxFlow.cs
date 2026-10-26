@@ -48,26 +48,7 @@ public sealed class TelegramInboxFlow(
         {
             return [TelegramTexts.Get(locale, "process.usage")];
         }
-        var result = await drafts.OpenAsync(user, id, token);
-        if (result is not InboxDraftResult.Prompt prompt)
-        {
-            return await presenter.RenderAsync(user, result, locale, token);
-        }
-        // Explicit typed creation uses the same validated workflow without prompting for optional fields.
-        await drafts.AdvanceAsync(user, prompt.Draft, prompt.Item, target, token);
-        result = await drafts.AdvanceAsync(user, prompt.Draft, prompt.Item,
-            new InboxDraftInput.EditText(parts.Length == 3 ? parts[2] : null), token);
-        while (result is InboxDraftResult.Prompt next)
-        {
-            InboxDraftInput input = next.Draft.Step switch
-            {
-                InboxDraftStep.Source => new InboxDraftInput.SetSource(null),
-                InboxDraftStep.Project => new InboxDraftInput.SelectProject(null),
-                InboxDraftStep.Confirm => new InboxDraftInput.Confirm(),
-                _ => throw new InvalidOperationException("Unexpected shortcut step.")
-            };
-            result = await drafts.AdvanceAsync(user, next.Draft, next.Item, input, token);
-        }
+        var result = await drafts.ProcessDirectAsync(user, id, target.Kind, parts.Length == 3 ? parts[2] : null, token);
         return await presenter.RenderAsync(user, result, locale, token);
     }
 
@@ -268,7 +249,7 @@ public sealed class TelegramInboxFlow(
         _ => throw new InvalidOperationException("Unknown inbox draft step.")
     };
 
-    private static InboxDraftInput? ParseTarget(string value) => value.ToLowerInvariant() switch
+    private static InboxDraftInput.SelectTarget? ParseTarget(string value) => value.ToLowerInvariant() switch
         {
             "1" or "task" or "задача" => new InboxDraftInput.SelectTarget(InboxTargetKind.Action),
             "2" or "project" or "проект" => new InboxDraftInput.SelectTarget(InboxTargetKind.Project),

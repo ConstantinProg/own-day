@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using OwnDay.Application.Actions;
 using OwnDay.Application.Inbox;
+using OwnDay.Application.Inbox.Observability;
 using OwnDay.Application.StructuredItems;
 using OwnDay.Infrastructure.Persistence;
 using OwnDay.Infrastructure.Telegram.Commands;
@@ -461,6 +462,7 @@ public sealed class TelegramUpdateHandlerTests
                         new InboxProcessingService(new EfInboxProcessingStore(dbContext), new EfActionStore(dbContext),
                             new EfStructuredItemStore(dbContext), timeProvider), timeProvider)),
                 new TelegramLanguageFlow(dbContext, timeProvider),
+                new TelegramStatisticsCommandHandler(new InboxStatisticsService(new EfInboxStatisticsStore(dbContext), timeProvider)),
                 dbContext,
                 timeProvider,
                 NullLogger<TelegramUpdateHandler>.Instance);

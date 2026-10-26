@@ -142,7 +142,7 @@ public sealed class TelegramOutboxDeliveryServiceTests
         var sender = new CancellingMessageSender(cancellation, firstSendFails);
         await using var fixture = await DeliveryFixture.CreateAsync(sender);
         var first = fixture.AddPendingMessage(Now.AddMinutes(-2));
-        var second = fixture.AddPendingMessage(Now.AddMinutes(-1));
+        var second = fixture.AddPendingMessage(Now.AddMinutes(-1), chatId: 2);
         var originalNextAttemptAt = first.NextAttemptAt;
         await fixture.DbContext.SaveChangesAsync();
 
@@ -180,6 +180,88 @@ public sealed class TelegramOutboxDeliveryServiceTests
         Assert.Null(storedSecond.LastError);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DeliverBatchAsync_TransientFailure_PreservesChatOrderAcrossBatchesAndAllowsOtherChats(bool sameTimestamp)
+    {
+        var clock = new AdjustableTimeProvider();
+        var sender = new FailOnceMessageSender(new ApiRequestException("Try again", 500));
+        await using var fixture = await DeliveryFixture.CreateAsync(sender, clock);
+        var first = fixture.AddPendingMessage(Now.AddMinutes(-3), text: "First");
+        var second = fixture.AddPendingMessage(sameTimestamp ? first.CreatedAt : Now.AddMinutes(-2), text: "Second");
+        var ordered = new[] { first, second }.OrderBy(message => message.CreatedAt).ThenBy(message => message.Id).ToArray();
+        var other = fixture.AddPendingMessage(Now.AddMinutes(-1), chatId: 2, text: "Other chat");
+        await fixture.DbContext.SaveChangesAsync();
+
+        await fixture.DeliveryService.DeliverBatchAsync(CancellationToken.None);
+
+        Assert.Equal(new[] { ordered[0].Text, other.Text }, sender.Attempts);
+        Assert.Equal(OutboxMessageStatus.Pending, ordered[0].Status);
+        Assert.Equal(OutboxMessageStatus.Pending, ordered[1].Status);
+        Assert.Equal(0, ordered[1].AttemptCount);
+        Assert.Equal(OutboxMessageStatus.Sent, other.Status);
+
+        // A fresh tracking state must still honor the persisted retry deadline.
+        fixture.DbContext.ChangeTracker.Clear();
+        await fixture.DeliveryService.DeliverBatchAsync(CancellationToken.None);
+        Assert.Equal(2, sender.Attempts.Count);
+
+        clock.UtcNow = Now.AddSeconds(2);
+        await fixture.DeliveryService.DeliverBatchAsync(CancellationToken.None);
+
+        Assert.Equal(new[] { ordered[0].Text, other.Text, ordered[0].Text, ordered[1].Text }, sender.Attempts);
+        Assert.Equal(3, await fixture.DbContext.TelegramOutboxMessages.CountAsync(message => message.Status == OutboxMessageStatus.Sent));
+    }
+
+    [Theory]
+    [InlineData(400)]
+    [InlineData(403)]
+    [InlineData(404)]
+    public async Task DeliverBatchAsync_PermanentFailure_AllowsNextMessageInSameChat(int errorCode)
+    {
+        var sender = new FailOnceMessageSender(new ApiRequestException("Rejected", errorCode));
+        await using var fixture = await DeliveryFixture.CreateAsync(sender);
+        var first = fixture.AddPendingMessage(Now.AddMinutes(-2), text: "First");
+        var second = fixture.AddPendingMessage(Now.AddMinutes(-1), text: "Second");
+        await fixture.DbContext.SaveChangesAsync();
+
+        await fixture.DeliveryService.DeliverBatchAsync(CancellationToken.None);
+
+        Assert.Equal(new[] { first.Text, second.Text }, sender.Attempts);
+        Assert.Equal(OutboxMessageStatus.Failed, first.Status);
+        Assert.Equal(OutboxMessageStatus.Sent, second.Status);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DeliverBatchAsync_DeferredMessageBetweenReadyMessages_DoesNotAllowOvertaking(bool sameTimestamp)
+    {
+        var clock = new AdjustableTimeProvider();
+        var sender = new RecordingMessageSender();
+        await using var fixture = await DeliveryFixture.CreateAsync(sender, clock);
+        var first = fixture.AddPendingMessage(Now.AddMinutes(-4), text: "First");
+        var second = fixture.AddPendingMessage(sameTimestamp ? first.CreatedAt : Now.AddMinutes(-3), text: "Second");
+        var third = fixture.AddPendingMessage(sameTimestamp ? first.CreatedAt : Now.AddMinutes(-2), text: "Third");
+        var ordered = new[] { first, second, third }.OrderBy(message => message.CreatedAt).ThenBy(message => message.Id).ToArray();
+        ordered[1].NextAttemptAt = Now.AddHours(1);
+        var other = fixture.AddPendingMessage(Now.AddMinutes(-1), chatId: 2, text: "Other chat");
+        await fixture.DbContext.SaveChangesAsync();
+
+        await fixture.DeliveryService.DeliverBatchAsync(CancellationToken.None);
+        await fixture.DeliveryService.DeliverBatchAsync(CancellationToken.None);
+
+        Assert.Equal(new[] { ordered[0].Text, other.Text }, sender.Messages.Select(message => message.Text));
+        Assert.Equal(OutboxMessageStatus.Pending, ordered[2].Status);
+        Assert.Equal(0, ordered[2].AttemptCount);
+
+        clock.UtcNow = Now.AddHours(1);
+        await fixture.DeliveryService.DeliverBatchAsync(CancellationToken.None);
+
+        Assert.Equal(new[] { ordered[0].Text, other.Text, ordered[1].Text, ordered[2].Text }, sender.Messages.Select(message => message.Text));
+    }
+
     private sealed class DeliveryFixture : IAsyncDisposable
     {
         private readonly SqliteConnection _connection;
@@ -198,7 +280,7 @@ public sealed class TelegramOutboxDeliveryServiceTests
 
         public TelegramOutboxDeliveryService DeliveryService { get; }
 
-        public static async Task<DeliveryFixture> CreateAsync(ITelegramMessageSender sender)
+        public static async Task<DeliveryFixture> CreateAsync(ITelegramMessageSender sender, TimeProvider? clock = null)
         {
             var connection = new SqliteConnection("Data Source=:memory:");
             await connection.OpenAsync();
@@ -215,7 +297,7 @@ public sealed class TelegramOutboxDeliveryServiceTests
                     dbContext,
                     sender,
                     NullLogger<TelegramOutboxDeliveryService>.Instance,
-                    new FixedTimeProvider(Now)));
+                    clock ?? new FixedTimeProvider(Now)));
         }
 
         public TelegramOutboxMessage AddPendingMessage(DateTime? createdAt = null, long chatId = 1, string text = "pong")
@@ -257,6 +339,25 @@ public sealed class TelegramOutboxDeliveryServiceTests
     }
 
     private sealed record SentMessage(long ChatId, string Text, CancellationToken Token);
+
+    private sealed class AdjustableTimeProvider : TimeProvider
+    {
+        public DateTime UtcNow { get; set; } = Now;
+
+        public override DateTimeOffset GetUtcNow() => new(UtcNow);
+    }
+
+    private sealed class FailOnceMessageSender(Exception error) : ITelegramMessageSender
+    {
+        public List<string> Attempts { get; } = [];
+
+        public Task SendMessageAsync(long chatId, string text, string? replyMarkupJson, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Attempts.Add(text);
+            return Attempts.Count == 1 ? Task.FromException(error) : Task.CompletedTask;
+        }
+    }
 
     private sealed class CancellingMessageSender(
         CancellationTokenSource cancellation,

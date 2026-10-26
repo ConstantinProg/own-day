@@ -37,13 +37,25 @@ public sealed class TelegramOutboxDeliveryService
         var now = _timeProvider.GetUtcNow().UtcDateTime;
         var messages = await _dbContext.TelegramOutboxMessages
             .Where(message => message.Status == OutboxMessageStatus.Pending &&
-                              message.NextAttemptAt <= now)
+                              message.NextAttemptAt <= now &&
+                              !_dbContext.TelegramOutboxMessages.Any(pending =>
+                                  pending.ChatId == message.ChatId && pending.Status == OutboxMessageStatus.Pending &&
+                                  pending.NextAttemptAt > now &&
+                                  (pending.CreatedAt < message.CreatedAt ||
+                                   pending.CreatedAt == message.CreatedAt && pending.Id.CompareTo(message.Id) < 0)))
             .OrderBy(message => message.CreatedAt)
+            .ThenBy(message => message.Id)
             .Take(BatchSize)
             .ToListAsync(cancellationToken);
 
+        var blockedChats = new HashSet<long>();
         foreach (var message in messages)
         {
+            if (blockedChats.Contains(message.ChatId))
+            {
+                continue;
+            }
+
             try
             {
                 if (message.AttemptCount > 0)
@@ -84,6 +96,8 @@ public sealed class TelegramOutboxDeliveryService
                 }
                 else
                 {
+                    // Later messages in this chat must wait for this retry, including within this batch.
+                    blockedChats.Add(message.ChatId);
                     message.NextAttemptAt = _timeProvider.GetUtcNow().UtcDateTime.AddSeconds(
                         Math.Min(MaximumRetryDelaySeconds, Math.Pow(2, Math.Min(message.AttemptCount, 12))));
                     _logger.LogWarning(
