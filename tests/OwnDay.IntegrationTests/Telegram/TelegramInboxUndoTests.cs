@@ -40,11 +40,11 @@ public sealed partial class TelegramInboxFeedbackTests
             Assert.Empty(await db.Actions.ToListAsync());
             Assert.Empty(await db.References.ToListAsync());
             var messages = await db.TelegramOutboxMessages.ToListAsync();
-            var success = Assert.Single(messages, m => m.Text.Contains("Original entry restored", StringComparison.Ordinal));
-            Assert.Contains("Entities affected: 2", success.Text, StringComparison.Ordinal);
+            var success = Assert.Single(messages, m => m.Text.Contains("Original restored", StringComparison.Ordinal));
+            Assert.Contains("Records affected: 2", success.Text, StringComparison.Ordinal);
             Assert.Contains("Task: 1", success.Text, StringComparison.Ordinal);
             Assert.Contains("Note: 1", success.Text, StringComparison.Ordinal);
-            Assert.Single(messages, m => m.Text.Contains("already undone", StringComparison.Ordinal));
+            Assert.Single(messages, m => m.Text.Contains("Already undone", StringComparison.Ordinal));
             Assert.Equal(4, messages.Count); // Capture, application, successful Undo, repeated Undo.
             Assert.Single(await db.InboxAnalyses.ToListAsync());
         }
@@ -88,9 +88,9 @@ public sealed partial class TelegramInboxFeedbackTests
         var saved = verify.ServiceProvider.GetRequiredService<OwnDayDbContext>();
         Assert.Single(await saved.Actions.ToListAsync());
         var message = Assert.Single(await saved.TelegramOutboxMessages.ToListAsync(), m =>
-            m.Text.Contains("Cannot safely undo", StringComparison.Ordinal));
+            m.Text.Contains("Cannot undo", StringComparison.Ordinal));
         Assert.Contains("Nothing was removed", message.Text, StringComparison.Ordinal);
-        Assert.Contains("/inbox_result 1", message.Text, StringComparison.Ordinal);
+        Assert.Contains("/result 1", message.Text, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -112,8 +112,8 @@ public sealed partial class TelegramInboxFeedbackTests
         var saved = verify.ServiceProvider.GetRequiredService<OwnDayDbContext>();
         var messages = await saved.TelegramOutboxMessages.ToListAsync();
         Assert.Equal(2, messages.Count); // Capture reply and command reply; no inferred proactive destination.
-        Assert.Contains("Entities affected: 2", Assert.Single(messages, m =>
-            m.Text.Contains("Original entry restored", StringComparison.Ordinal)).Text, StringComparison.Ordinal);
+        Assert.Contains("Records affected: 2", Assert.Single(messages, m =>
+            m.Text.Contains("Original restored", StringComparison.Ordinal)).Text, StringComparison.Ordinal);
         Assert.NotNull((await saved.InboxAutomaticApplications.SingleAsync()).UndoneAt);
     }
 
@@ -131,15 +131,16 @@ public sealed partial class TelegramInboxFeedbackTests
             var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
             var message = await db.TelegramOutboxMessages.SingleAsync(m => m.Id == analysis);
             var keyboard = JsonSerializer.Deserialize<InlineKeyboardMarkup>(message.ReplyMarkupJson!)!;
-            Assert.Equal("Отменить весь результат", Assert.Single(Assert.Single(keyboard.InlineKeyboard)).Text);
-            Assert.Contains("Затрагиваемых сущностей: 1", message.Text, StringComparison.Ordinal);
+            Assert.Equal("Отменить весь результат", Assert.Single(keyboard.InlineKeyboard.SelectMany(row => row), b => b.CallbackData == "iu:1").Text);
+            Assert.Contains("/undo 1", message.Text, StringComparison.Ordinal);
+            Assert.DoesNotContain("Затрагиваемых сущностей", message.Text, StringComparison.Ordinal);
         }
         await PostUndoCallbackAsync(client, 4);
         using var verify = factory.Services.CreateScope();
         var saved = verify.ServiceProvider.GetRequiredService<OwnDayDbContext>();
         Assert.Contains(await saved.TelegramOutboxMessages.ToListAsync(), m =>
             m.Text.Contains("Исходная запись возвращена", StringComparison.Ordinal) &&
-            m.Text.Contains("/inbox 1", StringComparison.Ordinal));
+            m.Text.Contains("/process 1", StringComparison.Ordinal));
     }
 
     private static Task PostUndoCallbackAsync(HttpClient client, int id, long user = 101) => PostAsync(client, new

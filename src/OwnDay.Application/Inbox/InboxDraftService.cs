@@ -37,7 +37,8 @@ public sealed class InboxDraftService(
         if (item?.Status != InboxItemStatus.Active)
         {
             drafts.Remove(draft);
-            return new InboxDraftResult.Notice(InboxDraftOutcome.Unavailable);
+            var captured = await capture.CaptureAsync(user, text, token);
+            return new InboxDraftResult.Notice(InboxDraftOutcome.Unavailable, captured.Id);
         }
 
         return new InboxDraftResult.Prompt(draft, item);
@@ -78,6 +79,42 @@ public sealed class InboxDraftService(
 
         drafts.Remove(draft);
         return draft.ExpiresAt > Now();
+    }
+
+    public async Task<InboxDraftResult?> BackAsync(UserId user, CancellationToken token)
+    {
+        var draft = await drafts.FindAsync(user, token);
+        if (draft is null)
+        {
+            return null;
+        }
+        var item = await capture.FindAsync(user, draft.InboxItemId, token);
+        if (draft.ExpiresAt <= Now() || item?.Status != InboxItemStatus.Active || draft.Step == InboxDraftStep.Target)
+        {
+            drafts.Remove(draft);
+            return null;
+        }
+
+        draft.Step = draft.Step switch
+        {
+            InboxDraftStep.Text => InboxDraftStep.Target,
+            InboxDraftStep.Source => InboxDraftStep.Text,
+            InboxDraftStep.Project => draft.TargetKind == InboxTargetKind.WaitingFor ? InboxDraftStep.Source : InboxDraftStep.Text,
+            InboxDraftStep.Confirm => draft.TargetKind == InboxTargetKind.Project ? InboxDraftStep.Text : InboxDraftStep.Project,
+            _ => throw new InvalidOperationException("Unknown inbox draft step.")
+        };
+        if (draft.Step == InboxDraftStep.Target)
+        {
+            draft.TargetKind = null;
+            draft.Text = null;
+        }
+        if (draft.Step is InboxDraftStep.Target or InboxDraftStep.Text or InboxDraftStep.Source)
+        {
+            draft.Source = null;
+        }
+        draft.ProjectId = null;
+        Refresh(draft);
+        return new InboxDraftResult.Prompt(draft, item);
     }
 
     public async Task<(long? ItemId, DiscardInboxItemResult? Result)> DiscardAsync(

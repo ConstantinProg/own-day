@@ -1,5 +1,8 @@
 # Inbox Undo and correction
 
+The current interface promotes `/undo` and `/process`, preserving the aliases below. See
+[Telegram UX consolidation](Phase4-Milestone9-Telegram-UX.md) for navigation and revised messages.
+
 `/inbox_undo <inbox ID>` and the **Undo entire result** / **Отменить весь результат** inline button undo
 one complete successful automatic application. Accepted compatibility confirmations are supported too.
 The ID is the source Inbox ID, not an individual task/project ID. There is no AI call or analysis scheduling

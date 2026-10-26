@@ -1,7 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
-using OwnDay.Infrastructure.Telegram.Cleanup;
 using OwnDay.Infrastructure.Telegram.Commands;
 using OwnDay.Infrastructure.Telegram.Configuration;
 using OwnDay.Infrastructure.Telegram.Delivery;
@@ -33,7 +32,6 @@ public static class TelegramServiceCollectionExtensions
         });
 
         services.AddSingleton<ITelegramMessageSender, TelegramBotMessageSender>();
-        services.AddSingleton<ITelegramMessageCleaner, TelegramBotMessageCleaner>();
         services.AddSingleton<ITelegramCallbackResponder, TelegramCallbackResponder>();
 
         services.AddSingleton<TelegramCommandParser>();

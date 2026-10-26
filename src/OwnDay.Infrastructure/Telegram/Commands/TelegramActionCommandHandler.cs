@@ -65,7 +65,8 @@ public sealed class TelegramActionCommandHandler(ActionService actionService)
             return [TelegramTexts.Get(locale, "action.list.empty")];
         }
 
-        return TelegramTextLists.Split(actions.Select(action => $"#{action.Id} {action.Title}"));
+        return TelegramTextLists.Split(actions.Select(action => $"#{action.Id} {action.Title}\n/done {action.Id}"),
+            TelegramTexts.Get(locale, "nav.tasks"));
     }
 
     private async Task<string> CompleteAsync(ProcessIncomingCommand command, string locale, CancellationToken cancellationToken)

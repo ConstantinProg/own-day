@@ -40,10 +40,10 @@ public sealed partial class TelegramInboxFeedbackTests
         Assert.Equal(101, feedback.ChatId);
         Assert.Contains(label, feedback.Text, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Canonical title", feedback.Text, StringComparison.Ordinal);
-        Assert.Contains("/inbox_result 1", feedback.Text, StringComparison.Ordinal);
+        Assert.Contains("/result 1", feedback.Text, StringComparison.Ordinal);
         var keyboard = JsonSerializer.Deserialize<InlineKeyboardMarkup>(feedback.ReplyMarkupJson!)!;
-        Assert.Equal("iu:1", Assert.Single(Assert.Single(keyboard.InlineKeyboard)).CallbackData);
-        Assert.Contains("/inbox_undo 1", feedback.Text, StringComparison.Ordinal);
+        Assert.Equal("iu:1", Assert.Single(keyboard.InlineKeyboard.SelectMany(row => row), b => b.CallbackData == "iu:1").CallbackData);
+        Assert.Contains("/undo 1", feedback.Text, StringComparison.Ordinal);
         Assert.Equal(2, await db.TelegramOutboxMessages.CountAsync()); // Capture reply plus one result.
         Assert.Single((await db.InboxItems.SingleAsync()).Targets);
         await PostTextAsync(client, 2, "/inbox_result 1");
@@ -88,7 +88,7 @@ public sealed partial class TelegramInboxFeedbackTests
         var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
         var feedback = await db.TelegramOutboxMessages.SingleAsync(m => m.Id == id);
         Assert.Contains("saved", feedback.Text, StringComparison.Ordinal);
-        Assert.Contains("/inbox 1", feedback.Text, StringComparison.Ordinal);
+        Assert.Contains("/process 1", feedback.Text, StringComparison.Ordinal);
         Assert.DoesNotContain("private-provider-error", feedback.Text, StringComparison.Ordinal);
         Assert.Equal(InboxItemStatus.Active, (await db.InboxItems.SingleAsync()).Status);
         Assert.Empty(await db.Actions.ToListAsync());
@@ -189,7 +189,7 @@ public sealed partial class TelegramInboxFeedbackTests
             "reject" => "rejected",
             _ => "out of date"
         }, reply.Text, StringComparison.Ordinal);
-        Assert.Contains(scenario == "accept" ? "/inbox_result 1" : "/inbox 1", reply.Text, StringComparison.Ordinal);
+        Assert.Contains(scenario == "accept" ? "/result 1" : "/process 1", reply.Text, StringComparison.Ordinal);
         Assert.Equal(2, await saved.TelegramOutboxMessages.CountAsync());
         Assert.Equal(2, await saved.ProcessedTelegramUpdates.CountAsync());
         Assert.Empty(await saved.TelegramInboxDestinations.ToListAsync());
@@ -328,7 +328,7 @@ public sealed partial class TelegramInboxFeedbackTests
         using var verify = factory.Services.CreateScope();
         var db = verify.ServiceProvider.GetRequiredService<OwnDayDbContext>();
         var feedback = await db.TelegramOutboxMessages.SingleAsync(m => m.Id == id);
-        Assert.Contains("Входящие #1: создано.", feedback.Text, StringComparison.Ordinal);
+        Assert.StartsWith("Создано.", feedback.Text, StringComparison.Ordinal);
         Assert.DoesNotContain("\uFFFD", feedback.Text, StringComparison.Ordinal);
         Assert.Equal(20, feedback.Text.Split('\n').Count(line => line.Contains("😀", StringComparison.Ordinal)));
         Assert.InRange(feedback.Text.Length, 1, 4096);

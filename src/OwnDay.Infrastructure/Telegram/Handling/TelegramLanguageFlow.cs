@@ -9,6 +9,9 @@ public sealed class TelegramLanguageFlow(OwnDayDbContext db, TimeProvider clock)
 {
     private static readonly TimeSpan SelectionLifetime = TimeSpan.FromMinutes(10);
 
+    public Task<bool> HasSelectionAsync(UserId user, CancellationToken token) =>
+        db.TelegramUserLanguages.AnyAsync(row => row.UserId == user.Value && row.SelectionExpiresAt != null, token);
+
     public async Task<string> ResolveLocaleAsync(UserId user, string? telegramLanguageCode, CancellationToken token)
     {
         var selected = await db.TelegramUserLanguages
@@ -20,15 +23,21 @@ public sealed class TelegramLanguageFlow(OwnDayDbContext db, TimeProvider clock)
 
     public async Task<IReadOnlyList<string>> OpenAsync(UserId user, string locale, CancellationToken token)
     {
-        var row = await db.TelegramUserLanguages.SingleOrDefaultAsync(value => value.UserId == user.Value, token);
-        if (row is null)
-        {
-            row = new TelegramUserLanguage { UserId = user.Value };
-            db.TelegramUserLanguages.Add(row);
-        }
-
+        var row = await GetOrCreateAsync(user, token);
         row.SelectionExpiresAt = clock.GetUtcNow().UtcDateTime.Add(SelectionLifetime);
         return [TelegramTexts.Get(locale, "language.menu")];
+    }
+
+    public async Task<IReadOnlyList<string>> SelectAsync(UserId user, string argument, string locale, CancellationToken token)
+    {
+        if (argument is not "en" and not "ru")
+        {
+            return await OpenAsync(user, locale, token);
+        }
+        var row = await GetOrCreateAsync(user, token);
+        row.Locale = argument;
+        row.SelectionExpiresAt = null;
+        return [TelegramTexts.Get(argument, "language.changed")];
     }
 
     public async Task<IReadOnlyList<string>?> ContinueAsync(UserId user, string text, string locale, CancellationToken token)
@@ -53,7 +62,12 @@ public sealed class TelegramLanguageFlow(OwnDayDbContext db, TimeProvider clock)
         };
         if (selected is null)
         {
-            return [TelegramTexts.Get(locale, "language.menu")];
+            if (int.TryParse(text.Trim(), out _))
+            {
+                return [TelegramTexts.Get(locale, "language.menu")];
+            }
+            row.SelectionExpiresAt = null;
+            return null;
         }
 
         row.Locale = selected;
@@ -64,13 +78,14 @@ public sealed class TelegramLanguageFlow(OwnDayDbContext db, TimeProvider clock)
     public async Task<bool> CancelAsync(UserId user, CancellationToken token)
     {
         var row = await db.TelegramUserLanguages.SingleOrDefaultAsync(value => value.UserId == user.Value, token);
-        if (row?.SelectionExpiresAt is null || row.SelectionExpiresAt <= clock.GetUtcNow().UtcDateTime)
+        if (row?.SelectionExpiresAt is null)
         {
             return false;
         }
 
+        var active = row.SelectionExpiresAt > clock.GetUtcNow().UtcDateTime;
         row.SelectionExpiresAt = null;
-        return true;
+        return active;
     }
 
     public async Task CloseAsync(UserId user, CancellationToken token)
@@ -80,5 +95,16 @@ public sealed class TelegramLanguageFlow(OwnDayDbContext db, TimeProvider clock)
         {
             row.SelectionExpiresAt = null;
         }
+    }
+
+    private async Task<TelegramUserLanguage> GetOrCreateAsync(UserId user, CancellationToken token)
+    {
+        var row = await db.TelegramUserLanguages.SingleOrDefaultAsync(value => value.UserId == user.Value, token);
+        if (row is null)
+        {
+            row = new TelegramUserLanguage { UserId = user.Value };
+            db.TelegramUserLanguages.Add(row);
+        }
+        return row;
     }
 }

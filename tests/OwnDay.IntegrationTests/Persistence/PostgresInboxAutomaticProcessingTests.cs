@@ -97,7 +97,7 @@ public sealed partial class PostgresInboxAutomaticProcessingTests : IAsyncLifeti
         var notification = Assert.Single(await restarted.TelegramOutboxMessages.ToListAsync(Token));
         Assert.Equal(analysisId, notification.Id);
         Assert.Contains("iu:" + itemId, notification.ReplyMarkupJson, StringComparison.Ordinal);
-        Assert.Contains("/inbox_result " + itemId, notification.Text, StringComparison.Ordinal);
+        Assert.Contains("/result " + itemId, notification.Text, StringComparison.Ordinal);
         if (kind == InboxTargetKind.WaitingFor)
         {
             var waiting = await restarted.WaitingFors.SingleAsync(Token);
@@ -117,8 +117,8 @@ public sealed partial class PostgresInboxAutomaticProcessingTests : IAsyncLifeti
         var item = await db.InboxItems.SingleAsync(Token);
         Assert.Equal(3, item.Targets.Count);
         var notification = Assert.Single(await db.TelegramOutboxMessages.ToListAsync(Token));
-        Assert.Equal(3, notification.Text.Split('\n').Count(line => line.StartsWith("Task #", StringComparison.Ordinal) ||
-            line.StartsWith("Idea #", StringComparison.Ordinal)));
+        Assert.Equal(3, notification.Text.Split('\n').Count(line => line.StartsWith("Task:", StringComparison.Ordinal) ||
+            line.StartsWith("Idea:", StringComparison.Ordinal)));
         Assert.Equal(3, JsonSerializer.Deserialize<AppliedInboxProposal[]>(
             (await db.InboxAutomaticApplications.SingleAsync(Token)).TargetsJson, InboxAnalysisJson.Options)!.Length);
     }

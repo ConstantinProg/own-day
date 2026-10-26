@@ -128,7 +128,7 @@ public sealed class TelegramStatisticsTests
             });
             await db.SaveChangesAsync();
         }
-        await PostAsync(client, "/stats all", "ru", "integration-test-webhook-secret");
+        await PostAsync(client, "/stats all details", "ru", "integration-test-webhook-secret");
         using var verify = factory.Services.CreateScope();
         var report = await verify.ServiceProvider.GetRequiredService<OwnDayDbContext>().TelegramOutboxMessages.SingleAsync();
         Assert.Contains("Токены: вход 100, из них кеш неизвестно", report.Text, StringComparison.Ordinal);

@@ -1,5 +1,9 @@
 # Intelligent Inbox observability and cost control
 
+The default `/stats` report now shows a concise user summary; `/stats [period] details` retains
+the full accounting described here. Metric definitions are unchanged. See
+[Telegram UX consolidation](Phase4-Milestone9-Telegram-UX.md).
+
 OwnDay exposes personal Inbox statistics through `/stats`, `/stats today`, `/stats 30d`, and `/stats all`.
 No monitoring server, analytics service, new production package, or mandatory CLI is required.
 English and Russian use the existing language preference and Telegram resources. Reports are plain text,

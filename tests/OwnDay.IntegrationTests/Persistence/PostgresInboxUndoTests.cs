@@ -74,7 +74,7 @@ public sealed partial class PostgresInboxAutomaticProcessingTests
         Assert.Equal(0, await CountTargetsAsync(verify));
         Assert.Equal(2, await verify.TelegramOutboxMessages.CountAsync(Token));
         var message = await verify.TelegramOutboxMessages.SingleAsync(m => m.Id != analysisId, Token);
-        Assert.Contains("Entities affected: 5", message.Text, StringComparison.Ordinal);
+        Assert.Contains("Records affected: 5", message.Text, StringComparison.Ordinal);
         Assert.Null(message.ReplyMarkupJson);
     }
 

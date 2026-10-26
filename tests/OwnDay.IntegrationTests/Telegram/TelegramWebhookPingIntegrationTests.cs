@@ -56,7 +56,7 @@ public sealed class TelegramWebhookPingIntegrationTests
     }
 
     [Fact]
-    public async Task Post_PrivateText_CapturesAndRequestsMessageDeletion()
+    public async Task Post_PrivateText_CapturesAndPreservesSourceMessage()
     {
         var cleaner = new RecordingTelegramMessageCleaner();
         using var host = new OwnDayHostFactory();
@@ -67,7 +67,7 @@ public sealed class TelegramWebhookPingIntegrationTests
         using var response = await client.SendAsync(request);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal((ChatId, 42), Assert.Single(cleaner.Deletions));
+        Assert.Empty(cleaner.Deletions);
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
         Assert.Single(await db.InboxItems.ToListAsync());
@@ -75,7 +75,7 @@ public sealed class TelegramWebhookPingIntegrationTests
     }
 
     [Fact]
-    public async Task Post_DeletionFails_ReturnsOkWithReplyStillQueued()
+    public async Task Post_CleanerUnavailable_ReturnsOkWithoutDeletingMessages()
     {
         var cleaner = new RecordingTelegramMessageCleaner
         {
@@ -89,7 +89,7 @@ public sealed class TelegramWebhookPingIntegrationTests
         using var response = await client.SendAsync(request);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal((ChatId, 42), Assert.Single(cleaner.Deletions));
+        Assert.Empty(cleaner.Deletions);
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
         Assert.Single(await db.InboxItems.ToListAsync());
@@ -120,7 +120,7 @@ public sealed class TelegramWebhookPingIntegrationTests
         var replies = await db.TelegramOutboxMessages.ToListAsync();
         Assert.Contains(replies, reply => reply.Text.StartsWith("Выберите язык:", StringComparison.Ordinal));
         Assert.Contains(replies, reply => reply.Text == "Language changed to English.");
-        Assert.Contains(replies, reply => reply.Text.StartsWith("Save: send plain text", StringComparison.Ordinal));
+        Assert.Contains(replies, reply => reply.Text.StartsWith("Send text", StringComparison.Ordinal));
         Assert.Empty(await db.InboxItems.ToListAsync());
     }
 

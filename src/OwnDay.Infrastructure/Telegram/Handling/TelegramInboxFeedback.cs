@@ -12,7 +12,7 @@ namespace OwnDay.Infrastructure.Telegram.Handling;
 public static class TelegramInboxFeedback
 {
     public static TelegramOutboxMessage Render(InboxAutomaticApplication application, InboxAnalysisStatus status,
-        long chatId, string locale)
+        long chatId, string locale, bool detailed = false)
     {
         if (application.UndoneAt is { } undoneAt)
         {
@@ -46,7 +46,7 @@ public static class TelegramInboxFeedback
             foreach (var proposal in proposals.OrderBy(p => p.Position))
             {
                 var target = targets.SingleOrDefault(t => t.ProposalId == proposal.Id);
-                var identity = target is null ? string.Empty : $" #{target.TargetId}";
+                var identity = !detailed || target is null ? string.Empty : $" #{target.TargetId}";
                 text += $"\n{TelegramInboxPresenter.Label(proposal.Kind, locale)}{identity}: {Short(proposal.Title, titleLimit)}";
                 if (confirmation)
                 {
@@ -67,6 +67,11 @@ public static class TelegramInboxFeedback
             }
         }
         text += "\n" + TelegramTexts.Get(locale, applied ? "auto.details" : "auto.manual", application.InboxItemId);
+        if (confirmation)
+        {
+            var decision = JsonSerializer.Deserialize<InboxPolicyDecision>(application.DecisionJson, InboxAnalysisJson.Options)!;
+            text += "\n" + TelegramTexts.Get(locale, "auto.review_actions", application.InboxItemId, decision.AnalysisVersion);
+        }
         InlineKeyboardMarkup? keyboard = confirmation ? new(new[]
         {
             new[]
@@ -77,9 +82,16 @@ public static class TelegramInboxFeedback
         }) : null;
         if (applied)
         {
-            text += "\n" + TelegramTexts.Get(locale, "undo.offer", application.InboxItemId) + "\n" + UndoSummary(application, locale);
-            keyboard = new(new[] { new[] { InlineKeyboardButton.WithCallbackData(
-                TelegramTexts.Get(locale, "undo.button"), $"iu:{application.InboxItemId}") } });
+            text += "\n" + TelegramTexts.Get(locale, "undo.offer", application.InboxItemId);
+            if (detailed)
+            {
+                text += "\n" + UndoSummary(application, locale);
+            }
+            keyboard = new(new[] { new[]
+            {
+                InlineKeyboardButton.WithCallbackData(TelegramTexts.Get(locale, "nav.result"), $"ir:{application.InboxItemId}"),
+                InlineKeyboardButton.WithCallbackData(TelegramTexts.Get(locale, "undo.button"), $"iu:{application.InboxItemId}")
+            } });
         }
         var now = application.ResolvedAt ?? application.EvaluatedAt;
         return new()

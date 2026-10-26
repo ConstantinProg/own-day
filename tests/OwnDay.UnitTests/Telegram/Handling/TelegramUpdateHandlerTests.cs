@@ -7,10 +7,10 @@ using OwnDay.Application.Actions;
 using OwnDay.Application.Inbox;
 using OwnDay.Application.StructuredItems;
 using OwnDay.Infrastructure.Persistence;
-using OwnDay.Infrastructure.Telegram.Cleanup;
 using OwnDay.Infrastructure.Telegram.Commands;
 using OwnDay.Infrastructure.Telegram.Configuration;
 using OwnDay.Infrastructure.Telegram.Handling;
+using OwnDay.Infrastructure.Telegram.Localization;
 using OwnDay.Infrastructure.Telegram.Routing;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
@@ -47,7 +47,7 @@ public sealed class TelegramUpdateHandlerTests
         if (expired)
         {
             Assert.Equal("2", (await fixture.DbContext.InboxItems.SingleAsync()).OriginalText);
-            Assert.Contains(replies, reply => reply.Text == "Saved to your inbox. Open /inbox to process it.");
+            Assert.Contains(replies, reply => reply.Text == "Saved to inbox.");
         }
         else
         {
@@ -57,7 +57,7 @@ public sealed class TelegramUpdateHandlerTests
     }
 
     [Fact]
-    public async Task HandleAsync_ExpiredLanguageSelection_ContinuesExistingInboxDraft()
+    public async Task HandleAsync_ExpiredLanguageSelection_CapturesNewEntryWithoutResumingOldDraft()
     {
         var clock = new AdjustableTimeProvider();
         await using var fixture = await HandlerFixture.CreateAsync(clock);
@@ -72,21 +72,18 @@ public sealed class TelegramUpdateHandlerTests
         var preference = await fixture.DbContext.TelegramUserLanguages.SingleAsync();
         Assert.Null(preference.Locale);
         Assert.Null(preference.SelectionExpiresAt);
-        Assert.Equal("original", (await fixture.DbContext.InboxItems.SingleAsync()).OriginalText);
-        var draft = await fixture.DbContext.TelegramInboxDrafts.SingleAsync();
-        Assert.Equal(InboxDraftStep.Text, draft.Step);
-        Assert.Equal(OwnDay.Domain.Inbox.InboxTargetKind.Project, draft.TargetKind);
-        Assert.Equal("original", draft.Text);
+        Assert.Equal(2, await fixture.DbContext.InboxItems.CountAsync());
+        Assert.Empty(await fixture.DbContext.TelegramInboxDrafts.ToListAsync());
         Assert.Empty(await fixture.DbContext.Projects.ToListAsync());
         Assert.Contains(await fixture.DbContext.TelegramOutboxMessages.ToListAsync(),
-            reply => reply.Text.StartsWith("Type: Project.", StringComparison.Ordinal));
+            reply => reply.Text == "Saved to inbox.");
     }
 
     [Theory]
-    [InlineData("/start", "en", "OwnDay is running. Use /help to see available commands.")]
+    [InlineData("/start", "en", "Send a thought, task or note.")]
     [InlineData("/ping", "en", "pong")]
     [InlineData("/unknown", "en", "Unknown command. Use /help.")]
-    [InlineData("/start", "ru", "OwnDay работает. Отправьте /help, чтобы увидеть команды.")]
+    [InlineData("/start", "ru", "Отправьте мысль, задачу или заметку.")]
     [InlineData("/ping", "ru", "pong")]
     [InlineData("/unknown", "ru", "Неизвестная команда. Отправьте /help.")]
     public async Task HandleAsync_ServiceCommand_QueuesLocalizedReply(string command, string locale, string expected)
@@ -95,13 +92,13 @@ public sealed class TelegramUpdateHandlerTests
 
         await fixture.Handler.HandleAsync(CreateTextMessageUpdate(command, languageCode: locale));
 
-        Assert.Equal(expected, Assert.Single(fixture.DbContext.TelegramOutboxMessages).Text);
+        Assert.StartsWith(expected, Assert.Single(fixture.DbContext.TelegramOutboxMessages).Text, StringComparison.Ordinal);
         Assert.Empty(fixture.DbContext.InboxItems);
     }
 
     [Theory]
-    [InlineData("en", "Save:")]
-    [InlineData("ru", "Сохранение:")]
+    [InlineData("en", "Send text")]
+    [InlineData("ru", "Отправьте текст")]
     public async Task HandleAsync_HelpCommand_QueuesLocalizedCommandInstructions(string locale, string expectedPrefix)
     {
         await using var fixture = await HandlerFixture.CreateAsync();
@@ -112,7 +109,9 @@ public sealed class TelegramUpdateHandlerTests
         Assert.StartsWith(expectedPrefix, text, StringComparison.Ordinal);
         Assert.Contains("/inbox", text, StringComparison.Ordinal);
         Assert.Contains("/done", text, StringComparison.Ordinal);
-        Assert.Contains("/language", text, StringComparison.Ordinal);
+        Assert.Contains("/settings", text, StringComparison.Ordinal);
+        Assert.Contains("/undo", text, StringComparison.Ordinal);
+        Assert.Contains("/stats", text, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -130,7 +129,6 @@ public sealed class TelegramUpdateHandlerTests
         Assert.Empty(fixture.DatabaseCommands);
         Assert.Empty(fixture.DbContext.ProcessedTelegramUpdates);
         Assert.Empty(fixture.DbContext.TelegramOutboxMessages);
-        Assert.Empty(fixture.Cleaner.Deletions);
     }
 
     [Fact]
@@ -149,7 +147,6 @@ public sealed class TelegramUpdateHandlerTests
         Assert.Equal(OutboxMessageStatus.Pending, outboxMessage.Status);
         Assert.Equal(Now, outboxMessage.CreatedAt);
         Assert.Equal(Now, outboxMessage.NextAttemptAt);
-        Assert.Equal((123456789, 1), Assert.Single(fixture.Cleaner.Deletions));
     }
 
     [Fact]
@@ -163,7 +160,6 @@ public sealed class TelegramUpdateHandlerTests
 
         Assert.Single(fixture.DbContext.ProcessedTelegramUpdates);
         Assert.Single(fixture.DbContext.TelegramOutboxMessages);
-        Assert.Single(fixture.Cleaner.Deletions);
     }
 
     [Fact]
@@ -174,7 +170,6 @@ public sealed class TelegramUpdateHandlerTests
         await fixture.Handler.HandleAsync(new Update { Id = 1 });
 
         Assert.Empty(fixture.DatabaseCommands);
-        Assert.Empty(fixture.Cleaner.Deletions);
     }
 
     [Theory]
@@ -190,7 +185,6 @@ public sealed class TelegramUpdateHandlerTests
             fixture.Handler.HandleAsync(CreateTextMessageUpdate(text), cancellation.Token));
 
         Assert.Empty(fixture.DatabaseCommands);
-        Assert.Empty(fixture.Cleaner.Deletions);
     }
 
     [Fact]
@@ -209,7 +203,6 @@ public sealed class TelegramUpdateHandlerTests
         fixture.DbContext.ChangeTracker.Clear();
         Assert.Empty(fixture.DbContext.ProcessedTelegramUpdates);
         Assert.Empty(fixture.DbContext.TelegramOutboxMessages);
-        Assert.Empty(fixture.Cleaner.Deletions);
 
         await fixture.DbContext.Database.ExecuteSqlRawAsync("DROP TRIGGER reject_outbox");
         await fixture.Handler.HandleAsync(CreateTextMessageUpdate("/ping"));
@@ -234,17 +227,15 @@ public sealed class TelegramUpdateHandlerTests
         fixture.DbContext.ChangeTracker.Clear();
         Assert.Empty(fixture.DbContext.Actions);
         Assert.Empty(fixture.DbContext.ProcessedTelegramUpdates);
-        Assert.Empty(fixture.Cleaner.Deletions);
     }
 
     [Fact]
-    public async Task HandleAsync_OrdinaryPrivateText_CapturesAndCleansCorrectMessage()
+    public async Task HandleAsync_OrdinaryPrivateText_CapturesAndPreservesChatHistory()
     {
         await using var fixture = await HandlerFixture.CreateAsync();
 
         await fixture.Handler.HandleAsync(CreateTextMessageUpdate("buy milk", chatId: 987));
 
-        Assert.Equal((987, 1), Assert.Single(fixture.Cleaner.Deletions));
         Assert.Single(fixture.DbContext.InboxItems);
         Assert.Single(fixture.DbContext.TelegramOutboxMessages);
         Assert.NotNull(Assert.Single(fixture.DbContext.ProcessedTelegramUpdates).ProcessedAt);
@@ -260,52 +251,18 @@ public sealed class TelegramUpdateHandlerTests
         await fixture.Handler.HandleAsync(update);
 
         Assert.Empty(fixture.DatabaseCommands);
-        Assert.Empty(fixture.Cleaner.Deletions);
-    }
-
-    [Fact]
-    public async Task HandleAsync_DeletionFails_PreservesCommittedResultAndOutbox()
-    {
-        await using var fixture = await HandlerFixture.CreateAsync();
-        fixture.Cleaner.Failure = new InvalidOperationException("Telegram rejected deletion");
-
-        await fixture.Handler.HandleAsync(CreateTextMessageUpdate("buy milk"));
-
-        Assert.Single(fixture.DbContext.InboxItems);
-        Assert.Single(fixture.DbContext.TelegramOutboxMessages);
-        Assert.NotNull(Assert.Single(fixture.DbContext.ProcessedTelegramUpdates).ProcessedAt);
-        Assert.Single(fixture.Cleaner.Deletions);
-    }
-
-    [Fact]
-    public async Task HandleAsync_DeletionCancelled_PropagatesCancellationWithoutReprocessing()
-    {
-        await using var fixture = await HandlerFixture.CreateAsync();
-        using var cancellation = new CancellationTokenSource();
-        fixture.Cleaner.Failure = new OperationCanceledException(cancellation.Token);
-        var update = CreateTextMessageUpdate("buy milk");
-
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            fixture.Handler.HandleAsync(update, cancellation.Token));
-
-        Assert.Single(fixture.DbContext.InboxItems);
-        Assert.Single(fixture.DbContext.TelegramOutboxMessages);
-        Assert.Equal(cancellation.Token, fixture.Cleaner.LastCancellationToken);
-        await fixture.Handler.HandleAsync(update);
-        Assert.Single(fixture.Cleaner.Deletions);
     }
 
     [Theory]
     [InlineData("/language")]
     [InlineData("/language wrong")]
-    [InlineData("/language ru")]
     public async Task HandleAsync_LanguageCommand_ShowsNumberedOptions(string command)
     {
         await using var fixture = await HandlerFixture.CreateAsync();
 
         await fixture.Handler.HandleAsync(CreateTextMessageUpdate(command));
 
-        Assert.Equal("Choose a language:\n1 — English\n2 — Русский\n/cancel — cancel",
+        Assert.Equal(TelegramTexts.Get("en", "language.menu"),
             Assert.Single(fixture.DbContext.TelegramOutboxMessages).Text);
         Assert.NotNull(Assert.Single(fixture.DbContext.TelegramUserLanguages).SelectionExpiresAt);
     }
@@ -324,7 +281,7 @@ public sealed class TelegramUpdateHandlerTests
         Assert.Null(preference.SelectionExpiresAt);
         var replies = fixture.DbContext.TelegramOutboxMessages.ToArray();
         Assert.Contains(replies, reply => reply.Text == "Язык изменён на русский.");
-        Assert.Contains(replies, reply => reply.Text.StartsWith("Сохранение:", StringComparison.Ordinal));
+        Assert.Contains(replies, reply => reply.Text.StartsWith("Отправьте текст", StringComparison.Ordinal));
         Assert.Empty(fixture.DbContext.InboxItems);
     }
 
@@ -355,10 +312,10 @@ public sealed class TelegramUpdateHandlerTests
         await fixture.Handler.HandleAsync(CreateTextMessageUpdate("/start", updateId: 4, languageCode: "ru-RU"));
 
         var replies = fixture.DbContext.TelegramOutboxMessages.ToArray();
-        Assert.Contains(replies, reply => reply.Text.StartsWith("OwnDay работает", StringComparison.Ordinal));
+        Assert.Contains(replies, reply => reply.Text.StartsWith("Отправьте мысль", StringComparison.Ordinal));
         Assert.Contains(replies, reply => reply.Text.StartsWith("Выберите язык:", StringComparison.Ordinal));
         Assert.Contains(replies, reply => reply.Text == "Language changed to English.");
-        Assert.Contains(replies, reply => reply.Text.StartsWith("OwnDay is running", StringComparison.Ordinal));
+        Assert.Contains(replies, reply => reply.Text.StartsWith("Send a thought", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -374,12 +331,12 @@ public sealed class TelegramUpdateHandlerTests
 
         var replies = fixture.DbContext.TelegramOutboxMessages.ToArray();
         Assert.Contains(replies, reply => reply.Text == "Задача #1 добавлена: Купить молоко");
-        Assert.Contains(replies, reply => reply.Text == "Сохранено во входящие. Откройте /inbox для обработки.");
+        Assert.Contains(replies, reply => reply.Text == "Сохранено во входящие.");
         Assert.Contains(replies, reply => reply.Text.StartsWith("Входящие\n", StringComparison.Ordinal));
     }
 
     [Fact]
-    public async Task HandleAsync_LanguageSelection_TakesPriorityOverInboxDraft()
+    public async Task HandleAsync_LanguageSelection_ClosesInboxDraft()
     {
         await using var fixture = await HandlerFixture.CreateAsync();
         await fixture.Handler.HandleAsync(CreateTextMessageUpdate("buy milk"));
@@ -389,14 +346,15 @@ public sealed class TelegramUpdateHandlerTests
         await fixture.Handler.HandleAsync(CreateTextMessageUpdate("2", updateId: 4));
 
         Assert.Equal("ru", Assert.Single(fixture.DbContext.TelegramUserLanguages).Locale);
-        Assert.Equal(InboxDraftStep.Target, Assert.Single(fixture.DbContext.TelegramInboxDrafts).Step);
+        Assert.Empty(fixture.DbContext.TelegramInboxDrafts);
         Assert.Single(fixture.DbContext.InboxItems);
         await fixture.Handler.HandleAsync(CreateTextMessageUpdate("1", updateId: 5));
-        Assert.Equal(InboxDraftStep.Text, Assert.Single(fixture.DbContext.TelegramInboxDrafts).Step);
+        Assert.Empty(fixture.DbContext.TelegramInboxDrafts);
+        Assert.Equal(2, fixture.DbContext.InboxItems.Count());
     }
 
     [Fact]
-    public async Task HandleAsync_CancelLanguageSelection_PreservesInboxDraft()
+    public async Task HandleAsync_CancelLanguageSelection_LeavesNoHiddenInboxDraft()
     {
         await using var fixture = await HandlerFixture.CreateAsync();
         await fixture.Handler.HandleAsync(CreateTextMessageUpdate("buy milk"));
@@ -406,9 +364,9 @@ public sealed class TelegramUpdateHandlerTests
         await fixture.Handler.HandleAsync(CreateTextMessageUpdate("/cancel", updateId: 4));
 
         Assert.Null(Assert.Single(fixture.DbContext.TelegramUserLanguages).SelectionExpiresAt);
-        Assert.Equal(InboxDraftStep.Target, Assert.Single(fixture.DbContext.TelegramInboxDrafts).Step);
+        Assert.Empty(fixture.DbContext.TelegramInboxDrafts);
         Assert.Contains(fixture.DbContext.TelegramOutboxMessages,
-            reply => reply.Text == "Language selection canceled.");
+            reply => reply.Text == "Selection canceled. Your entries are saved.");
     }
 
     [Fact]
@@ -454,21 +412,17 @@ public sealed class TelegramUpdateHandlerTests
             SqliteConnection connection,
             OwnDayDbContext dbContext,
             TelegramUpdateHandler handler,
-            RecordingMessageCleaner cleaner,
             List<string> databaseCommands)
         {
             _connection = connection;
             DbContext = dbContext;
             Handler = handler;
-            Cleaner = cleaner;
             DatabaseCommands = databaseCommands;
         }
 
         public OwnDayDbContext DbContext { get; }
 
         public TelegramUpdateHandler Handler { get; }
-
-        public RecordingMessageCleaner Cleaner { get; }
 
         public List<string> DatabaseCommands { get; }
 
@@ -488,7 +442,6 @@ public sealed class TelegramUpdateHandlerTests
             var router = new TelegramUpdateRouter(
                 new TelegramCommandParser(),
                 Options.Create(new TelegramOptions { BotUsername = "OwnDayBot" }));
-            var cleaner = new RecordingMessageCleaner();
             var handler = new TelegramUpdateHandler(
                 router,
                 new TelegramActionCommandHandler(new ActionService(new EfActionStore(dbContext), timeProvider)),
@@ -510,11 +463,10 @@ public sealed class TelegramUpdateHandlerTests
                 new TelegramLanguageFlow(dbContext, timeProvider),
                 dbContext,
                 timeProvider,
-                cleaner,
                 NullLogger<TelegramUpdateHandler>.Instance);
 
             databaseCommands.Clear();
-            return new HandlerFixture(connection, dbContext, handler, cleaner, databaseCommands);
+            return new HandlerFixture(connection, dbContext, handler, databaseCommands);
         }
 
         public async ValueTask DisposeAsync()
@@ -531,24 +483,4 @@ public sealed class TelegramUpdateHandlerTests
         public override DateTimeOffset GetUtcNow() => new(UtcNow);
     }
 
-    private sealed class RecordingMessageCleaner : ITelegramMessageCleaner
-    {
-        public List<(long ChatId, int MessageId)> Deletions { get; } = [];
-
-        public Exception? Failure { get; set; }
-
-        public CancellationToken LastCancellationToken { get; private set; }
-
-        public Task DeleteMessageAsync(long chatId, int messageId, CancellationToken cancellationToken)
-        {
-            Deletions.Add((chatId, messageId));
-            LastCancellationToken = cancellationToken;
-            if (Failure is not null)
-            {
-                throw Failure;
-            }
-
-            return Task.CompletedTask;
-        }
-    }
 }

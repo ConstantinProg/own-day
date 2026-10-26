@@ -28,6 +28,24 @@ public sealed class TelegramUpdateRouter
     {
         ArgumentNullException.ThrowIfNull(update);
 
+        if (update.CallbackQuery is { From.IsBot: false, Message.Chat.Type: ChatType.Private, Data: { } navigation } nav &&
+            nav.Message.Chat.Id == nav.From.Id && navigation.StartsWith("nav:", StringComparison.Ordinal) &&
+            navigation[4..] is "list" or "inbox" or "tasks" or "projects" or "ideas" or "notes" or "waiting" or "settings" or "help")
+        {
+            return new TelegramUpdateRouteResult.Dispatch(new ProcessIncomingCommand(
+                navigation[4..], "", new UserId(nav.From.Id)), nav.Message.Chat.Id);
+        }
+
+        if (update.CallbackQuery is { From.IsBot: false, Message.Chat.Type: ChatType.Private, Data: { } detail } resultCallback &&
+            resultCallback.Message.Chat.Id == resultCallback.From.Id && detail.StartsWith("ir:", StringComparison.Ordinal) &&
+            long.TryParse(detail.AsSpan(3), System.Globalization.NumberStyles.None,
+                System.Globalization.CultureInfo.InvariantCulture, out var resultId) && resultId > 0)
+        {
+            return new TelegramUpdateRouteResult.Dispatch(new ProcessIncomingCommand(
+                "inbox_result", resultId.ToString(System.Globalization.CultureInfo.InvariantCulture), new UserId(resultCallback.From.Id)),
+                resultCallback.Message.Chat.Id);
+        }
+
         if (update.CallbackQuery is { From.IsBot: false, Message.Chat.Type: ChatType.Private, Data: { } data } callback &&
             callback.Message.Chat.Id == callback.From.Id && data.Length == 37 &&
             (data.StartsWith("ia:y:", StringComparison.Ordinal) || data.StartsWith("ia:n:", StringComparison.Ordinal)) &&
@@ -80,7 +98,12 @@ public sealed class TelegramUpdateRouter
         }
 
         return new TelegramUpdateRouteResult.Dispatch(
-            new ProcessIncomingCommand(command.Name, command.Arguments, new UserId(message.From.Id)),
+            new ProcessIncomingCommand(command.Name switch
+            {
+                "result" => "inbox_result",
+                "undo" => "inbox_undo",
+                _ => command.Name
+            }, command.Arguments, new UserId(message.From.Id)),
             message.Chat.Id);
     }
 }

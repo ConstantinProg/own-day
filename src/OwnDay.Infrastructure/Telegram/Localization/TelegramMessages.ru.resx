@@ -42,15 +42,8 @@
   <data name="common.none" xml:space="preserve">
     <value>нет</value>
   </data>
-  <data name="inbox.cancel.done" xml:space="preserve">
-    <value>Выбор отменён. Запись осталась во входящих.</value>
-  </data>
-  <data name="inbox.cancel.none" xml:space="preserve">
-    <value>Нет активного выбора. Откройте /inbox.</value>
-  </data>
-  <data name="inbox.captured" xml:space="preserve">
-    <value>Сохранено во входящие. Откройте /inbox для обработки.</value>
-  </data>
+  <data name="inbox.cancel.none" xml:space="preserve"><value>Нет активного выбора. Отправьте текст, чтобы сохранить новую запись.</value></data>
+  <data name="inbox.captured" xml:space="preserve"><value>Сохранено во входящие.</value></data>
   <data name="inbox.confirm.invalid" xml:space="preserve">
     <value>Отправьте «да» для создания. /cancel — отмена; /discard — удалить из входящих.</value>
   </data>
@@ -72,20 +65,14 @@
   <data name="inbox.discard.usage" xml:space="preserve">
     <value>Используйте /discard &lt;id&gt; или откройте /inbox &lt;id&gt;.</value>
   </data>
-  <data name="inbox.draft.expired" xml:space="preserve">
-    <value>Срок черновика истёк. Предыдущая запись осталась во входящих. Новое сообщение сохранено. Откройте /inbox, чтобы продолжить.</value>
-  </data>
-  <data name="inbox.draft.unavailable" xml:space="preserve">
-    <value>Запись больше недоступна. Черновик закрыт. Откройте /inbox.</value>
-  </data>
+  <data name="inbox.draft.expired" xml:space="preserve"><value>Выбор истёк. Новое сообщение сохранено во входящие.</value></data>
+  <data name="inbox.draft.unavailable" xml:space="preserve"><value>Предыдущая запись изменилась. Новое сообщение сохранено во входящие.</value></data>
   <data name="inbox.open.not_found" xml:space="preserve">
-    <value>Активное входящее не найдено.</value>
+    <value>Запись во входящих не найдена.</value>
   </data>
-  <data name="inbox.open.usage" xml:space="preserve">
-    <value>Используйте /inbox &lt;id&gt;.</value>
-  </data>
+  <data name="inbox.open.usage" xml:space="preserve"><value>Отправьте /process &lt;номер записи&gt; или /inbox для списка.</value></data>
   <data name="inbox.processed" xml:space="preserve">
-    <value>Входящее #{0} обработано. Создано: {1} #{2}.</value>
+    <value>Запись #{0} разобрана. Создано: {1} #{2}.</value>
   </data>
   <data name="inbox.processed.unavailable" xml:space="preserve">
     <value>Запись уже обработана или недоступна. Черновик закрыт.</value>
@@ -93,25 +80,20 @@
   <data name="inbox.project.not_found" xml:space="preserve">
     <value>Проект не найден. Введите его ID или 0, если проект не нужен.</value>
   </data>
-  <data name="inbox.project.prompt" xml:space="preserve">
-    <value>Выберите проект: 0 — без проекта</value>
-  </data>
+  <data name="inbox.project.prompt" xml:space="preserve"><value>Выберите проект по номеру или 0 — без проекта.
+/back — предыдущий шаг; /cancel — выйти.</value></data>
   <data name="inbox.project.unavailable" xml:space="preserve">
     <value>Выбранный проект недоступен. Введите другой ID или 0, если проект не нужен.</value>
   </data>
   <data name="inbox.source.invalid" xml:space="preserve">
     <value>Источник должен быть не длиннее 200 символов. Отправьте точку, если источника нет.</value>
   </data>
-  <data name="inbox.source.prompt" xml:space="preserve">
-    <value>Источник ожидания: введите до 200 символов или отправьте точку, если источника нет.</value>
-  </data>
-  <data name="inbox.summary" xml:space="preserve">
-    <value>Подтвердите создание: {0}.
-Исходный текст: {1}
-Итоговый текст: {2}
+  <data name="inbox.source.prompt" xml:space="preserve"><value>От кого или чего ждёте ответа? До 200 символов или точка, чтобы пропустить.
+/back — текст; /cancel — выйти; /capture &lt;текст&gt; — сохранить новую запись.</value></data>
+  <data name="inbox.summary" xml:space="preserve"><value>Создать: {0}?
+Текст: {2}
 Проект: {3}{4}
-Отправьте «да» для обработки, /cancel для отмены или /discard для удаления из входящих.</value>
-  </data>
+Отправьте «да», чтобы создать. /back — изменить; /cancel — выйти; /discard — убрать из входящих.</value></data>
   <data name="inbox.summary.source" xml:space="preserve">
     <value>
 Источник: {0}</value>
@@ -119,23 +101,21 @@
   <data name="inbox.target.invalid" xml:space="preserve">
     <value>Выберите тип числом от 1 до 5. /cancel — отмена; /discard — удалить из входящих.</value>
   </data>
-  <data name="inbox.target.prompt" xml:space="preserve">
-    <value>Входящее #{0}: {1}
+  <data name="inbox.target.prompt" xml:space="preserve"><value>Запись #{0}: {1}
 Выберите тип:
 1 — Задача
 2 — Проект
 3 — Идея
 4 — Заметка
 5 — Ожидание
-/cancel — отмена; /discard — удалить из входящих.</value>
-  </data>
+/back — входящие; /cancel — выйти. Другой текст сохранится новой записью.
+Быстрый разбор: /process {0} задача|проект|идея|заметка|ожидание [текст]</value></data>
   <data name="inbox.text.invalid" xml:space="preserve">
     <value>Введите от 1 до 200 символов или отправьте точку, чтобы оставить исходный текст.</value>
   </data>
-  <data name="inbox.text.prompt" xml:space="preserve">
-    <value>Тип: {0}. Исходный текст: {1}
-Введите итоговый текст (до 200 символов) или отправьте точку, чтобы оставить исходный.</value>
-  </data>
+  <data name="inbox.text.prompt" xml:space="preserve"><value>Тип: {0}. Текущий текст: {1}
+Отправьте текст (до 200 символов) или точку, чтобы оставить его.
+/back — выбор типа; /cancel — выйти; /capture &lt;текст&gt; — сохранить новую запись.</value></data>
   <data name="inbox.title" xml:space="preserve">
     <value>Входящие</value>
   </data>
@@ -154,32 +134,27 @@
   <data name="kind.waiting" xml:space="preserve">
     <value>Ожидание</value>
   </data>
-  <data name="language.canceled" xml:space="preserve">
-    <value>Выбор языка отменён.</value>
-  </data>
   <data name="language.changed" xml:space="preserve">
     <value>Язык изменён на русский.</value>
   </data>
-  <data name="language.menu" xml:space="preserve">
-    <value>Выберите язык:
-1 — English
-2 — Русский
-/cancel — отмена</value>
-  </data>
-  <data name="legacy.help" xml:space="preserve">
-    <value>Сохранение: отправьте обычный текст во входящие.
-/add &lt;текст&gt; — задача; /project &lt;текст&gt; — проект.
-/idea &lt;текст&gt; — идея; /note &lt;текст&gt; — заметка; /wait &lt;текст&gt; — ожидание.
-Списки: /list, /inbox, /tasks, /projects, /ideas, /notes, /waiting.
-Обработка: /inbox &lt;id&gt;, /cancel, /discard [id].
-Дополнительно: /done &lt;id&gt; — завершить задачу; /start, /help, /ping, /language.</value>
-  </data>
+  <data name="language.menu" xml:space="preserve"><value>Выберите язык:
+1 — English: /language en
+2 — Русский: /language ru
+/back — настройки; /cancel — выйти. Другой текст сохранится новой записью.</value></data>
+  <data name="legacy.help" xml:space="preserve"><value>Отправьте текст — OwnDay разберёт его на задачи, проекты, идеи, заметки или ожидания.
+/list — записи; /inbox — входящие для разбора.
+/result &lt;запись&gt; — результат и исходный текст; /undo &lt;запись&gt; — отменить весь автоматический результат.
+/process &lt;запись&gt; — разобрать вручную; /done &lt;задача&gt; — завершить задачу.
+/cancel — выйти из выбора; /back — предыдущий шаг.
+/settings — язык; /stats — статистика.
+/help commands — все текстовые команды.</value></data>
   <data name="legacy.ping" xml:space="preserve">
     <value>pong</value>
   </data>
-  <data name="legacy.start" xml:space="preserve">
-    <value>OwnDay работает. Отправьте /help, чтобы увидеть команды.</value>
-  </data>
+  <data name="legacy.start" xml:space="preserve"><value>Отправьте мысль, задачу или заметку. OwnDay разберёт её и покажет результат.
+/list — задачи и записи
+/inbox — записи для разбора
+/help — как пользоваться OwnDay</value></data>
   <data name="legacy.unknown" xml:space="preserve">
     <value>Неизвестная команда. Отправьте /help.</value>
   </data>
@@ -240,40 +215,40 @@
   <data name="structured.waiting.title" xml:space="preserve">
     <value>Ожидания</value>
   </data>
-  <data name="auto.applied" xml:space="preserve"><value>Входящие #{0}: создано.</value></data>
-  <data name="auto.confirm" xml:space="preserve"><value>Входящие #{0}: подтвердите предложенный результат. Кнопки действуют 24 часа.</value></data>
-  <data name="auto.analysis_failed" xml:space="preserve"><value>Запись #{0} сохранена. Автоматический разбор не удался. Можно разобрать её вручную.</value></data>
-  <data name="auto.attention" xml:space="preserve"><value>Запись #{0} сохранена и требует внимания. Применить результат автоматически не удалось.</value></data>
-  <data name="auto.rejected" xml:space="preserve"><value>Предложение для записи #{0} отклонено. Исходная запись сохранена.</value></data>
-  <data name="auto.stale" xml:space="preserve"><value>Предложение для записи #{0} устарело. Это действие ничего не создало. Проверьте текущее состояние записи.</value></data>
-  <data name="auto.details" xml:space="preserve"><value>Результат и исходный текст: /inbox_result {0}</value></data>
-  <data name="auto.manual" xml:space="preserve"><value>Открыть запись: /inbox_result {0}. Разобрать вручную: /inbox {0}</value></data>
+  <data name="auto.applied" xml:space="preserve"><value>Создано.</value></data>
+  <data name="auto.confirm" xml:space="preserve"><value>Создать эти записи? Предложение действует 24 часа.</value></data>
+  <data name="auto.analysis_failed" xml:space="preserve"><value>Запись сохранена. Автоматический разбор не удался.</value></data>
+  <data name="auto.attention" xml:space="preserve"><value>Запись сохранена. Нужен ваш разбор.</value></data>
+  <data name="auto.rejected" xml:space="preserve"><value>Предложение отклонено. Исходный текст сохранён во входящих.</value></data>
+  <data name="auto.stale" xml:space="preserve"><value>Предложение устарело. Ничего не создано.</value></data>
+  <data name="auto.details" xml:space="preserve"><value>Подробнее: /result {0}</value></data>
+  <data name="auto.manual" xml:space="preserve"><value>Разобрать вручную: /process {0}. Подробнее: /result {0}</value></data>
   <data name="auto.accept" xml:space="preserve"><value>Создать</value></data>
   <data name="auto.reject" xml:space="preserve"><value>Оставить во входящих</value></data>
   <data name="auto.source" xml:space="preserve"><value>От кого: {0}</value></data>
   <data name="auto.since" xml:space="preserve"><value>Начало ожидания (UTC): {0}</value></data>
   <data name="auto.project" xml:space="preserve"><value>Проект #{0}</value></data>
   <data name="auto.unavailable" xml:space="preserve"><value>Это предложение недоступно или устарело. Проверьте записи через /inbox.</value></data>
-  <data name="auto.already_applied" xml:space="preserve"><value>Это предложение уже применено. Новые сущности не созданы.</value></data>
-  <data name="auto.already_rejected" xml:space="preserve"><value>Это предложение уже отклонено. Исходная запись сохранена.</value></data>
+  <data name="auto.already_applied" xml:space="preserve"><value>Уже создано. Новых записей нет.</value></data>
+  <data name="auto.already_rejected" xml:space="preserve"><value>Уже отклонено. Исходный текст сохранён.</value></data>
   <data name="auto.original" xml:space="preserve"><value>Исходная запись #{0}: {1}</value></data>
-  <data name="undo.usage" xml:space="preserve"><value>Используйте: /inbox_undo &lt;номер Inbox&gt;.</value></data>
+  <data name="undo.usage" xml:space="preserve"><value>Отправьте /undo &lt;номер записи&gt;.</value></data>
   <data name="undo.button" xml:space="preserve"><value>Отменить весь результат</value></data>
-  <data name="undo.offer" xml:space="preserve"><value>Отмена удалит все сущности этой обработки, если они не изменились. /inbox_undo {0}</value></data>
-  <data name="undo.summary" xml:space="preserve"><value>Затрагиваемых сущностей: {0}.</value></data>
-  <data name="undo.done" xml:space="preserve"><value>Обработка Inbox #{0} отменена. Исходная запись возвращена во входящие. Обработайте вручную: /inbox {0}. Автоматическая обработка этой записи отключена.</value></data>
-  <data name="undo.already" xml:space="preserve"><value>Обработка Inbox #{0} уже отменена. Другие сущности не изменены. Для ручной обработки: /inbox {0}.</value></data>
-  <data name="undo.conflict" xml:space="preserve"><value>Безопасно отменить Inbox #{0} нельзя: созданная сущность изменена, завершена, удалена, связана с другими данными или её исходное состояние нельзя проверить. Ничего не удалено. Посмотрите /inbox_result {0}.</value></data>
+  <data name="undo.offer" xml:space="preserve"><value>Удалить все созданные записи, если они не изменились: /undo {0}</value></data>
+  <data name="undo.summary" xml:space="preserve"><value>Затронуто записей: {0}.</value></data>
+  <data name="undo.done" xml:space="preserve"><value>Результат отменён. Исходная запись возвращена во входящие. Разобрать вручную: /process {0}</value></data>
+  <data name="undo.already" xml:space="preserve"><value>Уже отменено. Разобрать вручную: /process {0}</value></data>
+  <data name="undo.conflict" xml:space="preserve"><value>Не удалось отменить: записи изменены или связаны с другими данными. Ничего не удалено. Подробнее: /result {0}</value></data>
   <data name="undo.unavailable" xml:space="preserve"><value>Автоматический результат для отмены этой записи недоступен.</value></data>
-  <data name="stats.usage" xml:space="preserve"><value>Команды: /stats, /stats today, /stats 30d или /stats all.</value></data>
+  <data name="stats.usage" xml:space="preserve"><value>Отправьте /stats [today|7d|30d|all] [details].</value></data>
   <data name="stats.period.7d" xml:space="preserve"><value>последние 7 дней</value></data>
   <data name="stats.period.today" xml:space="preserve"><value>сегодня</value></data>
   <data name="stats.period.30d" xml:space="preserve"><value>последние 30 дней</value></data>
   <data name="stats.period.all" xml:space="preserve"><value>всё время</value></data>
-  <data name="stats.title" xml:space="preserve"><value>Статистика Inbox: {0}. Часовой пояс: UTC.</value></data>
-  <data name="stats.received" xml:space="preserve"><value>Получено: {0}. Текущий результат: обработано {1}, активно {2}, удалено из Inbox {3}.</value></data>
-  <data name="stats.automation" xml:space="preserve"><value>Записей AutoApply: {0}. Требовали проверки: {1}.</value></data>
-  <data name="stats.created" xml:space="preserve"><value>Создано из Inbox: задач {0}, проектов {1}, ожиданий {2}, заметок {3}, идей {4}.</value></data>
+  <data name="stats.title" xml:space="preserve"><value>Статистика входящих: {0}. Часовой пояс: UTC.</value></data>
+  <data name="stats.received" xml:space="preserve"><value>Получено: {0}. Текущий результат: разобрано {1}, во входящих {2}, убрано {3}.</value></data>
+  <data name="stats.automation" xml:space="preserve"><value>Разобрано автоматически: {0}. Требовали разбора: {1}.</value></data>
+  <data name="stats.created" xml:space="preserve"><value>Создано из входящих: задач {0}, проектов {1}, ожиданий {2}, заметок {3}, идей {4}.</value></data>
   <data name="stats.undo" xml:space="preserve"><value>Undo: {0}. Отказов и повторов: {1}. Ручных решений: {2}.</value></data>
   <data name="stats.analysis" xml:space="preserve"><value>AI-анализы: успешных {0}, неуспешных {1}; успешность {2}. Среднее время успешного анализа: {3} с.</value></data>
   <data name="stats.background" xml:space="preserve"><value>Запросов OpenAI: {0}, повторных {1}, ошибок {2}. Ожидающих анализов сейчас: {3}. Просроченных заданий сейчас: {4}.</value></data>
@@ -288,4 +263,45 @@
   <data name="stats.coverage" xml:space="preserve"><value>Подробный учёт событий с {0} UTC; более ранние отказы Undo, фоновые повторы и ошибки неизвестны.</value></data>
   <data name="stats.processing_time" xml:space="preserve"><value>Среднее время от получения до обработки полученных записей: {0} с.</value></data>
   <data name="stats.all_unknown" xml:space="preserve"><value>неизвестно для всех {0} измерений</value></data>
+  <data name="help.commands" xml:space="preserve"><value>Текстовые команды
+/list; /tasks; /projects; /ideas; /notes; /waiting
+/inbox — входящие
+/result &lt;запись&gt; — результат и исходный текст
+/process &lt;запись&gt; — ручной разбор
+/process &lt;запись&gt; задача|проект|идея|заметка|ожидание [текст] — создать сразу, без проекта и источника
+/undo &lt;запись&gt; — удалить все неизменённые записи автоматического результата
+/accept &lt;запись&gt; &lt;предложение&gt;; /reject &lt;запись&gt; &lt;предложение&gt; — номера из предложения
+/discard [запись] — убрать из входящих
+/cancel — выйти; /back — предыдущий шаг
+/capture &lt;текст&gt; — сохранить новую запись во время диалога
+/add &lt;текст&gt;; /project &lt;текст&gt;; /idea &lt;текст&gt;; /note &lt;текст&gt;; /wait &lt;текст&gt; — создать сразу
+/done &lt;задача&gt; — завершить
+/stats [today|7d|30d|all] [details]
+/settings; /language; /language en; /language ru
+/start; /help
+Совместимость: /inbox &lt;запись&gt; = /process; /inbox_result = /result; /inbox_undo = /undo.</value></data>
+  <data name="selection.canceled" xml:space="preserve"><value>Выбор отменён. Ваши записи сохранены.</value></data>
+  <data name="inbox.row.actions" xml:space="preserve"><value>Подробнее: /result {0}. Разобрать вручную: /process {0}</value></data>
+  <data name="process.usage" xml:space="preserve"><value>Отправьте /process &lt;запись&gt; или /process &lt;запись&gt; задача|проект|идея|заметка|ожидание [текст].</value></data>
+  <data name="capture.usage" xml:space="preserve"><value>Отправьте /capture &lt;новый текст&gt;.</value></data>
+  <data name="review.usage" xml:space="preserve"><value>Используйте /accept или /reject с номерами из предложения. Открыть: /result &lt;запись&gt;.</value></data>
+  <data name="settings.menu" xml:space="preserve"><value>Язык
+/language ru — Русский
+/language en — English
+/language — выбрать по номеру</value></data>
+  <data name="auto.review_actions" xml:space="preserve"><value>Предложение {1}: /accept {0} {1} — создать; /reject {0} {1} — оставить во входящих.</value></data>
+  <data name="stats.summary.undo" xml:space="preserve"><value>Отменено результатов: {0}.</value></data>
+  <data name="stats.summary.more" xml:space="preserve"><value>Периоды: /stats today; /stats 7d; /stats 30d; /stats all
+Подробнее: /stats {0} details
+Полученные записи считаются по дате получения, остальные итоги — по дате события.</value></data>
+  <data name="nav.list" xml:space="preserve"><value>Задачи и записи</value></data>
+  <data name="nav.inbox" xml:space="preserve"><value>Входящие</value></data>
+  <data name="nav.tasks" xml:space="preserve"><value>Задачи</value></data>
+  <data name="nav.projects" xml:space="preserve"><value>Проекты</value></data>
+  <data name="nav.ideas" xml:space="preserve"><value>Идеи</value></data>
+  <data name="nav.notes" xml:space="preserve"><value>Заметки</value></data>
+  <data name="nav.waiting" xml:space="preserve"><value>Ожидания</value></data>
+  <data name="nav.settings" xml:space="preserve"><value>Настройки</value></data>
+  <data name="nav.help" xml:space="preserve"><value>Помощь</value></data>
+  <data name="nav.result" xml:space="preserve"><value>Подробнее</value></data>
 </root>

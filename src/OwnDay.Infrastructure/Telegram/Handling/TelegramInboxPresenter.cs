@@ -17,7 +17,7 @@ public sealed class TelegramInboxPresenter(StructuredItemService structured)
             return draft.Step switch
             {
                 InboxDraftStep.Target => [TelegramTexts.Get(locale, "inbox.target.prompt", item.Id, Short(item.OriginalText))],
-                InboxDraftStep.Text => [TelegramTexts.Get(locale, "inbox.text.prompt", Label(draft.TargetKind!.Value, locale), Short(item.OriginalText))],
+                InboxDraftStep.Text => [TelegramTexts.Get(locale, "inbox.text.prompt", Label(draft.TargetKind!.Value, locale), Short(draft.Text ?? item.OriginalText))],
                 InboxDraftStep.Source => [TelegramTexts.Get(locale, "inbox.source.prompt")],
                 InboxDraftStep.Project => await ProjectPromptAsync(user, locale, token),
                 InboxDraftStep.Confirm => [await SummaryAsync(user, item.OriginalText, draft, locale, token)],
@@ -74,5 +74,5 @@ public sealed class TelegramInboxPresenter(StructuredItemService structured)
         _ => throw new ArgumentOutOfRangeException(nameof(kind))
     };
 
-    internal static string Short(string text) => text.Length <= 500 ? text : text[..500] + "…";
+    internal static string Short(string text) => TelegramInboxFeedback.Short(text, 500);
 }

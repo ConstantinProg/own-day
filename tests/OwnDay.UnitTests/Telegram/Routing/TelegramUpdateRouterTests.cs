@@ -16,6 +16,39 @@ public sealed class TelegramUpdateRouterTests
         Options.Create(new TelegramOptions { BotUsername = "OwnDayBot" }));
 
     [Theory]
+    [InlineData("nav:tasks", "tasks", "")]
+    [InlineData("nav:settings", "settings", "")]
+    [InlineData("ir:17", "inbox_result", "17")]
+    public void Route_NavigationCallback_DispatchesOnlyExplicitReadActions(string data, string name, string arguments)
+    {
+        var result = Assert.IsType<TelegramUpdateRouteResult.Dispatch>(_router.Route(CreateCallback(data)));
+        Assert.Equal(name, result.Command.Name);
+        Assert.Equal(arguments, result.Command.Arguments);
+        Assert.Equal(new(1), result.Command.UserId);
+    }
+
+    [Theory]
+    [InlineData("nav:done 1")]
+    [InlineData("nav:discard")]
+    [InlineData("nav:inbox 1")]
+    [InlineData("nav:unknown")]
+    [InlineData("ir:0")]
+    [InlineData("ir:-1")]
+    [InlineData("ir:17:other")]
+    public void Route_UnknownOrMalformedNavigationButton_IgnoresUpdate(string data) =>
+        Assert.IsType<TelegramUpdateRouteResult.Ignore>(_router.Route(CreateCallback(data)));
+
+    [Theory]
+    [InlineData("nav:tasks")]
+    [InlineData("ir:17")]
+    public void Route_ForeignNavigationChat_IgnoresUpdate(string data)
+    {
+        var update = CreateCallback(data);
+        update.CallbackQuery!.Message!.Chat.Id = 2;
+        Assert.IsType<TelegramUpdateRouteResult.Ignore>(_router.Route(update));
+    }
+
+    [Theory]
     [InlineData("iu:17", true)]
     [InlineData("iu:0", false)]
     [InlineData("iu:-1", false)]

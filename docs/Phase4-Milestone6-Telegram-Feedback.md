@@ -1,5 +1,8 @@
 # Telegram feedback and confirmation
 
+Current command names, concise notifications and dialog behavior are documented in
+[Telegram UX consolidation](Phase4-Milestone9-Telegram-UX.md). The older commands below remain aliases.
+
 Successful result notifications now include an accessible Undo button and `/inbox_undo <id>` fallback.
 See [Undo and correction](Phase4-Milestone7-Undo-and-Correction.md) for the added behavior and migration.
 References below to the absence of Undo describe the original feedback implementation.

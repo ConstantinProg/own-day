@@ -17,6 +17,75 @@ public sealed class TelegramInboxFlow(
     OwnDayDbContext db,
     InboxAutomaticProcessingService automatic)
 {
+    public async Task<IReadOnlyList<string>> CaptureAsync(UserId user, string text, string locale, long chatId, CancellationToken token)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return [TelegramTexts.Get(locale, "capture.usage")];
+        }
+        await drafts.CancelAsync(user, token);
+        var item = await capture.CaptureAsync(user, text, token);
+        db.TelegramInboxDestinations.Add(new() { InboxItemId = item.Id, ChatId = chatId, Locale = locale });
+        return [TelegramTexts.Get(locale, "inbox.captured")];
+    }
+
+    public Task<bool> CloseAsync(UserId user, CancellationToken token) => drafts.CancelAsync(user, token);
+
+    public async Task<IReadOnlyList<string>> BackAsync(UserId user, string locale, CancellationToken token)
+    {
+        var result = await drafts.BackAsync(user, token);
+        return result is null ? await OpenAsync(user, "", locale, token) : await presenter.RenderAsync(user, result, locale, token);
+    }
+
+    public async Task<IReadOnlyList<string>> ProcessAsync(UserId user, string argument, string locale, CancellationToken token)
+    {
+        var parts = argument.Split((char[]?)null, 3, StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 1)
+        {
+            return await OpenAsync(user, parts[0], locale, token);
+        }
+        if (parts.Length < 2 || !TryParseId(parts[0], out var id) || ParseTarget(parts[1]) is not { } target)
+        {
+            return [TelegramTexts.Get(locale, "process.usage")];
+        }
+        var result = await drafts.OpenAsync(user, id, token);
+        if (result is not InboxDraftResult.Prompt prompt)
+        {
+            return await presenter.RenderAsync(user, result, locale, token);
+        }
+        // Explicit typed creation uses the same validated workflow without prompting for optional fields.
+        await drafts.AdvanceAsync(user, prompt.Draft, prompt.Item, target, token);
+        result = await drafts.AdvanceAsync(user, prompt.Draft, prompt.Item,
+            new InboxDraftInput.EditText(parts.Length == 3 ? parts[2] : null), token);
+        while (result is InboxDraftResult.Prompt next)
+        {
+            InboxDraftInput input = next.Draft.Step switch
+            {
+                InboxDraftStep.Source => new InboxDraftInput.SetSource(null),
+                InboxDraftStep.Project => new InboxDraftInput.SelectProject(null),
+                InboxDraftStep.Confirm => new InboxDraftInput.Confirm(),
+                _ => throw new InvalidOperationException("Unexpected shortcut step.")
+            };
+            result = await drafts.AdvanceAsync(user, next.Draft, next.Item, input, token);
+        }
+        return await presenter.RenderAsync(user, result, locale, token);
+    }
+
+    public async Task<IReadOnlyList<string>> ResolveEntryAsync(UserId user, string argument, bool accept, string locale, CancellationToken token)
+    {
+        var parts = argument.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length != 2 || !TryParseId(parts[0], out var id) || !TryParseId(parts[1], out var review))
+        {
+            return [TelegramTexts.Get(locale, "review.usage")];
+        }
+        // Bind the text command to the same immutable offer as its buttons, never to a newer review.
+        var analysisId = await db.InboxAnalyses.Where(a => a.UserId == user && a.InboxItemId == id && a.Version == review)
+            .Select(a => (Guid?)a.Id).SingleOrDefaultAsync(token);
+        return analysisId is { } found
+            ? await ResolveAsync(user, found.ToString("N"), accept, locale, token)
+            : [TelegramTexts.Get(locale, "auto.unavailable")];
+    }
+
     public async Task<IReadOnlyList<string>> UndoAsync(UserId user, string argument, string locale, CancellationToken token)
     {
         if (!TryParseId(argument.Trim(), out var id))
@@ -101,7 +170,7 @@ public sealed class TelegramInboxFlow(
             return [original + "\n" + TelegramTexts.Get(locale, "auto.manual", item.Id)];
         }
         var status = await db.InboxAnalyses.Where(a => a.Id == application.AnalysisId).Select(a => a.Status).SingleAsync(token);
-        var feedback = TelegramInboxFeedback.Render(application, status, user.Value, locale);
+        var feedback = TelegramInboxFeedback.Render(application, status, user.Value, locale, detailed: true);
         return [feedback.Text + "\n" + TelegramTexts.Get(locale, "auto.original", item.Id,
             TelegramInboxFeedback.Short(item.OriginalText, Math.Min(500, Math.Max(1, 4020 - feedback.Text.Length))))];
     }
@@ -119,6 +188,12 @@ public sealed class TelegramInboxFlow(
             var input = ParseInput(draft.Step, text.Trim());
             if (input is null)
             {
+                if (draft.Step is InboxDraftStep.Target or InboxDraftStep.Project or InboxDraftStep.Confirm &&
+                    !int.TryParse(text.Trim(), out _) && !text.Trim().Equals("no", StringComparison.OrdinalIgnoreCase) &&
+                    !text.Trim().Equals("нет", StringComparison.OrdinalIgnoreCase) && chatId is { } captureChat)
+                {
+                    return await CaptureAsync(user, text, locale, captureChat, token);
+                }
                 var key = draft.Step switch
                 {
                     InboxDraftStep.Target => "inbox.target.invalid",
@@ -141,7 +216,8 @@ public sealed class TelegramInboxFlow(
         {
             var items = await capture.GetActiveAsync(user, token);
             return TelegramTextLists.Render(TelegramTexts.Get(locale, "inbox.title"), items,
-                item => $"#{item.Id} {TelegramInboxPresenter.Short(item.OriginalText)} \u2014 /inbox {item.Id}", locale);
+                item => $"#{item.Id} {TelegramInboxPresenter.Short(item.OriginalText)}\n" +
+                    TelegramTexts.Get(locale, "inbox.row.actions", item.Id), locale);
         }
 
         if (!TryParseId(argument, out var id))
@@ -152,9 +228,6 @@ public sealed class TelegramInboxFlow(
         var result = await drafts.OpenAsync(user, id, token);
         return await presenter.RenderAsync(user, result, locale, token);
     }
-
-    public async Task<IReadOnlyList<string>> CancelAsync(UserId user, string locale, CancellationToken token) =>
-        [TelegramTexts.Get(locale, await drafts.CancelAsync(user, token) ? "inbox.cancel.done" : "inbox.cancel.none")];
 
     public async Task<IReadOnlyList<string>> DiscardAsync(UserId user, string argument, string locale, CancellationToken token)
     {
@@ -195,16 +268,15 @@ public sealed class TelegramInboxFlow(
         _ => throw new InvalidOperationException("Unknown inbox draft step.")
     };
 
-    private static InboxDraftInput? ParseTarget(string value) =>
-        int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var choice) ? choice switch
+    private static InboxDraftInput? ParseTarget(string value) => value.ToLowerInvariant() switch
         {
-            1 => new InboxDraftInput.SelectTarget(InboxTargetKind.Action),
-            2 => new InboxDraftInput.SelectTarget(InboxTargetKind.Project),
-            3 => new InboxDraftInput.SelectTarget(InboxTargetKind.SomedayMaybe),
-            4 => new InboxDraftInput.SelectTarget(InboxTargetKind.Reference),
-            5 => new InboxDraftInput.SelectTarget(InboxTargetKind.WaitingFor),
+            "1" or "task" or "задача" => new InboxDraftInput.SelectTarget(InboxTargetKind.Action),
+            "2" or "project" or "проект" => new InboxDraftInput.SelectTarget(InboxTargetKind.Project),
+            "3" or "idea" or "идея" => new InboxDraftInput.SelectTarget(InboxTargetKind.SomedayMaybe),
+            "4" or "note" or "заметка" => new InboxDraftInput.SelectTarget(InboxTargetKind.Reference),
+            "5" or "waiting" or "ожидание" => new InboxDraftInput.SelectTarget(InboxTargetKind.WaitingFor),
             _ => null
-        } : null;
+        };
 
     private static bool TryParseId(string value, out long id) =>
         long.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out id) && id > 0;

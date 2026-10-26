@@ -9,6 +9,7 @@ using Microsoft.Extensions.Hosting;
 using OwnDay.Domain.Inbox;
 using OwnDay.Infrastructure.Persistence;
 using OwnDay.Infrastructure.Telegram.Cleanup;
+using OwnDay.Infrastructure.Telegram.Localization;
 using Xunit;
 
 namespace OwnDay.IntegrationTests.Telegram;
@@ -57,7 +58,7 @@ public sealed class PostgresTelegramRestartIntegrationTests
             using (var laterClient = laterHost.CreateClient())
             {
                 await PostAsync(laterClient, 3003, "/start");
-                await AssertReplyAsync(laterHost, "OwnDay работает. Отправьте /help, чтобы увидеть команды.");
+                await AssertReplyAsync(laterHost, TelegramTexts.Get("ru", "legacy.start"));
             }
         }
         finally
@@ -105,7 +106,9 @@ public sealed class PostgresTelegramRestartIntegrationTests
             using (var restartedHost = new PostgresHostFactory(scopedConnection))
             using (var restartedClient = restartedHost.CreateClient())
             {
-                await PostAsync(restartedClient, 2004, "/inbox");
+                using var scope = restartedHost.Services.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
+                Assert.Equal(OwnDay.Application.Inbox.InboxDraftStep.Text, (await db.TelegramInboxDrafts.SingleAsync()).Step);
                 await PostAsync(restartedClient, 2005, "edited");
                 await PostAsync(restartedClient, 2006, "yes");
                 await PostAsync(restartedClient, 2006, "yes");
@@ -113,7 +116,7 @@ public sealed class PostgresTelegramRestartIntegrationTests
 
             await using var verify = new OwnDayDbContext(options);
             Assert.Contains(await verify.TelegramOutboxMessages.ToListAsync(), message =>
-                message.Text.Contains("#1 original — /inbox 1", StringComparison.Ordinal));
+                message.Text.Contains("Entry #1: original", StringComparison.Ordinal));
             var inbox = await verify.InboxItems.SingleAsync();
             Assert.Equal(InboxItemStatus.Processed, inbox.Status);
             Assert.Equal("original", inbox.OriginalText);
@@ -170,13 +173,13 @@ public sealed class PostgresTelegramRestartIntegrationTests
             using (var restartedClient = restartedHost.CreateClient())
             {
                 await PostAsync(restartedClient, 1003, "/tasks");
-                await AssertReplyAsync(restartedHost, "#1 Buy groceries\n#2 Read book");
+                await AssertReplyAsync(restartedHost, "Tasks\n#1 Buy groceries\n/done 1\n#2 Read book\n/done 2");
 
                 await PostAsync(restartedClient, 1004, "/done 1");
                 await AssertReplyAsync(restartedHost, "Task #1 completed.");
 
                 await PostAsync(restartedClient, 1005, "/tasks");
-                await AssertReplyAsync(restartedHost, "#2 Read book");
+                await AssertReplyAsync(restartedHost, "Tasks\n#2 Read book\n/done 2");
             }
         }
         finally

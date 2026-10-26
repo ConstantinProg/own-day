@@ -10,14 +10,27 @@ public sealed class TelegramStatisticsCommandHandler(InboxStatisticsService stat
 {
     public async Task<IReadOnlyList<string>> HandleAsync(UserId userId, string argument, string locale, CancellationToken cancellationToken)
     {
-        var period = statistics.Period(argument);
+        var parts = argument.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        var detailed = parts.Length > 0 && parts[^1] == "details";
+        var periodArgument = string.Join(' ', detailed ? parts[..^1] : parts);
+        var period = statistics.Period(periodArgument == "7d" ? "" : periodArgument);
         if (period is null)
         {
             return [TelegramTexts.Get(locale, "stats.usage")];
         }
         var result = await statistics.ReadAsync(userId, period, cancellationToken);
-        return [Render(period, result, locale)];
+        return [detailed ? Render(period, result, locale) : RenderSummary(period, result, locale)];
     }
+
+    private static string RenderSummary(StatisticsPeriod period, InboxStatistics stats, string locale) => string.Join('\n',
+        TelegramTexts.Get(locale, "stats.title", TelegramTexts.Get(locale, "stats.period." + period.Key)),
+        TelegramTexts.Get(locale, "stats.received", stats.Received, stats.Processed, stats.Active, stats.Discarded),
+        TelegramTexts.Get(locale, "stats.automation", stats.AutoApplied, stats.ManualRequired),
+        TelegramTexts.Get(locale, "stats.created", stats.CreatedByKind[(int)InboxTargetKind.Action],
+            stats.CreatedByKind[(int)InboxTargetKind.Project], stats.CreatedByKind[(int)InboxTargetKind.WaitingFor],
+            stats.CreatedByKind[(int)InboxTargetKind.Reference], stats.CreatedByKind[(int)InboxTargetKind.SomedayMaybe]),
+        TelegramTexts.Get(locale, "stats.summary.undo", stats.Undone),
+        TelegramTexts.Get(locale, "stats.summary.more", period.Key));
 
     public static string Render(StatisticsPeriod period, InboxStatistics stats, string locale)
     {

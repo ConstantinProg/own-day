@@ -32,7 +32,7 @@ public sealed class TelegramTaskCommandsIntegrationTests
             .ThenBy(message => message.Text).ToListAsync();
         Assert.Contains(replies, message => message.Text == "Task #1 added: Buy groceries");
         Assert.Contains(replies, message => message.Text == "Task #2 added: Read book");
-        Assert.Contains(replies, message => message.Text == "#1 Buy groceries");
+        Assert.Contains(replies, message => message.Text == "Tasks\n#1 Buy groceries\n/done 1");
         Assert.Contains(replies, message => message.ChatId == 202 && message.Text == "Task not found.");
         Assert.Contains(replies, message => message.ChatId == 101 && message.Text == "Task #1 completed.");
         Assert.Contains(replies, message => message.ChatId == 101 && message.Text == "No active tasks.");
@@ -101,8 +101,9 @@ public sealed class TelegramTaskCommandsIntegrationTests
 
         Assert.True(messages.Count > 1);
         Assert.All(messages, message => Assert.InRange(message.Text.Length, 1, 4096));
-        Assert.Equal(string.Join('\n', tasks.Select(task => $"#{task.Id} {task.Title}")),
-            string.Join('\n', messages.Select(message => message.Text)));
+        Assert.All(messages, message => Assert.StartsWith("Tasks\n", message.Text, StringComparison.Ordinal));
+        Assert.Equal(string.Join('\n', tasks.Select(task => $"#{task.Id} {task.Title}\n/done {task.Id}")),
+            string.Join('\n', messages.Select(message => message.Text["Tasks\n".Length..])));
     }
 
     private static async Task PostAsync(HttpClient client, long updateId, long userId, string command)
