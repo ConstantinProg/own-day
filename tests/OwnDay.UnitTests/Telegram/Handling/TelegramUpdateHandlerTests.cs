@@ -543,6 +543,8 @@ public sealed class TelegramUpdateHandlerTests
                 () => throw new InvalidOperationException("Provider is disabled."),
                 Options.Create(new OwnDay.Infrastructure.OpenAIAnalysis.OpenAIInboxAnalysisOptions()),
                 NullLogger<OwnDay.Infrastructure.OpenAIAnalysis.OpenAILessonTeacher>.Instance);
+            var knowledge = new OwnDay.Application.Learning.KnowledgeService(new EfKnowledgeStore(dbContext), timeProvider);
+            var learning = new OwnDay.Application.Learning.LearningService(new EfLessonStore(dbContext), teacher, knowledge);
             var handler = new TelegramUpdateHandler(
                 router,
                 new TelegramActionCommandHandler(new ActionService(new EfActionStore(dbContext), timeProvider)),
@@ -567,11 +569,11 @@ public sealed class TelegramUpdateHandlerTests
                 timeProvider,
                 cleaner,
                 NullLogger<TelegramUpdateHandler>.Instance,
-                new OwnDay.Application.Learning.LearningService(new EfLessonStore(dbContext),
-                    teacher),
+                learning,
                 new TelegramCurriculumCommandHandler(new OwnDay.Application.Learning.CurriculumService(
                     new EfCurriculumStore(dbContext), teacher, new EfLessonStore(dbContext), teacher,
-                    new StructuredItemService(new EfStructuredItemStore(dbContext), timeProvider))));
+                    new StructuredItemService(new EfStructuredItemStore(dbContext), timeProvider), knowledge)),
+                new TelegramKnowledgeCommandHandler(knowledge, learning));
 
             databaseCommands.Clear();
             return new HandlerFixture(connection, dbContext, handler, cleaner, databaseCommands);

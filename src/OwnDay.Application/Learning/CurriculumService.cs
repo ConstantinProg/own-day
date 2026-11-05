@@ -32,7 +32,7 @@ public abstract record CurriculumResult
 }
 
 public sealed class CurriculumService(ICurriculumStore store, ICurriculumPlanner planner,
-    ILessonStore lessons, ILessonTeacher teacher, StructuredItemService projects)
+    ILessonStore lessons, ILessonTeacher teacher, StructuredItemService projects, KnowledgeService knowledge)
 {
     public async Task<CurriculumResult> CreateAsync(UserId user, string goal, string experience, long? projectId, CancellationToken token)
     {
@@ -118,6 +118,7 @@ public sealed class CurriculumService(ICurriculumStore store, ICurriculumPlanner
             token.ThrowIfCancellationRequested();
             var lesson = Lesson.Start(user, topic.Title, material.Theory, material.Question);
             lesson.LinkToProgram(program, topic.Code);
+            await knowledge.AttachAsync(lesson, $"{topic.Title}\nDiscipline: {program.Discipline}\nLearning goal: {program.Goal}", token);
             lessons.Add(lesson);
             return new CurriculumResult.Lesson(new LearningResult.Material(lesson.Theory, lesson.Question, lesson.Topic));
         }

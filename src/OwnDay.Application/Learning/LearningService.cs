@@ -14,7 +14,10 @@ public sealed record LessonProgramContext(string Discipline, string Goal, string
 public sealed record LessonRequest(string Topic, LessonProgramContext? Program = null);
 
 public sealed record LessonMaterial(string Theory, string Question);
-public sealed record LessonAssessment(string Feedback, bool IsCorrect);
+public sealed record LessonAssessment(string Feedback, bool IsCorrect)
+{
+    public string Source { get; init; } = "LLM (unspecified model)";
+}
 public sealed record LessonExplanation(string Explanation);
 
 public interface ILessonTeacher
@@ -50,9 +53,10 @@ public abstract record LearningResult
     public sealed record InvalidClarification : LearningResult;
     public sealed record InvalidTransition : LearningResult;
     public sealed record Finished : LearningResult;
+    public sealed record SkillNotFound : LearningResult;
 }
 
-public sealed class LearningService(ILessonStore store, ILessonTeacher teacher)
+public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, KnowledgeService knowledge)
 {
     public async Task<LearningResult> StartAsync(UserId user, string topic, CancellationToken token)
     {
@@ -74,6 +78,7 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher)
             var material = await teacher.GenerateAsync(new LessonRequest(topic), token);
             token.ThrowIfCancellationRequested();
             var lesson = Lesson.Start(user, topic, material.Theory, material.Question);
+            await knowledge.AttachAsync(lesson, lesson.Topic, token);
             store.Add(lesson);
             return new LearningResult.Material(lesson.Theory, lesson.Question, lesson.Topic);
         }
@@ -106,7 +111,12 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher)
         {
             var result = await teacher.AssessAsync(active, answer, token);
             token.ThrowIfCancellationRequested();
+            if (string.IsNullOrWhiteSpace(result.Feedback) || result.Feedback.Length > 3000 ||
+                string.IsNullOrWhiteSpace(result.Source) || result.Source.Length > 200)
+                return new LearningResult.ProviderUnavailable();
+            await knowledge.AttachAsync(active, active.Topic, token);
             active.Complete(answer, result.Feedback, result.IsCorrect);
+            knowledge.RecordAnswer(active, result.Source);
             return new LearningResult.Assessment(result.Feedback);
         }
         catch (Exception exception) when (exception is LessonProviderException or ArgumentException)
@@ -123,6 +133,28 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher)
         if (lesson.Status != LessonStatus.AwaitingAnswer) return new LearningResult.InvalidTransition();
         lesson.Pause();
         return Session(lesson);
+    }
+
+    public async Task<LearningResult> PracticeAsync(UserId user, Guid skillId, CancellationToken token)
+    {
+        ValidateUser(user, token);
+        var skill = await knowledge.FindAsync(user, skillId, token);
+        if (skill is null) return new LearningResult.SkillNotFound();
+        var active = await store.FindActiveAsync(user, token);
+        if (active is not null) return Session(active);
+        try
+        {
+            var material = await teacher.GenerateAsync(new LessonRequest(skill.Description), token);
+            token.ThrowIfCancellationRequested();
+            var lesson = Lesson.Start(user, skill.Title, material.Theory, material.Question);
+            lesson.LinkToSkill(skill);
+            store.Add(lesson);
+            return new LearningResult.Material(lesson.Theory, lesson.Question, lesson.Topic);
+        }
+        catch (Exception exception) when (exception is LessonProviderException or ArgumentException)
+        {
+            return new LearningResult.ProviderUnavailable();
+        }
     }
 
     public async Task<LearningResult> ResumeAsync(UserId user, CancellationToken token)

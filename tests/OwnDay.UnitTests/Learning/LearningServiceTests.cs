@@ -16,7 +16,7 @@ public sealed class LearningServiceTests
     public async Task HandleAsync_CanceledDialogueCommand_DoesNotAccessStore(string action)
     {
         var store = new Store();
-        var service = new LearningService(store, new Teacher());
+        var service = new LearningService(store, new Teacher(), new KnowledgeService(new KnowledgeStore(), TimeProvider.System));
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => action switch
@@ -43,7 +43,7 @@ public sealed class LearningServiceTests
         {
             Failure = failure,
             Explanation = new string('e', outputLength)
-        });
+        }, new KnowledgeService(new KnowledgeStore(), TimeProvider.System));
         Assert.IsType<LearningResult.ProviderUnavailable>(await service.ExplainAsync(new UserId(1), CancellationToken.None));
         Assert.Equal(LessonStatus.AwaitingAnswer, lesson.Status);
         Assert.Equal("Topic", lesson.Topic);
@@ -58,7 +58,7 @@ public sealed class LearningServiceTests
         var lesson = Lesson.Start(new UserId(1), "Topic", "Theory", "Question");
         using var cancellation = new CancellationTokenSource();
         var teacher = new Teacher { Cancel = cancellation };
-        var service = new LearningService(new Store { Active = lesson }, teacher);
+        var service = new LearningService(new Store { Active = lesson }, teacher, new KnowledgeService(new KnowledgeStore(), TimeProvider.System));
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.ClarifyAsync(new UserId(1), "Question", cancellation.Token));
         Assert.Equal(cancellation.Token, teacher.ReceivedToken);
         Assert.Empty(lesson.Interactions);
@@ -69,7 +69,7 @@ public sealed class LearningServiceTests
     {
         var lesson = Lesson.Start(new UserId(1), "Topic", "Theory", "Question");
         lesson.Pause();
-        var service = new LearningService(new Store { Active = lesson }, new Teacher());
+        var service = new LearningService(new Store { Active = lesson }, new Teacher(), new KnowledgeService(new KnowledgeStore(), TimeProvider.System));
         Assert.IsType<LearningResult.InvalidTransition>(await service.AnswerAsync(new UserId(1), "Answer", CancellationToken.None));
         Assert.IsType<LearningResult.InvalidTransition>(await service.ExplainAsync(new UserId(1), CancellationToken.None));
         Assert.IsType<LearningResult.InvalidTransition>(await service.PauseAsync(new UserId(1), CancellationToken.None));
@@ -84,7 +84,7 @@ public sealed class LearningServiceTests
     public async Task ClarifyAsync_InvalidRequest_DoesNotAccessStore(string request)
     {
         var store = new Store();
-        var service = new LearningService(store, new Teacher());
+        var service = new LearningService(store, new Teacher(), new KnowledgeService(new KnowledgeStore(), TimeProvider.System));
         if (request == "oversized") request = new string('q', 1001);
         Assert.IsType<LearningResult.InvalidClarification>(await service.ClarifyAsync(new UserId(1), request, CancellationToken.None));
         Assert.False(store.Accessed);
@@ -94,7 +94,7 @@ public sealed class LearningServiceTests
     public async Task HandleAsync_Canceled_DoesNotAccessStore()
     {
         var store = new Store();
-        var service = new LearningService(store, new Teacher());
+        var service = new LearningService(store, new Teacher(), new KnowledgeService(new KnowledgeStore(), TimeProvider.System));
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
@@ -108,7 +108,7 @@ public sealed class LearningServiceTests
     public async Task HandleAsync_InvalidOrFailedAssessment_PreservesActiveLesson(bool failure)
     {
         var store = new Store { Active = Lesson.Start(new UserId(1), "Topic", "Theory", "Question") };
-        var service = new LearningService(store, new Teacher { Failure = failure });
+        var service = new LearningService(store, new Teacher { Failure = failure }, new KnowledgeService(new KnowledgeStore(), TimeProvider.System));
         var result = await service.AnswerAsync(new UserId(1), "Answer", CancellationToken.None);
         Assert.Null(store.Active.Answer);
         Assert.IsType<LearningResult.ProviderUnavailable>(result);
@@ -118,7 +118,7 @@ public sealed class LearningServiceTests
     public async Task StartAsync_ActiveLesson_ReturnsExistingMaterialWithoutGeneration()
     {
         var lesson = Lesson.Start(new UserId(1), "Topic", "Theory", "Question");
-        var service = new LearningService(new Store { Active = lesson }, new Teacher());
+        var service = new LearningService(new Store { Active = lesson }, new Teacher(), new KnowledgeService(new KnowledgeStore(), TimeProvider.System));
         var result = await service.StartAsync(new UserId(1), "Different topic", CancellationToken.None);
         Assert.Equal(new LearningResult.Session(lesson.Topic, lesson.Question, LessonStatus.AwaitingAnswer), result);
     }
@@ -126,7 +126,7 @@ public sealed class LearningServiceTests
     [Fact]
     public async Task AnswerAsync_NoActiveLesson_ReturnsMissingLesson()
     {
-        var service = new LearningService(new Store(), new Teacher());
+        var service = new LearningService(new Store(), new Teacher(), new KnowledgeService(new KnowledgeStore(), TimeProvider.System));
         var result = await service.AnswerAsync(new UserId(1), "Answer", CancellationToken.None);
         Assert.IsType<LearningResult.NoActiveLesson>(result);
     }
@@ -135,7 +135,7 @@ public sealed class LearningServiceTests
     public async Task StartAsync_InvalidTopic_DoesNotAccessStore()
     {
         var store = new Store();
-        var service = new LearningService(store, new Teacher());
+        var service = new LearningService(store, new Teacher(), new KnowledgeService(new KnowledgeStore(), TimeProvider.System));
         Assert.IsType<LearningResult.InvalidTopic>(await service.StartAsync(new UserId(1), " ", CancellationToken.None));
         Assert.False(store.Accessed);
     }

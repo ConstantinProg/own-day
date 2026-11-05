@@ -19,9 +19,6 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
 
         NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
-
-
-
         modelBuilder.Entity("OwnDay.Application.Inbox.Observability.InboxOperationEvent", b =>
             {
                 b.Property<Guid>("Id")
@@ -806,6 +803,59 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
                     .OnDelete(DeleteBehavior.Cascade)
                     .IsRequired();
             });
+        modelBuilder.Entity("OwnDay.Domain.Learning.Skill", b =>
+            {
+                b.Property<Guid>("Id")
+                    .HasColumnType("uuid");
+                b.Property<string>("Description")
+                    .IsRequired()
+                    .HasMaxLength(1200)
+                    .HasColumnType("character varying(1200)");
+                b.Property<string>("Title")
+                    .IsRequired()
+                    .HasMaxLength(500)
+                    .HasColumnType("character varying(500)");
+                b.Property<long>("UserId")
+                    .HasColumnType("bigint");
+                b.HasKey("Id");
+                b.HasIndex("UserId");
+                b.ToTable("learning_skills", (string)null);
+            });
+
+        modelBuilder.Entity("OwnDay.Domain.Learning.LearningEvidence", b =>
+            {
+                b.Property<Guid>("LessonId")
+                    .HasColumnType("uuid");
+                b.Property<string>("Answer")
+                    .IsRequired()
+                    .HasMaxLength(3000)
+                    .HasColumnType("character varying(3000)");
+                b.Property<bool>("AssessedCorrect")
+                    .HasColumnType("boolean");
+                b.Property<string>("AssessmentFeedback")
+                    .IsRequired()
+                    .HasMaxLength(3000)
+                    .HasColumnType("character varying(3000)");
+                b.Property<string>("AssessmentSource")
+                    .IsRequired()
+                    .HasMaxLength(200)
+                    .HasColumnType("character varying(200)");
+                b.Property<string>("Method")
+                    .IsRequired()
+                    .HasMaxLength(50)
+                    .HasColumnType("character varying(50)");
+                b.Property<DateTimeOffset>("ObservedAt")
+                    .HasColumnType("timestamp with time zone");
+                b.Property<Guid>("SkillId")
+                    .HasColumnType("uuid");
+                b.Property<long>("UserId")
+                    .HasColumnType("bigint");
+                b.HasKey("LessonId");
+                b.HasIndex("LessonId", "UserId");
+                b.HasIndex("SkillId", "UserId");
+                b.ToTable("learning_evidence", (string)null);
+            });
+
         modelBuilder.Entity("OwnDay.Domain.Learning.CurriculumRoute", b =>
             {
                 b.Property<Guid>("Id")
@@ -882,6 +932,8 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
                     .HasColumnType("character varying(1000)");
                 b.Property<int?>("RouteVersion")
                     .HasColumnType("integer");
+                b.Property<Guid?>("SkillId")
+                    .HasColumnType("uuid");
                 b.Property<int>("Status")
                     .HasColumnType("integer");
                 b.Property<string>("Theory")
@@ -903,6 +955,7 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
                     .HasFilter("\"Status\" IN (0, 1)");
                 b.HasIndex("ProgramId", "RouteVersion");
                 b.HasIndex("ProgramId", "UserId");
+                b.HasIndex("SkillId", "UserId");
                 b.ToTable("learning_lessons", (string)null);
             });
 
@@ -959,6 +1012,11 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
                     .HasForeignKey("ProgramId", "UserId")
                     .HasPrincipalKey("Id", "UserId")
                     .OnDelete(DeleteBehavior.Restrict);
+                b.HasOne("OwnDay.Domain.Learning.Skill", null)
+                    .WithMany()
+                    .HasForeignKey("SkillId", "UserId")
+                    .HasPrincipalKey("Id", "UserId")
+                    .OnDelete(DeleteBehavior.Restrict);
             });
 
         modelBuilder.Entity("OwnDay.Domain.Learning.LessonInteraction", b =>
@@ -978,6 +1036,22 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
         modelBuilder.Entity("OwnDay.Domain.Learning.Lesson", b =>
             {
                 b.Navigation("Interactions");
+            });
+
+        modelBuilder.Entity("OwnDay.Domain.Learning.LearningEvidence", b =>
+            {
+                b.HasOne("OwnDay.Domain.Learning.Lesson", null)
+                    .WithMany()
+                    .HasForeignKey("LessonId", "UserId")
+                    .HasPrincipalKey("Id", "UserId")
+                    .OnDelete(DeleteBehavior.Restrict)
+                    .IsRequired();
+                b.HasOne("OwnDay.Domain.Learning.Skill", null)
+                    .WithMany()
+                    .HasForeignKey("SkillId", "UserId")
+                    .HasPrincipalKey("Id", "UserId")
+                    .OnDelete(DeleteBehavior.Restrict)
+                    .IsRequired();
             });
 
 #pragma warning restore 612, 618

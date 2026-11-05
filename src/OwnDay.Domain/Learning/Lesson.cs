@@ -17,6 +17,7 @@ public sealed class Lesson
     public Guid? ProgramId { get; private set; }
     public int? RouteVersion { get; private set; }
     public string? TopicCode { get; private set; }
+    public Guid? SkillId { get; private set; }
     public IReadOnlyCollection<LessonInteraction> Interactions => _interactions.AsReadOnly();
 
     public static Lesson Start(UserId user, string topic, string theory, string question)
@@ -54,6 +55,14 @@ public sealed class Lesson
     {
         RequireAwaitingAnswer();
         Status = LessonStatus.Paused;
+    }
+
+    public void LinkToSkill(Skill skill)
+    {
+        RequireAwaitingAnswer();
+        if (SkillId is not null || skill.UserId != UserId)
+            throw new ArgumentException("Invalid skill.", nameof(skill));
+        SkillId = skill.Id;
     }
 
     public void Resume()

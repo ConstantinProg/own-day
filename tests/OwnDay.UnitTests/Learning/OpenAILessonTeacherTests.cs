@@ -17,6 +17,23 @@ namespace OwnDay.UnitTests.Learning;
 
 public sealed class OpenAILessonTeacherTests
 {
+    [Fact]
+    public async Task AssessAsync_ProviderModel_PreservesSourceOutsideModelInterpretation()
+    {
+        using var handler = new ResponseHandler(JsonSerializer.Serialize(new
+        {
+            id = "test", model = "actual-model", created = 1, @object = "chat.completion",
+            choices = new[] { new { index = 0, finish_reason = "stop",
+                message = new { role = "assistant", content = "{\"Feedback\":\"Reason\",\"IsCorrect\":true,\"Source\":\"invented source\"}" } } }
+        }));
+        using var http = new HttpClient(handler);
+        var result = await Teacher(http, new RecordingLogger()).AssessAsync(
+            Lesson.Start(new UserId(1), "Topic", "Theory", "Question"), "Answer", CancellationToken.None);
+        Assert.Equal("OpenAI:actual-model", result.Source);
+        Assert.Equal("Reason", result.Feedback);
+        Assert.True(result.IsCorrect);
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("x = 2")]

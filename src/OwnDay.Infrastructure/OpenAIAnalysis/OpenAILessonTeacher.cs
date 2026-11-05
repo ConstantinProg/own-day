@@ -60,7 +60,10 @@ public sealed class OpenAILessonTeacher(Func<ChatClient> createClient, IOptions<
             if (completion.FinishReason != ChatFinishReason.Stop || !string.IsNullOrEmpty(completion.Refusal) || completion.Content.Count != 1 ||
                 completion.Content[0].Kind != ChatMessageContentPartKind.Text)
                 throw new LessonProviderException(LessonProviderFailure.InvalidResponse);
-            return JsonSerializer.Deserialize<T>(completion.Content[0].Text) ?? throw new LessonProviderException(LessonProviderFailure.InvalidResponse);
+            var result = JsonSerializer.Deserialize<T>(completion.Content[0].Text) ?? throw new LessonProviderException(LessonProviderFailure.InvalidResponse);
+            if (result is LessonAssessment assessment)
+                return (T)(object)(assessment with { Source = "OpenAI:" + completion.Model });
+            return result;
         }
         catch (Exception exception) when (exception is ClientResultException or HttpRequestException or JsonException ||
             exception is OperationCanceledException && !token.IsCancellationRequested)
