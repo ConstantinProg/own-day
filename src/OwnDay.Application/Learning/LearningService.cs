@@ -9,13 +9,17 @@ public interface ILessonStore
     void Add(Lesson lesson);
 }
 
+public sealed record LessonProgramContext(string Discipline, string Goal, string Experience,
+    string? DiagnosticQuestion, string? DiagnosticAnswer);
+public sealed record LessonRequest(string Topic, LessonProgramContext? Program = null);
+
 public sealed record LessonMaterial(string Theory, string Question);
 public sealed record LessonAssessment(string Feedback, bool IsCorrect);
 public sealed record LessonExplanation(string Explanation);
 
 public interface ILessonTeacher
 {
-    Task<LessonMaterial> GenerateAsync(string topic, CancellationToken token);
+    Task<LessonMaterial> GenerateAsync(LessonRequest request, CancellationToken token);
     Task<LessonAssessment> AssessAsync(Lesson lesson, string answer, CancellationToken token);
     Task<LessonExplanation> ExplainAsync(Lesson lesson, string request, LessonInteractionKind kind, CancellationToken token);
 }
@@ -67,7 +71,7 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher)
 
         try
         {
-            var material = await teacher.GenerateAsync(topic, token);
+            var material = await teacher.GenerateAsync(new LessonRequest(topic), token);
             token.ThrowIfCancellationRequested();
             var lesson = Lesson.Start(user, topic, material.Theory, material.Question);
             store.Add(lesson);

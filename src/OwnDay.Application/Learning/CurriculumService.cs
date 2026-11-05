@@ -12,7 +12,7 @@ public interface ICurriculumStore
 }
 
 public sealed record CurriculumProposal(string Discipline, CurriculumTopic[] Topics, string? DiagnosticQuestion);
-public sealed record CurriculumRequest(string Goal, string Experience, string? Question, string? Answer);
+public sealed record CurriculumRequest(string Goal, string Experience, string? Question, string? Answer, string? Discipline = null);
 
 public interface ICurriculumPlanner
 {
@@ -39,14 +39,14 @@ public sealed class CurriculumService(ICurriculumStore store, ICurriculumPlanner
         ValidateUser(user, token);
         goal = goal.Trim();
         experience = experience.Trim();
-        if (experience.Length is < 1 or > 1000 || projectId is <= 0) return new CurriculumResult.InvalidInput();
+        if (experience.Length is < 1 or > LearningProgram.MaxExperienceLength || projectId is <= 0) return new CurriculumResult.InvalidInput();
         if (projectId is long id)
         {
             var project = await projects.FindProjectAsync(user, id, token);
             if (project is null) return new CurriculumResult.ProjectNotFound();
             goal = project.Title;
         }
-        if (goal.Length is < 1 or > 500) return new CurriculumResult.InvalidInput();
+        if (goal.Length is < 1 or > LearningProgram.MaxGoalLength) return new CurriculumResult.InvalidInput();
         var existing = await store.FindAsync(user, token);
         if (existing is not null) return new CurriculumResult.Program(existing);
         try
@@ -75,7 +75,7 @@ public sealed class CurriculumService(ICurriculumStore store, ICurriculumPlanner
     {
         ValidateUser(user, token);
         answer = answer.Trim();
-        if (answer.Length is < 1 or > 3000) return new CurriculumResult.InvalidInput();
+        if (answer.Length is < 1 or > LearningProgram.MaxDiagnosticAnswerLength) return new CurriculumResult.InvalidInput();
         var program = await store.FindAsync(user, token);
         if (program is null) return new CurriculumResult.NoProgram();
         if (!program.DiagnosticPending) return new CurriculumResult.InvalidTransition();
@@ -86,11 +86,11 @@ public sealed class CurriculumService(ICurriculumStore store, ICurriculumPlanner
         }
         try
         {
-            var proposal = await planner.PlanAsync(new(program.Goal, program.Experience, program.DiagnosticQuestion, answer), token);
+            var proposal = await planner.PlanAsync(new(program.Goal, program.Experience, program.DiagnosticQuestion, answer, program.Discipline), token);
             token.ThrowIfCancellationRequested();
-            if (proposal.DiagnosticQuestion is not null || string.IsNullOrWhiteSpace(proposal.Discipline) || proposal.Discipline.Length > 100)
+            if (proposal.DiagnosticQuestion is not null)
                 return new CurriculumResult.ProviderUnavailable();
-            program.ApplyDiagnostic(answer, proposal.Topics);
+            program.ApplyDiagnostic(answer, proposal.Discipline, proposal.Topics);
             return new CurriculumResult.Program(program);
         }
         catch (Exception exception) when (exception is LessonProviderException or ArgumentException)
@@ -112,7 +112,9 @@ public sealed class CurriculumService(ICurriculumStore store, ICurriculumPlanner
         if (topic is null) return new CurriculumResult.RouteCompleted();
         try
         {
-            var material = await teacher.GenerateAsync($"{program.Goal}: {topic.Title}", token);
+            var material = await teacher.GenerateAsync(new LessonRequest(topic.Title,
+                new LessonProgramContext(program.Discipline, program.Goal, program.Experience,
+                    program.DiagnosticQuestion, program.DiagnosticAnswer)), token);
             token.ThrowIfCancellationRequested();
             var lesson = Lesson.Start(user, topic.Title, material.Theory, material.Question);
             lesson.LinkToProgram(program, topic.Code);

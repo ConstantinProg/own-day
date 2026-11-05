@@ -19,11 +19,11 @@ internal static class CurriculumModel
             entity.Property(p => p.UserId).HasConversion(id => id.Value, value => new UserId(value));
             entity.HasAlternateKey(p => new { p.Id, p.UserId });
             entity.HasIndex(p => p.UserId).IsUnique();
-            entity.Property(p => p.Goal).HasMaxLength(500);
-            entity.Property(p => p.Experience).HasMaxLength(1000);
-            entity.Property(p => p.Discipline).HasMaxLength(100);
-            entity.Property(p => p.DiagnosticQuestion).HasMaxLength(1000);
-            entity.Property(p => p.DiagnosticAnswer).HasMaxLength(3000);
+            entity.Property(p => p.Goal).HasMaxLength(LearningProgram.MaxGoalLength);
+            entity.Property(p => p.Experience).HasMaxLength(LearningProgram.MaxExperienceLength);
+            entity.Property(p => p.Discipline).HasMaxLength(LearningProgram.MaxDisciplineLength);
+            entity.Property(p => p.DiagnosticQuestion).HasMaxLength(LearningProgram.MaxDiagnosticQuestionLength);
+            entity.Property(p => p.DiagnosticAnswer).HasMaxLength(LearningProgram.MaxDiagnosticAnswerLength);
             entity.Ignore(p => p.CurrentRoute);
             entity.HasOne<Project>().WithMany().HasForeignKey(p => new { p.ProjectId, p.UserId })
                 .HasPrincipalKey(p => new { p.Id, p.UserId }).OnDelete(DeleteBehavior.Restrict);
@@ -36,14 +36,14 @@ internal static class CurriculumModel
             entity.HasKey(r => r.Id);
             entity.Property(r => r.Id).ValueGeneratedNever();
             entity.HasAlternateKey(r => new { r.ProgramId, r.Version });
-            entity.Property(r => r.Reason).HasMaxLength(500);
+            entity.Property(r => r.Reason).HasMaxLength(CurriculumRoute.MaxReasonLength);
             entity.Property(r => r.Topics).HasConversion(value => Serialize(value), value => Deserialize(value))
                 .HasColumnType("jsonb").Metadata.SetValueComparer(new ValueComparer<IReadOnlyList<CurriculumTopic>>(
                     (left, right) => Serialize(left!) == Serialize(right!), value => Serialize(value).GetHashCode(), value => value));
         });
         modelBuilder.Entity<Lesson>(entity =>
         {
-            entity.Property(l => l.TopicCode).HasMaxLength(40);
+            entity.Property(l => l.TopicCode).HasMaxLength(CurriculumTopic.MaxCodeLength);
             entity.HasOne<LearningProgram>().WithMany().HasForeignKey(l => new { l.ProgramId, l.UserId })
                 .HasPrincipalKey(p => new { p.Id, p.UserId }).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<CurriculumRoute>().WithMany().HasForeignKey(l => new { l.ProgramId, l.RouteVersion })

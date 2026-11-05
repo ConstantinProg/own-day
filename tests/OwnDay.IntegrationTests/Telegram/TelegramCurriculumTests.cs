@@ -212,6 +212,18 @@ public sealed class TelegramCurriculumTests
         Assert.Equal(2, planner.Requests.Count);
         Assert.Equal("I know arithmetic", planner.Requests[0].Experience);
         Assert.Equal("x = 2", planner.Requests[1].Answer);
+        Assert.Null(planner.Requests[0].Discipline);
+        Assert.Equal("Mathematics", planner.Requests[1].Discipline);
+        Assert.All(teacher.Requests, request =>
+        {
+            var context = Assert.IsType<LessonProgramContext>(request.Program);
+            Assert.Equal("Mathematics", context.Discipline);
+            Assert.Equal("algebra", context.Goal);
+            Assert.Equal("I know arithmetic", context.Experience);
+            Assert.Equal("Solve x + 2 = 4", context.DiagnosticQuestion);
+            Assert.Equal("x = 2", context.DiagnosticAnswer);
+            Assert.Contains(request.Topic, new[] { "Basics", "Advanced" });
+        });
         Assert.Equal("Solve x + 2 = 4", planner.Requests[1].Question);
         var lessons = await db.Set<Lesson>().ToListAsync();
         Assert.Equal(4, lessons.Count);
@@ -298,6 +310,7 @@ public sealed class TelegramCurriculumTests
     [InlineData("failure")]
     [InlineData("cycle")]
     [InlineData("second question")]
+    [InlineData("different discipline")]
     public async Task Post_InvalidDiagnosticProposal_PreservesOriginalRouteAndPendingQuestion(string kind)
     {
         using var factory = new OwnDayHostFactory();
@@ -309,11 +322,13 @@ public sealed class TelegramCurriculumTests
         planner.Failure = kind == "failure";
         planner.Invalid = kind == "cycle";
         planner.SecondQuestion = kind == "second question";
+        planner.DifferentDiscipline = kind == "different discipline";
         await PostAsync(client, 2, 101, "/learn_diagnose answer");
         using var scope = host.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
         var program = await db.Set<LearningProgram>().Include(p => p.Routes).SingleAsync();
         Assert.True(program.DiagnosticPending);
+        Assert.Equal("Mathematics", program.Discipline);
         Assert.Null(program.DiagnosticAnswer);
         Assert.Single(program.Routes);
         Assert.Equal(1, program.CurrentRoute.Version);
@@ -336,6 +351,11 @@ public sealed class TelegramCurriculumTests
         Assert.Equal(1, teacher.Generated);
         Assert.Single(planner.Requests);
         Assert.Null(planner.Requests[0].Answer);
+        var context = Assert.IsType<LessonProgramContext>(Assert.Single(teacher.Requests).Program);
+        Assert.Equal("Mathematics", context.Discipline);
+        Assert.Equal("Experienced, start with equations", context.Experience);
+        Assert.Null(context.DiagnosticQuestion);
+        Assert.Null(context.DiagnosticAnswer);
     }
 
     internal static async Task PostAsync(HttpClient client, int id, long user, string text)
@@ -361,6 +381,7 @@ public sealed class TelegramCurriculumTests
         public bool Invalid { get; set; }
         public bool LongQuestion { get; init; }
         public bool SecondQuestion { get; set; }
+        public bool DifferentDiscipline { get; set; }
         public bool NoQuestion { get; init; }
         public Task<CurriculumProposal> PlanAsync(CurriculumRequest request, CancellationToken token)
         {
@@ -369,7 +390,7 @@ public sealed class TelegramCurriculumTests
             ReceivedToken = token;
             CancelAfterPlan?.Cancel();
             if (Failure) throw new LessonProviderException();
-            return Task.FromResult(new CurriculumProposal("Mathematics",
+            return Task.FromResult(new CurriculumProposal(DifferentDiscipline ? "Physics" : "Mathematics",
                 Invalid ? [new("a", "A", ["a"])] : [new("advanced", "Advanced", ["basics"]), new("basics", "Basics", [])],
                 NoQuestion || request.Answer is not null && !SecondQuestion ? null : LongQuestion ? new string('q', 1001) : "Solve x + 2 = 4"));
         }
@@ -380,9 +401,11 @@ public sealed class TelegramCurriculumTests
         public CancellationTokenSource? CancelAfterGenerate { get; set; }
         public CancellationToken ReceivedToken { get; private set; }
         public int Generated { get; private set; }
-        public Task<LessonMaterial> GenerateAsync(string topic, CancellationToken token)
+        public List<LessonRequest> Requests { get; } = [];
+        public Task<LessonMaterial> GenerateAsync(LessonRequest request, CancellationToken token)
         {
             token.ThrowIfCancellationRequested();
+            Requests.Add(request);
             Generated++;
             ReceivedToken = token;
             CancelAfterGenerate?.Cancel();

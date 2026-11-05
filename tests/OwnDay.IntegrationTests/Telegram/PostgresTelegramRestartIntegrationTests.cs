@@ -111,7 +111,7 @@ public sealed class PostgresTelegramRestartIntegrationTests
         public int Generated { get; private set; }
         public int Explained { get; private set; }
         public int Assessed { get; private set; }
-        public Task<LessonMaterial> GenerateAsync(string topic, CancellationToken token)
+        public Task<LessonMaterial> GenerateAsync(LessonRequest request, CancellationToken token)
         {
             token.ThrowIfCancellationRequested();
             Generated++;

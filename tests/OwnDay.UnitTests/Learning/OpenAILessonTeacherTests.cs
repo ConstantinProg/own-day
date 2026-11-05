@@ -30,7 +30,7 @@ public sealed class OpenAILessonTeacherTests
                 message = new { role = "assistant", content = JsonSerializer.Serialize(proposal) } } }
         }));
         using var http = new HttpClient(handler);
-        var result = await Teacher(http, new RecordingLogger()).PlanAsync(new("Learn algebra", "I know arithmetic", "Solve x + 2 = 4", answer), CancellationToken.None);
+        var result = await Teacher(http, new RecordingLogger()).PlanAsync(new("Learn algebra", "I know arithmetic", "Solve x + 2 = 4", answer, answer is null ? null : "Mathematics"), CancellationToken.None);
         Assert.Equal("equations", Assert.Single(result.Topics).Code);
         Assert.Empty(result.Topics[0].Prerequisites);
         Assert.Equal(proposal.DiagnosticQuestion, result.DiagnosticQuestion);
@@ -42,9 +42,37 @@ public sealed class OpenAILessonTeacherTests
         Assert.Equal("Learn algebra", input.RootElement.GetProperty("Goal").GetString());
         Assert.Equal("I know arithmetic", input.RootElement.GetProperty("Experience").GetString());
         Assert.Equal(answer, input.RootElement.GetProperty("Answer").GetString());
+        Assert.Equal(answer is null ? null : "Mathematics", input.RootElement.GetProperty("Discipline").GetString());
+        Assert.Contains("preserve it exactly", messages[0].GetProperty("content").GetString());
         var format = body.RootElement.GetProperty("response_format").GetProperty("json_schema");
         Assert.True(format.GetProperty("strict").GetBoolean());
         Assert.True(format.GetProperty("schema").GetProperty("properties").TryGetProperty("Topics", out _));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task GenerateAsync_OptionalProgramContext_SendsStructuredUntrustedContext(bool withProgram)
+    {
+        using var handler = new ResponseHandler(JsonSerializer.Serialize(new
+        {
+            id = "test", model = "test", created = 1, @object = "chat.completion",
+            choices = new[] { new { index = 0, finish_reason = "stop",
+                message = new { role = "assistant", content = "{\"Theory\":\"Theory\",\"Question\":\"Question?\"}" } } }
+        }));
+        using var http = new HttpClient(handler);
+        var context = withProgram ? new LessonProgramContext("Mathematics", "Prepare for an interview",
+            "I know arithmetic", "Solve x + 2 = 4", "x = 2") : null;
+        var request = new LessonRequest("Basics", context);
+
+        var result = await Teacher(http, new RecordingLogger()).GenerateAsync(request, CancellationToken.None);
+
+        Assert.Equal("Theory", result.Theory);
+        using var body = JsonDocument.Parse(handler.RequestBody!);
+        var messages = body.RootElement.GetProperty("messages");
+        Assert.Contains("untrusted data", messages[0].GetProperty("content").GetString());
+        using var input = JsonDocument.Parse(messages[1].GetProperty("content").GetString()!);
+        Assert.Equal(request, input.RootElement.Deserialize<LessonRequest>());
     }
 
     [Theory]
@@ -94,7 +122,7 @@ public sealed class OpenAILessonTeacherTests
         var logger = new RecordingLogger();
         var teacher = Teacher(http, logger);
 
-        var error = await Assert.ThrowsAsync<LessonProviderException>(() => teacher.GenerateAsync("private topic", CancellationToken.None));
+        var error = await Assert.ThrowsAsync<LessonProviderException>(() => teacher.GenerateAsync(new LessonRequest("private topic"), CancellationToken.None));
 
         Assert.Equal(LessonProviderFailure.InvalidResponse, error.Reason);
         Assert.Contains(logger.Messages, m => m.Contains("InvalidResponse", StringComparison.Ordinal));
@@ -107,7 +135,7 @@ public sealed class OpenAILessonTeacherTests
         using var handler = new ResponseHandler("private provider error", HttpStatusCode.Unauthorized);
         using var http = new HttpClient(handler);
         var logger = new RecordingLogger();
-        var error = await Assert.ThrowsAsync<LessonProviderException>(() => Teacher(http, logger).GenerateAsync("topic", CancellationToken.None));
+        var error = await Assert.ThrowsAsync<LessonProviderException>(() => Teacher(http, logger).GenerateAsync(new LessonRequest("topic"), CancellationToken.None));
         Assert.Equal(LessonProviderFailure.HttpError, error.Reason);
         Assert.Contains(logger.Messages, m => m.Contains("401", StringComparison.Ordinal));
         Assert.DoesNotContain(logger.Messages, m => m.Contains("private provider error", StringComparison.Ordinal));
@@ -120,7 +148,7 @@ public sealed class OpenAILessonTeacherTests
         cancellation.Cancel();
         var teacher = new OpenAILessonTeacher(() => throw new InvalidOperationException(),
             Options.Create(new OpenAIInboxAnalysisOptions()), new RecordingLogger());
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => teacher.GenerateAsync("topic", cancellation.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => teacher.GenerateAsync(new LessonRequest("topic"), cancellation.Token));
     }
 
     [Fact]
@@ -129,7 +157,7 @@ public sealed class OpenAILessonTeacherTests
         var logger = new RecordingLogger();
         var teacher = new OpenAILessonTeacher(() => throw new OperationCanceledException(),
             Options.Create(new OpenAIInboxAnalysisOptions { Enabled = true, ApiKey = "dummy" }), logger);
-        var error = await Assert.ThrowsAsync<LessonProviderException>(() => teacher.GenerateAsync("topic", CancellationToken.None));
+        var error = await Assert.ThrowsAsync<LessonProviderException>(() => teacher.GenerateAsync(new LessonRequest("topic"), CancellationToken.None));
         Assert.Equal(LessonProviderFailure.Timeout, error.Reason);
         Assert.Contains(logger.Messages, m => m.Contains("Timeout", StringComparison.Ordinal));
     }

@@ -154,7 +154,7 @@ public sealed class TelegramLearningTests
         public int Assessed { get; private set; }
         public bool Failure { get; init; }
         public bool Invalid { get; init; }
-        public Task<LessonMaterial> GenerateAsync(string topic, CancellationToken token)
+        public Task<LessonMaterial> GenerateAsync(LessonRequest request, CancellationToken token)
         {
             token.ThrowIfCancellationRequested();
             Generated++;

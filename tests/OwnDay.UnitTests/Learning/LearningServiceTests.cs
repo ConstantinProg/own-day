@@ -168,7 +168,7 @@ public sealed class LearningServiceTests
             return Task.FromResult(new LessonExplanation(Cancel is null ? Explanation : "Explanation"));
         }
         public bool Failure { get; init; }
-        public Task<LessonMaterial> GenerateAsync(string topic, CancellationToken token) => throw new InvalidOperationException();
+        public Task<LessonMaterial> GenerateAsync(LessonRequest request, CancellationToken token) => throw new InvalidOperationException();
         public Task<LessonAssessment> AssessAsync(Lesson lesson, string answer, CancellationToken token) =>
             Failure ? throw new LessonProviderException() : Task.FromResult(new LessonAssessment("", false));
     }

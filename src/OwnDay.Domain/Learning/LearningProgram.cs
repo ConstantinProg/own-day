@@ -2,6 +2,9 @@ namespace OwnDay.Domain.Learning;
 
 public sealed record CurriculumTopic
 {
+    public const int MaxCodeLength = 40;
+    public const int MaxTitleLength = 100;
+
     public CurriculumTopic(string code, string title, IReadOnlyList<string> prerequisites)
     {
         ArgumentNullException.ThrowIfNull(prerequisites);
@@ -17,6 +20,12 @@ public sealed record CurriculumTopic
 
 public sealed class LearningProgram
 {
+    public const int MaxGoalLength = 500;
+    public const int MaxExperienceLength = 1000;
+    public const int MaxDisciplineLength = 100;
+    public const int MaxDiagnosticQuestionLength = 1000;
+    public const int MaxDiagnosticAnswerLength = 3000;
+
     private readonly List<CurriculumRoute> _routes = [];
     private LearningProgram() { }
 
@@ -37,10 +46,10 @@ public sealed class LearningProgram
         string discipline, IEnumerable<CurriculumTopic> topics, string? diagnosticQuestion)
     {
         if (!user.IsValid || projectId is <= 0) throw new ArgumentException("Invalid owner or project.");
-        Validate(goal, 500);
-        Validate(experience, 1000);
-        Validate(discipline, 100);
-        if (diagnosticQuestion is not null) Validate(diagnosticQuestion, 1000);
+        Validate(goal, MaxGoalLength);
+        Validate(experience, MaxExperienceLength);
+        Validate(discipline, MaxDisciplineLength);
+        if (diagnosticQuestion is not null) Validate(diagnosticQuestion, MaxDiagnosticQuestionLength);
         var program = new LearningProgram
         {
             Id = Guid.NewGuid(), UserId = user, Goal = goal, Experience = experience, ProjectId = projectId,
@@ -50,10 +59,14 @@ public sealed class LearningProgram
         return program;
     }
 
-    public void ApplyDiagnostic(string answer, IEnumerable<CurriculumTopic> topics)
+    public void ApplyDiagnostic(string answer, string discipline, IEnumerable<CurriculumTopic> topics)
     {
         if (!DiagnosticPending) throw new InvalidOperationException("Diagnosis has ended.");
-        Validate(answer, 3000);
+        Validate(answer, MaxDiagnosticAnswerLength);
+        if (!string.Equals(Discipline, discipline, StringComparison.Ordinal))
+        {
+            throw new ArgumentException("Diagnosis cannot change the program discipline.", nameof(discipline));
+        }
         var route = CurriculumRoute.Create(Id, CurrentRoute.Version + 1,
             "Route revised from a diagnostic answer; AI interpretation is provisional.", topics);
         _routes.Add(route);
@@ -81,6 +94,9 @@ public sealed class LearningProgram
 
 public sealed class CurriculumRoute
 {
+    public const int MaxTopicCount = 12;
+    public const int MaxReasonLength = 500;
+
     private CurriculumRoute() { }
     public Guid Id { get; private set; }
     public Guid ProgramId { get; private set; }
@@ -92,13 +108,13 @@ public sealed class CurriculumRoute
     {
         ArgumentNullException.ThrowIfNull(topics);
         var source = topics.ToArray();
-        if (source.Length is < 1 or > 12 || source.Any(t => t is null)) throw new ArgumentException("Invalid topic count.");
+        if (source.Length is < 1 or > MaxTopicCount || source.Any(t => t is null)) throw new ArgumentException("Invalid topic count.");
         foreach (var topic in source)
         {
-            LearningProgram.Validate(topic.Code, 40);
-            LearningProgram.Validate(topic.Title, 100);
+            LearningProgram.Validate(topic.Code, CurriculumTopic.MaxCodeLength);
+            LearningProgram.Validate(topic.Title, CurriculumTopic.MaxTitleLength);
             if (!topic.Code.All(c => char.IsAsciiLetterOrDigit(c) || c == '_') || topic.Prerequisites is null ||
-                topic.Prerequisites.Count > 12 || topic.Prerequisites.Any(string.IsNullOrWhiteSpace) ||
+                topic.Prerequisites.Count > MaxTopicCount || topic.Prerequisites.Any(string.IsNullOrWhiteSpace) ||
                 topic.Prerequisites.Distinct(StringComparer.Ordinal).Count() != topic.Prerequisites.Count)
                 throw new ArgumentException("Invalid topic or prerequisites.");
         }

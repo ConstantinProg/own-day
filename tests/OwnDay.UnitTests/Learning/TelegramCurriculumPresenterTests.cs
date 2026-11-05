@@ -17,7 +17,7 @@ public sealed class TelegramCurriculumPresenterTests
         var program = LearningProgram.Create(new UserId(1), new string('G', 500), new string('E', 1000), null,
             new string('D', 100), topics, new string('Q', 1000));
 
-        var messages = TelegramCurriculumCommandHandler.Render(new CurriculumResult.Program(program));
+        var messages = TelegramCurriculumPresenter.Render(new CurriculumResult.Program(program));
 
         Assert.All(messages, m => Assert.InRange(m.Length, 1, 4096));
         Assert.Contains("/learn_diagnose skip", messages[^1]);

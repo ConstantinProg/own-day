@@ -46,7 +46,7 @@ public sealed class LearningProgramTests
         var program = Create([new("a", "Basics", [])], "Question?");
         Assert.Throws<InvalidOperationException>(() => program.NextTopic(new HashSet<string>()));
         var original = program.CurrentRoute;
-        program.ApplyDiagnostic("Observed answer", [new("b", "Different starting point", [])]);
+        program.ApplyDiagnostic("Observed answer", "Discipline", [new("b", "Different starting point", [])]);
         Assert.Equal(2, program.CurrentRoute.Version);
         Assert.Equal(2, program.Routes.Count);
         Assert.Same(original, program.Routes.Single(r => r.Version == 1));
@@ -54,18 +54,35 @@ public sealed class LearningProgramTests
         Assert.Equal("Experience", program.Experience);
         Assert.Equal("Observed answer", program.DiagnosticAnswer);
         Assert.False(program.DiagnosticPending);
-        Assert.Throws<InvalidOperationException>(() => program.ApplyDiagnostic("Again", [new("c", "C", [])]));
+        Assert.Throws<InvalidOperationException>(() => program.ApplyDiagnostic("Again", "Discipline", [new("c", "C", [])]));
     }
 
     [Fact]
     public void ApplyDiagnostic_InvalidRoute_PreservesPendingDiagnosticAndVersion()
     {
         var program = Create([new("a", "Basics", [])], "Question?");
-        Assert.Throws<ArgumentException>(() => program.ApplyDiagnostic("Answer", [new("b", "B", ["b"])]));
+        Assert.Throws<ArgumentException>(() => program.ApplyDiagnostic("Answer", "Discipline", [new("b", "B", ["b"])]));
         Assert.True(program.DiagnosticPending);
         Assert.Null(program.DiagnosticAnswer);
         Assert.Equal(1, program.CurrentRoute.Version);
         Assert.Single(program.Routes);
+    }
+
+    [Theory]
+    [InlineData("Physics")]
+    [InlineData("")]
+    [InlineData(null)]
+    public void ApplyDiagnostic_DifferentDiscipline_PreservesProgramAndPendingRoute(string? discipline)
+    {
+        var program = Create([new("a", "Basics", [])], "Question?");
+        var originalRoute = program.CurrentRoute;
+
+        Assert.Throws<ArgumentException>(() => program.ApplyDiagnostic("Answer", discipline!, [new("b", "New topic", [])]));
+
+        Assert.Equal("Discipline", program.Discipline);
+        Assert.True(program.DiagnosticPending);
+        Assert.Null(program.DiagnosticAnswer);
+        Assert.Same(originalRoute, Assert.Single(program.Routes));
     }
 
     [Fact]
