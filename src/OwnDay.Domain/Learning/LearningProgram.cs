@@ -1,0 +1,121 @@
+namespace OwnDay.Domain.Learning;
+
+public sealed record CurriculumTopic
+{
+    public CurriculumTopic(string code, string title, IReadOnlyList<string> prerequisites)
+    {
+        ArgumentNullException.ThrowIfNull(prerequisites);
+        Code = code;
+        Title = title;
+        Prerequisites = Array.AsReadOnly(prerequisites.ToArray());
+    }
+
+    public string Code { get; }
+    public string Title { get; }
+    public IReadOnlyList<string> Prerequisites { get; }
+}
+
+public sealed class LearningProgram
+{
+    private readonly List<CurriculumRoute> _routes = [];
+    private LearningProgram() { }
+
+    public Guid Id { get; private set; }
+    public UserId UserId { get; private set; }
+    public string Goal { get; private set; } = "";
+    public string Experience { get; private set; } = "";
+    public string Discipline { get; private set; } = "";
+    public long? ProjectId { get; private set; }
+    public int Priority { get; private set; } = 1;
+    public string? DiagnosticQuestion { get; private set; }
+    public string? DiagnosticAnswer { get; private set; }
+    public bool DiagnosticPending { get; private set; }
+    public IReadOnlyCollection<CurriculumRoute> Routes => _routes.AsReadOnly();
+    public CurriculumRoute CurrentRoute => _routes.MaxBy(r => r.Version)!;
+
+    public static LearningProgram Create(UserId user, string goal, string experience, long? projectId,
+        string discipline, IEnumerable<CurriculumTopic> topics, string? diagnosticQuestion)
+    {
+        if (!user.IsValid || projectId is <= 0) throw new ArgumentException("Invalid owner or project.");
+        Validate(goal, 500);
+        Validate(experience, 1000);
+        Validate(discipline, 100);
+        if (diagnosticQuestion is not null) Validate(diagnosticQuestion, 1000);
+        var program = new LearningProgram
+        {
+            Id = Guid.NewGuid(), UserId = user, Goal = goal, Experience = experience, ProjectId = projectId,
+            Discipline = discipline, DiagnosticQuestion = diagnosticQuestion, DiagnosticPending = diagnosticQuestion is not null
+        };
+        program._routes.Add(CurriculumRoute.Create(program.Id, 1, "Initial route based on self-reported experience.", topics));
+        return program;
+    }
+
+    public void ApplyDiagnostic(string answer, IEnumerable<CurriculumTopic> topics)
+    {
+        if (!DiagnosticPending) throw new InvalidOperationException("Diagnosis has ended.");
+        Validate(answer, 3000);
+        var route = CurriculumRoute.Create(Id, CurrentRoute.Version + 1,
+            "Route revised from a diagnostic answer; AI interpretation is provisional.", topics);
+        _routes.Add(route);
+        DiagnosticAnswer = answer;
+        DiagnosticPending = false;
+    }
+
+    public void SkipDiagnostic()
+    {
+        if (!DiagnosticPending) throw new InvalidOperationException("Diagnosis has ended.");
+        DiagnosticPending = false;
+    }
+
+    public CurriculumTopic? NextTopic(IReadOnlySet<string> completed)
+    {
+        if (DiagnosticPending) throw new InvalidOperationException("Finish or skip diagnosis first.");
+        return CurrentRoute.Topics.FirstOrDefault(t => !completed.Contains(t.Code) && t.Prerequisites.All(completed.Contains));
+    }
+
+    internal static void Validate(string value, int maximum)
+    {
+        if (string.IsNullOrWhiteSpace(value) || value.Length > maximum) throw new ArgumentException("Invalid curriculum text.");
+    }
+}
+
+public sealed class CurriculumRoute
+{
+    private CurriculumRoute() { }
+    public Guid Id { get; private set; }
+    public Guid ProgramId { get; private set; }
+    public int Version { get; private set; }
+    public string Reason { get; private set; } = "";
+    public IReadOnlyList<CurriculumTopic> Topics { get; private set; } = [];
+
+    internal static CurriculumRoute Create(Guid programId, int version, string reason, IEnumerable<CurriculumTopic> topics)
+    {
+        ArgumentNullException.ThrowIfNull(topics);
+        var source = topics.ToArray();
+        if (source.Length is < 1 or > 12 || source.Any(t => t is null)) throw new ArgumentException("Invalid topic count.");
+        foreach (var topic in source)
+        {
+            LearningProgram.Validate(topic.Code, 40);
+            LearningProgram.Validate(topic.Title, 100);
+            if (!topic.Code.All(c => char.IsAsciiLetterOrDigit(c) || c == '_') || topic.Prerequisites is null ||
+                topic.Prerequisites.Count > 12 || topic.Prerequisites.Any(string.IsNullOrWhiteSpace) ||
+                topic.Prerequisites.Distinct(StringComparer.Ordinal).Count() != topic.Prerequisites.Count)
+                throw new ArgumentException("Invalid topic or prerequisites.");
+        }
+        var codes = source.Select(t => t.Code).ToHashSet(StringComparer.Ordinal);
+        if (codes.Count != source.Length || source.Any(t => t.Prerequisites.Any(p => !codes.Contains(p))))
+            throw new ArgumentException("Duplicate topic or unknown prerequisite.");
+        var route = new CurriculumRoute { Id = Guid.NewGuid(), ProgramId = programId, Version = version, Reason = reason };
+        var ordered = new List<CurriculumTopic>();
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        while (visited.Count < source.Length)
+        {
+            var next = source.FirstOrDefault(t => !visited.Contains(t.Code) && t.Prerequisites.All(visited.Contains));
+            if (next is null) throw new ArgumentException("Cyclic prerequisites.");
+            visited.Add(next.Code);
+            ordered.Add(next);
+        }
+        route.Topics = ordered.AsReadOnly();
+        return route;
+    }
+}

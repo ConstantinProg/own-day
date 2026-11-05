@@ -14,6 +14,9 @@ public sealed class Lesson
     public string? Feedback { get; private set; }
     public bool? IsCorrect { get; private set; }
     public LessonStatus Status { get; private set; }
+    public Guid? ProgramId { get; private set; }
+    public int? RouteVersion { get; private set; }
+    public string? TopicCode { get; private set; }
     public IReadOnlyCollection<LessonInteraction> Interactions => _interactions.AsReadOnly();
 
     public static Lesson Start(UserId user, string topic, string theory, string question)
@@ -34,6 +37,17 @@ public sealed class Lesson
         Feedback = feedback;
         IsCorrect = correct;
         Status = LessonStatus.Completed;
+    }
+
+    public void LinkToProgram(LearningProgram program, string topicCode)
+    {
+        RequireAwaitingAnswer();
+        if (ProgramId is not null || program.UserId != UserId || program.DiagnosticPending ||
+            !program.CurrentRoute.Topics.Any(t => t.Code == topicCode))
+            throw new ArgumentException("Invalid program topic.");
+        ProgramId = program.Id;
+        RouteVersion = program.CurrentRoute.Version;
+        TopicCode = topicCode;
     }
 
     public void Pause()

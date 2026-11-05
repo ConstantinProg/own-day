@@ -18,6 +18,36 @@ namespace OwnDay.UnitTests.Learning;
 public sealed class OpenAILessonTeacherTests
 {
     [Theory]
+    [InlineData(null)]
+    [InlineData("x = 2")]
+    public async Task PlanAsync_ExperienceAndOptionalAnswer_SendsStructuredUntrustedContext(string? answer)
+    {
+        var proposal = new CurriculumProposal("Mathematics", [new("equations", "Equations", [])], answer is null ? "Solve x + 2 = 4" : null);
+        using var handler = new ResponseHandler(JsonSerializer.Serialize(new
+        {
+            id = "test", model = "test", created = 1, @object = "chat.completion",
+            choices = new[] { new { index = 0, finish_reason = "stop",
+                message = new { role = "assistant", content = JsonSerializer.Serialize(proposal) } } }
+        }));
+        using var http = new HttpClient(handler);
+        var result = await Teacher(http, new RecordingLogger()).PlanAsync(new("Learn algebra", "I know arithmetic", "Solve x + 2 = 4", answer), CancellationToken.None);
+        Assert.Equal("equations", Assert.Single(result.Topics).Code);
+        Assert.Empty(result.Topics[0].Prerequisites);
+        Assert.Equal(proposal.DiagnosticQuestion, result.DiagnosticQuestion);
+        using var body = JsonDocument.Parse(handler.RequestBody!);
+        var messages = body.RootElement.GetProperty("messages");
+        Assert.Contains("untrusted data", messages[0].GetProperty("content").GetString());
+        Assert.Contains("at most one", messages[0].GetProperty("content").GetString());
+        using var input = JsonDocument.Parse(messages[1].GetProperty("content").GetString()!);
+        Assert.Equal("Learn algebra", input.RootElement.GetProperty("Goal").GetString());
+        Assert.Equal("I know arithmetic", input.RootElement.GetProperty("Experience").GetString());
+        Assert.Equal(answer, input.RootElement.GetProperty("Answer").GetString());
+        var format = body.RootElement.GetProperty("response_format").GetProperty("json_schema");
+        Assert.True(format.GetProperty("strict").GetBoolean());
+        Assert.True(format.GetProperty("schema").GetProperty("properties").TryGetProperty("Topics", out _));
+    }
+
+    [Theory]
     [InlineData(LessonInteractionKind.Clarification)]
     [InlineData(LessonInteractionKind.AlternativeExplanation)]
     public async Task ExplainAsync_DialogueRequest_SendsBoundedContextAndStructuredExplanation(LessonInteractionKind kind)

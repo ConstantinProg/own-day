@@ -48,6 +48,10 @@ public static class TelegramServiceCollectionExtensions
         services.AddScoped<OwnDay.Application.Learning.ILessonStore, OwnDay.Infrastructure.Persistence.EfLessonStore>();
         services.AddScoped<OwnDay.Application.Learning.ILessonTeacher, OwnDay.Infrastructure.OpenAIAnalysis.OpenAILessonTeacher>();
         services.AddScoped<OwnDay.Application.Learning.LearningService>();
+        services.AddScoped<OwnDay.Application.Learning.ICurriculumStore, OwnDay.Infrastructure.Persistence.EfCurriculumStore>();
+        services.AddScoped<OwnDay.Application.Learning.ICurriculumPlanner, OwnDay.Infrastructure.OpenAIAnalysis.OpenAILessonTeacher>();
+        services.AddScoped<OwnDay.Application.Learning.CurriculumService>();
+        services.AddScoped<TelegramCurriculumCommandHandler>();
         services.AddScoped<TelegramUpdateHandler>();
         services.AddScoped<ITelegramUpdateHandler>(
             serviceProvider =>

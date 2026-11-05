@@ -19,34 +19,7 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
 
         NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
-        modelBuilder.Entity("OwnDay.Domain.Learning.Lesson", b =>
-        {
-            b.Property<Guid>("Id").HasColumnType("uuid");
-            b.Property<long>("UserId").HasColumnType("bigint");
-            b.Property<string>("Topic").IsRequired().HasMaxLength(500).HasColumnType("character varying(500)");
-            b.Property<string>("Theory").IsRequired().HasMaxLength(2500).HasColumnType("character varying(2500)");
-            b.Property<string>("Question").IsRequired().HasMaxLength(1000).HasColumnType("character varying(1000)");
-            b.Property<string>("Answer").HasMaxLength(3000).HasColumnType("character varying(3000)");
-            b.Property<string>("Feedback").HasMaxLength(3000).HasColumnType("character varying(3000)");
-            b.Property<bool?>("IsCorrect").HasColumnType("boolean");
-            b.Property<int>("Status").HasColumnType("integer");
-            b.HasKey("Id");
-            b.HasIndex("UserId").IsUnique().HasFilter("\"Status\" IN (0, 1)");
-            b.ToTable("learning_lessons", (string)null);
-        });
 
-        modelBuilder.Entity("OwnDay.Domain.Learning.LessonInteraction", b =>
-        {
-            b.Property<long>("Id").ValueGeneratedOnAdd().HasColumnType("bigint");
-            NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
-            b.Property<Guid>("LessonId").HasColumnType("uuid");
-            b.Property<int>("Kind").HasColumnType("integer");
-            b.Property<string>("Request").IsRequired().HasMaxLength(1000).HasColumnType("character varying(1000)");
-            b.Property<string>("Explanation").IsRequired().HasMaxLength(2500).HasColumnType("character varying(2500)");
-            b.HasKey("Id");
-            b.HasIndex("LessonId");
-            b.ToTable("learning_interactions", (string)null);
-        });
 
 
         modelBuilder.Entity("OwnDay.Application.Inbox.Observability.InboxOperationEvent", b =>
@@ -833,12 +806,180 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
                     .OnDelete(DeleteBehavior.Cascade)
                     .IsRequired();
             });
+        modelBuilder.Entity("OwnDay.Domain.Learning.CurriculumRoute", b =>
+            {
+                b.Property<Guid>("Id")
+                    .HasColumnType("uuid");
+                b.Property<Guid>("ProgramId")
+                    .HasColumnType("uuid");
+                b.Property<string>("Reason")
+                    .IsRequired()
+                    .HasMaxLength(500)
+                    .HasColumnType("character varying(500)");
+                b.Property<string>("Topics")
+                    .IsRequired()
+                    .HasColumnType("jsonb");
+                b.Property<int>("Version")
+                    .HasColumnType("integer");
+                b.HasKey("Id");
+                b.ToTable("learning_routes", (string)null);
+            });
+
+        modelBuilder.Entity("OwnDay.Domain.Learning.LearningProgram", b =>
+            {
+                b.Property<Guid>("Id")
+                    .HasColumnType("uuid");
+                b.Property<string>("DiagnosticAnswer")
+                    .HasMaxLength(3000)
+                    .HasColumnType("character varying(3000)");
+                b.Property<bool>("DiagnosticPending")
+                    .HasColumnType("boolean");
+                b.Property<string>("DiagnosticQuestion")
+                    .HasMaxLength(1000)
+                    .HasColumnType("character varying(1000)");
+                b.Property<string>("Discipline")
+                    .IsRequired()
+                    .HasMaxLength(100)
+                    .HasColumnType("character varying(100)");
+                b.Property<string>("Experience")
+                    .IsRequired()
+                    .HasMaxLength(1000)
+                    .HasColumnType("character varying(1000)");
+                b.Property<string>("Goal")
+                    .IsRequired()
+                    .HasMaxLength(500)
+                    .HasColumnType("character varying(500)");
+                b.Property<int>("Priority")
+                    .HasColumnType("integer");
+                b.Property<long?>("ProjectId")
+                    .HasColumnType("bigint");
+                b.Property<long>("UserId")
+                    .HasColumnType("bigint");
+                b.HasKey("Id");
+                b.HasIndex("UserId")
+                    .IsUnique();
+                b.HasIndex("ProjectId", "UserId");
+                b.ToTable("learning_programs", (string)null);
+            });
+
+        modelBuilder.Entity("OwnDay.Domain.Learning.Lesson", b =>
+            {
+                b.Property<Guid>("Id")
+                    .HasColumnType("uuid");
+                b.Property<string>("Answer")
+                    .HasMaxLength(3000)
+                    .HasColumnType("character varying(3000)");
+                b.Property<string>("Feedback")
+                    .HasMaxLength(3000)
+                    .HasColumnType("character varying(3000)");
+                b.Property<bool?>("IsCorrect")
+                    .HasColumnType("boolean");
+                b.Property<Guid?>("ProgramId")
+                    .HasColumnType("uuid");
+                b.Property<string>("Question")
+                    .IsRequired()
+                    .HasMaxLength(1000)
+                    .HasColumnType("character varying(1000)");
+                b.Property<int?>("RouteVersion")
+                    .HasColumnType("integer");
+                b.Property<int>("Status")
+                    .HasColumnType("integer");
+                b.Property<string>("Theory")
+                    .IsRequired()
+                    .HasMaxLength(2500)
+                    .HasColumnType("character varying(2500)");
+                b.Property<string>("Topic")
+                    .IsRequired()
+                    .HasMaxLength(500)
+                    .HasColumnType("character varying(500)");
+                b.Property<string>("TopicCode")
+                    .HasMaxLength(40)
+                    .HasColumnType("character varying(40)");
+                b.Property<long>("UserId")
+                    .HasColumnType("bigint");
+                b.HasKey("Id");
+                b.HasIndex("UserId")
+                    .IsUnique()
+                    .HasFilter("\"Status\" IN (0, 1)");
+                b.HasIndex("ProgramId", "RouteVersion");
+                b.HasIndex("ProgramId", "UserId");
+                b.ToTable("learning_lessons", (string)null);
+            });
+
         modelBuilder.Entity("OwnDay.Domain.Learning.LessonInteraction", b =>
-        {
-            b.HasOne("OwnDay.Domain.Learning.Lesson", null).WithMany("Interactions")
-                .HasForeignKey("LessonId").OnDelete(DeleteBehavior.Cascade).IsRequired();
-        });
-        modelBuilder.Entity("OwnDay.Domain.Learning.Lesson", b => b.Navigation("Interactions"));
+            {
+                b.Property<long>("Id")
+                    .ValueGeneratedOnAdd()
+                    .HasColumnType("bigint");
+                NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+                b.Property<string>("Explanation")
+                    .IsRequired()
+                    .HasMaxLength(2500)
+                    .HasColumnType("character varying(2500)");
+                b.Property<int>("Kind")
+                    .HasColumnType("integer");
+                b.Property<Guid>("LessonId")
+                    .HasColumnType("uuid");
+                b.Property<string>("Request")
+                    .IsRequired()
+                    .HasMaxLength(1000)
+                    .HasColumnType("character varying(1000)");
+                b.HasKey("Id");
+                b.HasIndex("LessonId");
+                b.ToTable("learning_interactions", (string)null);
+            });
+
+        modelBuilder.Entity("OwnDay.Domain.Learning.CurriculumRoute", b =>
+            {
+                b.HasOne("OwnDay.Domain.Learning.LearningProgram", null)
+                    .WithMany("Routes")
+                    .HasForeignKey("ProgramId")
+                    .OnDelete(DeleteBehavior.Cascade)
+                    .IsRequired();
+            });
+
+        modelBuilder.Entity("OwnDay.Domain.Learning.LearningProgram", b =>
+            {
+                b.HasOne("OwnDay.Domain.Projects.Project", null)
+                    .WithMany()
+                    .HasForeignKey("ProjectId", "UserId")
+                    .HasPrincipalKey("Id", "UserId")
+                    .OnDelete(DeleteBehavior.Restrict);
+            });
+
+        modelBuilder.Entity("OwnDay.Domain.Learning.Lesson", b =>
+            {
+                b.HasOne("OwnDay.Domain.Learning.CurriculumRoute", null)
+                    .WithMany()
+                    .HasForeignKey("ProgramId", "RouteVersion")
+                    .HasPrincipalKey("ProgramId", "Version")
+                    .OnDelete(DeleteBehavior.Restrict);
+                b.HasOne("OwnDay.Domain.Learning.LearningProgram", null)
+                    .WithMany()
+                    .HasForeignKey("ProgramId", "UserId")
+                    .HasPrincipalKey("Id", "UserId")
+                    .OnDelete(DeleteBehavior.Restrict);
+            });
+
+        modelBuilder.Entity("OwnDay.Domain.Learning.LessonInteraction", b =>
+            {
+                b.HasOne("OwnDay.Domain.Learning.Lesson", null)
+                    .WithMany("Interactions")
+                    .HasForeignKey("LessonId")
+                    .OnDelete(DeleteBehavior.Cascade)
+                    .IsRequired();
+            });
+
+        modelBuilder.Entity("OwnDay.Domain.Learning.LearningProgram", b =>
+            {
+                b.Navigation("Routes");
+            });
+
+        modelBuilder.Entity("OwnDay.Domain.Learning.Lesson", b =>
+            {
+                b.Navigation("Interactions");
+            });
+
 #pragma warning restore 612, 618
     }
 }

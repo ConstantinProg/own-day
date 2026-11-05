@@ -38,7 +38,15 @@ public sealed class PostgresLearningTests
                     case LessonStatus.Completed: lesson.Complete("Answer", "Feedback", true); break;
                     case LessonStatus.Finished: lesson.Finish(); break;
                 }
-                db.Add(lesson);
+                // Seed the historical schema without using mappings for newer lesson columns.
+                await db.Database.ExecuteSqlInterpolatedAsync($"""
+                    INSERT INTO learning_lessons ("Id", "UserId", "Topic", "Theory", "Question", "Answer", "Feedback", "IsCorrect", "Status")
+                    VALUES ({lesson.Id}, {lesson.UserId.Value}, {lesson.Topic}, {lesson.Theory}, {lesson.Question}, {lesson.Answer}, {lesson.Feedback}, {lesson.IsCorrect}, {(int)lesson.Status})
+                    """);
+                await db.Database.ExecuteSqlInterpolatedAsync($"""
+                    INSERT INTO learning_interactions ("LessonId", "Kind", "Request", "Explanation")
+                    VALUES ({lesson.Id}, 0, 'Request', 'Explanation')
+                    """);
             }
             await db.SaveChangesAsync();
             await db.Database.ExecuteSqlRawAsync("""

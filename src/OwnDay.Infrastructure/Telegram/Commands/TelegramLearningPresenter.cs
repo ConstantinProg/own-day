@@ -10,7 +10,7 @@ public static class TelegramLearningPresenter
     public static IReadOnlyList<string> Render(LearningResult result) => result switch
     {
         LearningResult.Material material => [material.Topic + "\n\n" + material.Theory, material.Question + "\n\n" + Actions],
-        LearningResult.Assessment assessment => ["AI assessment (may be inaccurate):\n" + assessment.Feedback + "\n\n/learn <topic>"],
+        LearningResult.Assessment assessment => ["AI assessment (may be inaccurate):\n" + assessment.Feedback + "\n\n/learn <topic> · /learn_next (program)"],
         LearningResult.InvalidTopic => ["Use /learn <topic> (up to 500 characters)."],
         LearningResult.InvalidAnswer => ["Use /answer <answer> (up to 3000 characters)."],
         LearningResult.NoActiveLesson => ["Start a lesson with /learn <topic>."],

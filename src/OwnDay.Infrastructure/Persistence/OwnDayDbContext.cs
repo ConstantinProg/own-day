@@ -40,6 +40,7 @@ public sealed class OwnDayDbContext(DbContextOptions<OwnDayDbContext> options)
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        CurriculumModel.Configure(modelBuilder);
         modelBuilder.Entity<OwnDay.Domain.Learning.Lesson>(entity =>
         {
             entity.ToTable("learning_lessons");

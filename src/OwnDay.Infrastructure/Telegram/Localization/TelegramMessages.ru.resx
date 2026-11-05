@@ -278,6 +278,11 @@
 /done &lt;задача&gt; — завершить
 /stats [today|7d|30d|all] [details]
 /settings; /language; /language en; /language ru
+/learn &lt;тема&gt;; /answer &lt;ответ&gt;; /learn_ask &lt;вопрос&gt;; /learn_explain
+/learn_pause; /learn_resume; /learn_finish
+/learn_request &lt;запрос&gt; | &lt;опыт&gt;; /learn_program &lt;цель&gt; | &lt;опыт&gt;
+/learn_project &lt;id&gt; | &lt;опыт&gt;; /learn_diagnose &lt;ответ|skip&gt;
+/learn_route; /learn_next
 /start; /help
 Совместимость: /inbox &lt;запись&gt; = /process; /inbox_result = /result; /inbox_undo = /undo.</value></data>
   <data name="selection.canceled" xml:space="preserve"><value>Выбор отменён. Ваши записи сохранены.</value></data>
