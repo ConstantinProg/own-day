@@ -562,7 +562,12 @@ public sealed class TelegramUpdateHandlerTests
                 dbContext,
                 timeProvider,
                 cleaner,
-                NullLogger<TelegramUpdateHandler>.Instance);
+                NullLogger<TelegramUpdateHandler>.Instance,
+                new OwnDay.Application.Learning.LearningService(new EfLessonStore(dbContext),
+                    new OwnDay.Infrastructure.OpenAIAnalysis.OpenAILessonTeacher(
+                        () => throw new InvalidOperationException("Provider is disabled."),
+                        Options.Create(new OwnDay.Infrastructure.OpenAIAnalysis.OpenAIInboxAnalysisOptions()),
+                        NullLogger<OwnDay.Infrastructure.OpenAIAnalysis.OpenAILessonTeacher>.Instance)));
 
             databaseCommands.Clear();
             return new HandlerFixture(connection, dbContext, handler, cleaner, databaseCommands);

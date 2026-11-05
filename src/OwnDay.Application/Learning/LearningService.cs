@@ -18,37 +18,92 @@ public interface ILessonTeacher
     Task<LessonAssessment> AssessAsync(Lesson lesson, string answer, CancellationToken token);
 }
 
-public sealed class LessonProviderException : Exception;
+public enum LessonProviderFailure
+{
+    Unavailable,
+    HttpError,
+    InvalidResponse,
+    Timeout
+}
+
+public sealed class LessonProviderException(LessonProviderFailure reason = LessonProviderFailure.Unavailable) : Exception
+{
+    public LessonProviderFailure Reason { get; } = reason;
+}
+
+public abstract record LearningResult
+{
+    public sealed record Material(string Theory, string Question) : LearningResult;
+    public sealed record Assessment(string Feedback) : LearningResult;
+    public sealed record InvalidTopic : LearningResult;
+    public sealed record InvalidAnswer : LearningResult;
+    public sealed record NoActiveLesson : LearningResult;
+    public sealed record ProviderUnavailable : LearningResult;
+}
 
 public sealed class LearningService(ILessonStore store, ILessonTeacher teacher)
 {
-    public async Task<IReadOnlyList<string>> HandleAsync(UserId user, bool start, string input, CancellationToken token)
+    public async Task<LearningResult> StartAsync(UserId user, string topic, CancellationToken token)
     {
-        token.ThrowIfCancellationRequested();
-        if (!user.IsValid) throw new ArgumentException("Invalid user.", nameof(user));
-        input = input.Trim();
-        if (string.IsNullOrWhiteSpace(input) || input.Length > (start ? 500 : 3000))
-            return [start ? "Use /learn <topic> (up to 500 characters)." : "Use /answer <answer> (up to 3000 characters)."];
+        ValidateUser(user, token);
+        topic = topic.Trim();
+        if (string.IsNullOrWhiteSpace(topic) || topic.Length > 500)
+        {
+            return new LearningResult.InvalidTopic();
+        }
+
         var active = await store.FindActiveAsync(user, token);
-        if (start && active is not null)
-            return [active.Theory + "\n\n" + active.Question + "\n\n/answer <answer>"];
-        if (!start && active is null) return ["Start a lesson with /learn <topic>."];
+        if (active is not null)
+        {
+            return new LearningResult.Material(active.Theory, active.Question);
+        }
+
         try
         {
-            if (start)
-            {
-                var material = await teacher.GenerateAsync(input, token);
-                var lesson = Lesson.Start(user, input, material.Theory, material.Question);
-                store.Add(lesson);
-                return [lesson.Theory + "\n\n" + lesson.Question + "\n\n/answer <answer>"];
-            }
-            var result = await teacher.AssessAsync(active!, input, token);
-            active!.Complete(input, result.Feedback, result.IsCorrect);
-            return ["AI assessment (may be inaccurate):\n" + result.Feedback + "\n\n/learn <topic>"];
+            var material = await teacher.GenerateAsync(topic, token);
+            var lesson = Lesson.Start(user, topic, material.Theory, material.Question);
+            store.Add(lesson);
+            return new LearningResult.Material(lesson.Theory, lesson.Question);
         }
         catch (Exception exception) when (exception is LessonProviderException or ArgumentException)
         {
-            return ["The teacher is temporarily unavailable or returned invalid material. Retry the command."];
+            return new LearningResult.ProviderUnavailable();
+        }
+    }
+
+    public async Task<LearningResult> AnswerAsync(UserId user, string answer, CancellationToken token)
+    {
+        ValidateUser(user, token);
+        answer = answer.Trim();
+        if (string.IsNullOrWhiteSpace(answer) || answer.Length > 3000)
+        {
+            return new LearningResult.InvalidAnswer();
+        }
+
+        var active = await store.FindActiveAsync(user, token);
+        if (active is null)
+        {
+            return new LearningResult.NoActiveLesson();
+        }
+
+        try
+        {
+            var result = await teacher.AssessAsync(active, answer, token);
+            active.Complete(answer, result.Feedback, result.IsCorrect);
+            return new LearningResult.Assessment(result.Feedback);
+        }
+        catch (Exception exception) when (exception is LessonProviderException or ArgumentException)
+        {
+            return new LearningResult.ProviderUnavailable();
+        }
+    }
+
+    private static void ValidateUser(UserId user, CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
+        if (!user.IsValid)
+        {
+            throw new ArgumentException("Invalid user.", nameof(user));
         }
     }
 }

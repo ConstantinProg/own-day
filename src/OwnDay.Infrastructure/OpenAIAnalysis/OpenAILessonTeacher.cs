@@ -2,7 +2,6 @@ using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using System.ClientModel;
 using System.Text.Json;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using OpenAI.Chat;
 using OwnDay.Application.Learning;
@@ -10,7 +9,7 @@ using OwnDay.Domain.Learning;
 
 namespace OwnDay.Infrastructure.OpenAIAnalysis;
 
-public sealed class OpenAILessonTeacher(IServiceProvider services, IOptions<OpenAIInboxAnalysisOptions> options,
+public sealed class OpenAILessonTeacher(Func<ChatClient> createClient, IOptions<OpenAIInboxAnalysisOptions> options,
     ILogger<OpenAILessonTeacher> logger) : ILessonTeacher
 {
     public Task<LessonMaterial> GenerateAsync(string topic, CancellationToken token) =>
@@ -24,13 +23,18 @@ public sealed class OpenAILessonTeacher(IServiceProvider services, IOptions<Open
 
     private async Task<T> RequestAsync<T>(string prompt, object input, string schema, CancellationToken token)
     {
-        if (!options.Value.Enabled || string.IsNullOrWhiteSpace(options.Value.ApiKey)) throw new LessonProviderException();
+        token.ThrowIfCancellationRequested();
+        if (!options.Value.Enabled || string.IsNullOrWhiteSpace(options.Value.ApiKey))
+        {
+            LogFailure(LessonProviderFailure.Unavailable, null, 0);
+            throw new LessonProviderException();
+        }
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
         timeout.CancelAfter(TimeSpan.FromSeconds(options.Value.TimeoutSeconds));
         var stopwatch = Stopwatch.StartNew();
         try
         {
-            var client = services.GetRequiredService<ChatClient>();
+            var client = createClient();
             var response = await client.CompleteChatAsync(
                 [new SystemChatMessage(prompt), new UserChatMessage(JsonSerializer.Serialize(input))],
                 new ChatCompletionOptions
@@ -41,14 +45,30 @@ public sealed class OpenAILessonTeacher(IServiceProvider services, IOptions<Open
             var completion = response.Value;
             logger.LogInformation("Lesson provider completed in {ElapsedMs} ms using {InputTokens} input and {OutputTokens} output tokens ({Model}).",
                 stopwatch.ElapsedMilliseconds, completion.Usage?.InputTokenCount, completion.Usage?.OutputTokenCount, completion.Model);
-            if (completion.FinishReason != ChatFinishReason.Stop || !string.IsNullOrEmpty(completion.Refusal) || completion.Content.Count != 1)
-                throw new LessonProviderException();
-            return JsonSerializer.Deserialize<T>(completion.Content[0].Text) ?? throw new LessonProviderException();
+            if (completion.FinishReason != ChatFinishReason.Stop || !string.IsNullOrEmpty(completion.Refusal) || completion.Content.Count != 1 ||
+                completion.Content[0].Kind != ChatMessageContentPartKind.Text)
+                throw new LessonProviderException(LessonProviderFailure.InvalidResponse);
+            return JsonSerializer.Deserialize<T>(completion.Content[0].Text) ?? throw new LessonProviderException(LessonProviderFailure.InvalidResponse);
         }
         catch (Exception exception) when (exception is ClientResultException or HttpRequestException or JsonException ||
             exception is OperationCanceledException && !token.IsCancellationRequested)
         {
-            throw new LessonProviderException();
+            var reason = exception switch
+            {
+                JsonException => LessonProviderFailure.InvalidResponse,
+                OperationCanceledException => LessonProviderFailure.Timeout,
+                _ => LessonProviderFailure.HttpError
+            };
+            LogFailure(reason, (exception as ClientResultException)?.Status, stopwatch.ElapsedMilliseconds);
+            throw new LessonProviderException(reason);
+        }
+        catch (LessonProviderException exception)
+        {
+            LogFailure(exception.Reason, null, stopwatch.ElapsedMilliseconds);
+            throw;
         }
     }
+
+    private void LogFailure(LessonProviderFailure reason, int? status, long elapsedMs) =>
+        logger.LogWarning("Lesson provider failed ({Reason}, HTTP {Status}) after {ElapsedMs} ms.", reason, status, elapsedMs);
 }

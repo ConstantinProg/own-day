@@ -15,7 +15,7 @@ public sealed class LearningServiceTests
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            service.HandleAsync(new UserId(1), true, "Topic", cancellation.Token));
+            service.StartAsync(new UserId(1), "Topic", cancellation.Token));
         Assert.False(store.Accessed);
     }
 
@@ -26,9 +26,35 @@ public sealed class LearningServiceTests
     {
         var store = new Store { Active = Lesson.Start(new UserId(1), "Topic", "Theory", "Question") };
         var service = new LearningService(store, new Teacher { Failure = failure });
-        var replies = await service.HandleAsync(new UserId(1), false, "Answer", CancellationToken.None);
+        var result = await service.AnswerAsync(new UserId(1), "Answer", CancellationToken.None);
         Assert.Null(store.Active.Answer);
-        Assert.Contains("Retry", Assert.Single(replies));
+        Assert.IsType<LearningResult.ProviderUnavailable>(result);
+    }
+
+    [Fact]
+    public async Task StartAsync_ActiveLesson_ReturnsExistingMaterialWithoutGeneration()
+    {
+        var lesson = Lesson.Start(new UserId(1), "Topic", "Theory", "Question");
+        var service = new LearningService(new Store { Active = lesson }, new Teacher());
+        var result = await service.StartAsync(new UserId(1), "Different topic", CancellationToken.None);
+        Assert.Equal(new LearningResult.Material("Theory", "Question"), result);
+    }
+
+    [Fact]
+    public async Task AnswerAsync_NoActiveLesson_ReturnsMissingLesson()
+    {
+        var service = new LearningService(new Store(), new Teacher());
+        var result = await service.AnswerAsync(new UserId(1), "Answer", CancellationToken.None);
+        Assert.IsType<LearningResult.NoActiveLesson>(result);
+    }
+
+    [Fact]
+    public async Task StartAsync_InvalidTopic_DoesNotAccessStore()
+    {
+        var store = new Store();
+        var service = new LearningService(store, new Teacher());
+        Assert.IsType<LearningResult.InvalidTopic>(await service.StartAsync(new UserId(1), " ", CancellationToken.None));
+        Assert.False(store.Accessed);
     }
 
     private sealed class Store : ILessonStore

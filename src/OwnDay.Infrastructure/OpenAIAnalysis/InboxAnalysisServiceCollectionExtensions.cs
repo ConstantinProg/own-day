@@ -75,6 +75,7 @@ public static class InboxAnalysisServiceCollectionExtensions
                 RetryPolicy = new ClientRetryPolicy(0)
             });
         });
+        services.AddSingleton<Func<ChatClient>>(provider => () => provider.GetRequiredService<ChatClient>());
         services.AddSingleton<OpenAIInboxAnalyzer>();
         services.AddScoped<IInboxAnalyzer>(provider => new CostControlledInboxAnalyzer(
             provider.GetRequiredService<OpenAIInboxAnalyzer>(), provider.GetRequiredService<IOpenAIRequestLedger>()));
