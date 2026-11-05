@@ -2,7 +2,7 @@
 
 Inbox analysis uses `gpt-6-luna`, Chat Completions and strict `response_format=json_schema` with the existing
 `inbox-v1` schema and `inbox-analysis-v3` prompt. See
-[classification and semantic evaluation](Phase4-Milestone3-Classification-and-Canonicalization.md) for prompt history,
+[classification and semantic evaluation](classification-and-canonicalization.md) for prompt history,
 the Golden Dataset and the explicit evaluation runner. `IInboxAnalyzer` keeps the same members. AI results remain independently validated
 proposals and never change Domain entities automatically.
 

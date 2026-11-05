@@ -2,7 +2,7 @@
 
 The default `/stats` report now shows a concise user summary; `/stats [period] details` retains
 the full accounting described here. Metric definitions are unchanged. See
-[Telegram UX consolidation](Phase4-Milestone9-Telegram-UX.md).
+[Telegram UX consolidation](../telegram/ux.md).
 
 OwnDay exposes personal Inbox statistics through `/stats`, `/stats today`, `/stats 30d`, and `/stats all`.
 No monitoring server, analytics service, new production package, or mandatory CLI is required.

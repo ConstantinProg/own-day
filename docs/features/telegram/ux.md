@@ -23,9 +23,10 @@ Undo and accounting. In particular, confirmation remains a compatibility path, n
 | Statistics | `/stats [today\|7d\|30d\|all]`; all user and worker/token/cost accounting | Keep period calculations; short user report by default, full original accounting under `/stats [period] details`. |
 | Transport | private text and two callback families; update deduplication, outbox, retries/cleanup, callback acknowledgement | Preserve transaction and owner checks. Do not delete source messages. Persist context buttons together with replies. |
 
-The exhaustive pre-change EN/RU message-key catalog is in [Telegram UX inventory](Telegram-UX-Inventory.md).
-This includes validation and empty/error responses, not only the happy path. Outbox cleanup deletes old
-delivered database intents, not chat history; retain it. Delivery remains at least once.
+Current localized templates, including validation and empty/error responses, are maintained in the
+[English](../../../src/OwnDay.Infrastructure/Telegram/Localization/TelegramMessages.resx) and
+[Russian](../../../src/OwnDay.Infrastructure/Telegram/Localization/TelegramMessages.ru.resx) resources.
+Outbox cleanup deletes old delivered database intents, not chat history; retain it. Delivery remains at least once.
 
 Current message cleanup policy: after a private slash command is processed and its result and
 reply intent are committed, delete the user's command message. Ordinary text, including Inbox

@@ -1,0 +1,9 @@
+using Telegram.Bot;
+
+namespace OwnDay.Infrastructure.Telegram.Delivery;
+
+public sealed class TelegramCallbackResponder(ITelegramBotClient bot) : ITelegramCallbackResponder
+{
+    public Task AnswerAsync(string callbackId, CancellationToken cancellationToken) =>
+        bot.AnswerCallbackQuery(callbackId, cancellationToken: cancellationToken);
+}

@@ -1,5 +1,8 @@
 # OwnDay MVP — User Flows
 
+> Target user-flow design. Some flows described here are not implemented. See
+> [Telegram UX](../features/telegram/ux.md) for current commands and dialogs.
+
 **Version:** 2.0
 **Status:** Experimental MVP
 **Primary Interface:** Telegram

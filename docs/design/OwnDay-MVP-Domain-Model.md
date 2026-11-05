@@ -1,5 +1,8 @@
 # OwnDay Domain Model (MVP)
 
+> Target domain design. Some entities and workflows described here are not implemented. Use the
+> [feature guides](../README.md#implemented-features) and code to establish current behavior.
+
 **Version:** 1.2  
 **Status:** Experimental MVP  
 **Primary interface:** Telegram  

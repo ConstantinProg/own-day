@@ -2,7 +2,7 @@
 
 Historical policy: `inbox-policy-v1`, retained for explicitly versioned evaluation and compatibility.
 The only active application policy is now **`inbox-policy-v2`**; see
-[automatic processing](Phase4-Milestone5-Automatic-Processing.md). The rules below remain the v1 rules.
+[automatic processing](automatic-processing.md). The rules below remain the v1 rules.
 
 Implemented policy version: **`inbox-policy-v1`**. This document describes the implementation against
 the existing M1–M3 contracts and current Domain, using the M4 requirements supplied for this change.
@@ -75,7 +75,7 @@ Automatic application is forbidden for all five types, singleton and composite e
 ambiguities, with current or absent project links, and with apparently complete properties. Validity is a
 structural check; absence of model-reported ambiguity is not independent semantic evidence.
 
-The [measured M3 results](Phase4-Milestone3-Evaluation-Results.md) have no independent human semantic review,
+The [measured M3 results](../../../evaluation/inbox/reports/2026-10-25.md) have no independent human semantic review,
 no held-out production distribution or repeated-trial safety evidence. Specifically:
 
 - `edge-10`: Action/Reference classification can be wrong while passing structural validation. Both types require review.
@@ -144,5 +144,5 @@ dotnet test OwnDay.slnx --configuration Release --no-build -m:1
 PostgreSQL tests use GUID-isolated schemas and real migrations. Ordinary checks do not call OpenAI;
 the existing real-provider smoke test remains opt-in. No schema migration or production configuration change
 is required for this read-only capability. Application and Telegram confirmation are documented separately in
-[automatic processing](Phase4-Milestone5-Automatic-Processing.md) and
-[Telegram feedback](Phase4-Milestone6-Telegram-Feedback.md).
+[automatic processing](automatic-processing.md) and
+[Telegram feedback](telegram-feedback.md).

@@ -1,7 +1,7 @@
-# Phase 4 — Milestone 3: Classification and Canonicalization
+# Inbox classification and canonicalization
 
 This describes interpretation and evaluation. Saved results now feed the active v2 policy and
-[automatic processing](Phase4-Milestone5-Automatic-Processing.md); classification itself still only produces proposals.
+[automatic processing](automatic-processing.md); classification itself still only produces proposals.
 
 Inbox analysis still produces proposals, using the M1 Application validator and the M2 durable processing path.
 No entity creation, Policy Engine or Telegram confirmation is introduced. The current contract/schema remains
@@ -180,7 +180,7 @@ Keep instances on a consistent release. Existing tests cover these paths, with n
 
 ## Observed experiment and limitations
 
-See [the measured run report](Phase4-Milestone3-Evaluation-Results.md) for actual calls, metrics, known errors,
+See [the measured run report](../../../evaluation/inbox/reports/2026-10-25.md) for actual calls, metrics, known errors,
 review status and preserved evidence. These are development-set experiments, not an unbiased production benchmark.
 The dataset informed the prompt; add held-out examples and repeated trials before setting a release quality gate.
 

@@ -1,8 +1,8 @@
-# Phase 4 — Milestone 1: AI Analysis Foundation
+# Inbox AI analysis foundation
 
 This document describes the original foundation. Automatic scheduling, retry/recovery, updated missing-key behavior
-and the current worker are documented in [durable background processing](Phase4-Milestone2-Durable-Background-Processing.md).
-Completed analyses are now consumed by [automatic processing](Phase4-Milestone5-Automatic-Processing.md);
+and the current worker are documented in [durable background processing](background-processing.md).
+Completed analyses are now consumed by [automatic processing](automatic-processing.md);
 the analysis use case itself still only saves proposals.
 
 Implemented against the existing Inbox/Action/Project/WaitingFor/Reference/SomedayMaybe model.
@@ -35,7 +35,7 @@ The official `OpenAI` .NET SDK 2.8.0 is confined to Infrastructure. The adapter 
 with strict JSON Schema, following [official OpenAI documentation](https://developers.openai.com/api/docs/guides/structured-outputs).
 The configured model must support that mode; unsupported models fail the attempt without a JSON-mode fallback.
 The default model is `gpt-6-luna` with `reasoning_effort=low`. See the
-[model migration and VPS instructions](Inbox-AI-Model-Configuration.md) for compatibility, recovery and the opt-in smoke test.
+[model migration and VPS instructions](model-configuration.md) for compatibility, recovery and the opt-in smoke test.
 Configure:
 
 | Configuration key / environment variable | Default |

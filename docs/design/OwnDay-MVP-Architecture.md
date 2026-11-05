@@ -1,5 +1,8 @@
 # OwnDay MVP Architecture
 
+> Design proposal. Some capabilities described here are not implemented. Use the
+> [feature guides](../README.md#implemented-features) and code to establish current behavior.
+
 **Status:** Proposed MVP Architecture
 **Architecture style:** Modular Monolith
 **Application style:** Simple Clean Architecture + Vertical Slices

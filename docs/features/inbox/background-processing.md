@@ -1,7 +1,7 @@
-# Phase 4 — Milestone 2: Durable Background Processing
+# Durable Inbox background processing
 
 This document describes analysis scheduling and recovery. The existing worker now also applies saved results
-using [automatic processing](Phase4-Milestone5-Automatic-Processing.md). Statements below about no target
+using [automatic processing](automatic-processing.md). Statements below about no target
 creation describe the analysis job/use case, which remains separate from application.
 
 Implemented on PostgreSQL with a .NET `BackgroundService`. No broker, scheduler package or new production dependency
@@ -88,8 +88,8 @@ separate intentional manual revisions.
 ## Configuration and operations
 
 Apply migrations before starting the updated Host, using the existing EF tooling and runtime connection settings.
-See [the analysis foundation](Phase4-Milestone1-AI-Analysis.md) for model, token limits and the operator command,
-and [the model configuration guide](Inbox-AI-Model-Configuration.md) for the GPT-6 Luna migration and VPS steps.
+See [the analysis foundation](analysis.md) for model, token limits and the operator command,
+and [the model configuration guide](model-configuration.md) for the GPT-6 Luna migration and VPS steps.
 API keys belong in runtime secrets/environment variables. A missing key pauses the worker and does not fail Host
 startup. The disabled state is logged once; no analyzer or SDK client is resolved in paused processing loops.
 Configuration is read on startup; restart the Host to apply changes.

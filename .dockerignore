@@ -1,7 +1,15 @@
 **/bin/
 **/obj/
+**/TestResults/
 .git/
 .github/
 .vscode/
 .idea/
+.vs/
+.tmp/
+.artifacts/
+artifacts/
+evaluation-results/
 .env
+*.env
+OpenAI.txt
