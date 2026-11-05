@@ -28,9 +28,10 @@ public sealed class TelegramWebhookPingIntegrationTests
     public async Task Post_PingWithValidSecret_QueuesPongWithoutDirectDelivery()
     {
         var messageSender = new RecordingTelegramMessageSender();
+        var cleaner = new RecordingTelegramMessageCleaner();
 
         using var host = new OwnDayHostFactory();
-        using var factory = CreateFactory(host, messageSender);
+        using var factory = CreateFactory(host, messageSender, cleaner);
         using var client = factory.CreateClient();
 
         using var request = CreatePingRequest(
@@ -43,6 +44,7 @@ public sealed class TelegramWebhookPingIntegrationTests
             response.StatusCode);
 
         Assert.Empty(messageSender.Messages);
+        Assert.Equal((ChatId, 42), Assert.Single(cleaner.Deletions));
 
         using var scope = factory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
@@ -75,7 +77,7 @@ public sealed class TelegramWebhookPingIntegrationTests
     }
 
     [Fact]
-    public async Task Post_CleanerUnavailable_ReturnsOkWithoutDeletingMessages()
+    public async Task Post_CommandDeletionFails_ReturnsOkWithCommittedTaskAndReply()
     {
         var cleaner = new RecordingTelegramMessageCleaner
         {
@@ -84,15 +86,16 @@ public sealed class TelegramWebhookPingIntegrationTests
         using var host = new OwnDayHostFactory();
         using var factory = CreateFactory(host, new RecordingTelegramMessageSender(), cleaner);
         using var client = factory.CreateClient();
-        using var request = CreateRequest(ValidWebhookSecret, "buy milk");
+        using var request = CreateRequest(ValidWebhookSecret, "/add Buy milk");
 
         using var response = await client.SendAsync(request);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Empty(cleaner.Deletions);
+        Assert.Equal((ChatId, 42), Assert.Single(cleaner.Deletions));
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
-        Assert.Single(await db.InboxItems.ToListAsync());
+        Assert.Equal("Buy milk", Assert.Single(await db.Actions.ToListAsync()).Title);
+        Assert.NotNull(Assert.Single(await db.ProcessedTelegramUpdates.ToListAsync()).ProcessedAt);
         Assert.Equal(OutboxMessageStatus.Pending, Assert.Single(await db.TelegramOutboxMessages.ToListAsync()).Status);
     }
 
@@ -128,9 +131,10 @@ public sealed class TelegramWebhookPingIntegrationTests
     public async Task Post_PingWithInvalidSecret_ReturnsUnauthorizedAndDoesNotSend()
     {
         var messageSender = new RecordingTelegramMessageSender();
+        var cleaner = new RecordingTelegramMessageCleaner();
 
         using var host = new OwnDayHostFactory();
-        using var factory = CreateFactory(host, messageSender);
+        using var factory = CreateFactory(host, messageSender, cleaner);
         using var client = factory.CreateClient();
 
         using var request = CreatePingRequest(
@@ -143,6 +147,7 @@ public sealed class TelegramWebhookPingIntegrationTests
             response.StatusCode);
 
         Assert.Empty(messageSender.Messages);
+        Assert.Empty(cleaner.Deletions);
         await AssertNoPersistedMessagesAsync(factory);
     }
 
@@ -150,9 +155,10 @@ public sealed class TelegramWebhookPingIntegrationTests
     public async Task Post_PingAddressedToAnotherBot_ReturnsOkWithoutSending()
     {
         var messageSender = new RecordingTelegramMessageSender();
+        var cleaner = new RecordingTelegramMessageCleaner();
 
         using var host = new OwnDayHostFactory();
-        using var factory = CreateFactory(host, messageSender);
+        using var factory = CreateFactory(host, messageSender, cleaner);
         using var client = factory.CreateClient();
 
         using var request = CreateRequest(
@@ -163,6 +169,7 @@ public sealed class TelegramWebhookPingIntegrationTests
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Empty(messageSender.Messages);
+        Assert.Empty(cleaner.Deletions);
         await AssertNoPersistedMessagesAsync(factory);
     }
 

@@ -27,6 +27,13 @@ The exhaustive pre-change EN/RU message-key catalog is in [Telegram UX inventory
 This includes validation and empty/error responses, not only the happy path. Outbox cleanup deletes old
 delivered database intents, not chat history; retain it. Delivery remains at least once.
 
+Current message cleanup policy: after a private slash command is processed and its result and
+reply intent are committed, delete the user's command message. Ordinary text, including Inbox
+capture and dialog input, stays in chat history. Ignored updates and bot messages containing
+callback buttons are preserved. Deletion failures are logged without rolling back the result or
+preventing outbox delivery; cancellation propagates. Duplicate updates do not repeat deletion.
+This supersedes the audit table's blanket instruction to preserve source messages for commands.
+
 ### Target navigation and language
 
 Primary command menu: `/list`, `/inbox`, `/stats`, `/settings`, `/help`, `/cancel`.

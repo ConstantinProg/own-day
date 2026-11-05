@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Npgsql;
 using OwnDay.Application.Interactions;
 using OwnDay.Infrastructure.Persistence;
+using OwnDay.Infrastructure.Telegram.Cleanup;
 using OwnDay.Infrastructure.Telegram.Commands;
 using OwnDay.Infrastructure.Telegram.Delivery;
 using OwnDay.Infrastructure.Telegram.Localization;
@@ -22,6 +23,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
     private readonly OwnDayDbContext _dbContext;
     private readonly TelegramUpdateRouter _router;
     private readonly TimeProvider _timeProvider;
+    private readonly ITelegramMessageCleaner _messageCleaner;
     private readonly ILogger<TelegramUpdateHandler> _logger;
     private readonly ITelegramCallbackResponder? _callbackResponder;
 
@@ -34,6 +36,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         TelegramStatisticsCommandHandler statistics,
         OwnDayDbContext dbContext,
         TimeProvider timeProvider,
+        ITelegramMessageCleaner messageCleaner,
         ILogger<TelegramUpdateHandler> logger,
         ITelegramCallbackResponder? callbackResponder = null)
     {
@@ -43,6 +46,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         ArgumentNullException.ThrowIfNull(statistics);
         ArgumentNullException.ThrowIfNull(dbContext);
         ArgumentNullException.ThrowIfNull(timeProvider);
+        ArgumentNullException.ThrowIfNull(messageCleaner);
         ArgumentNullException.ThrowIfNull(logger);
 
         _statistics = statistics;
@@ -53,6 +57,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         _languageFlow = languageFlow;
         _dbContext = dbContext;
         _timeProvider = timeProvider;
+        _messageCleaner = messageCleaner;
         _logger = logger;
         _callbackResponder = callbackResponder;
     }
@@ -216,6 +221,20 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         if (update.CallbackQuery is not null)
         {
             await AcknowledgeAsync(update, cancellationToken);
+        }
+        else if (route is TelegramUpdateRouteResult.Dispatch && update.Message is { } message)
+        {
+            // Delete commands only after their result and reply are durable. Preserve free-text input.
+            try
+            {
+                await _messageCleaner.DeleteMessageAsync(chatId, message.Id, cancellationToken);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException && !cancellationToken.IsCancellationRequested)
+            {
+                _logger.LogWarning(
+                    "Could not delete processed Telegram command {MessageId} from chat {ChatId} ({ErrorType}).",
+                    message.Id, chatId, exception.GetType().Name);
+            }
         }
     }
 

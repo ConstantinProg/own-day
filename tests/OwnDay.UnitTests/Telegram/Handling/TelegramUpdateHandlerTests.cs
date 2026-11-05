@@ -8,6 +8,7 @@ using OwnDay.Application.Inbox;
 using OwnDay.Application.Inbox.Observability;
 using OwnDay.Application.StructuredItems;
 using OwnDay.Infrastructure.Persistence;
+using OwnDay.Infrastructure.Telegram.Cleanup;
 using OwnDay.Infrastructure.Telegram.Commands;
 using OwnDay.Infrastructure.Telegram.Configuration;
 using OwnDay.Infrastructure.Telegram.Handling;
@@ -130,6 +131,89 @@ public sealed class TelegramUpdateHandlerTests
         Assert.Empty(fixture.DatabaseCommands);
         Assert.Empty(fixture.DbContext.ProcessedTelegramUpdates);
         Assert.Empty(fixture.DbContext.TelegramOutboxMessages);
+        Assert.Empty(fixture.Cleaner.Deletions);
+    }
+
+    [Theory]
+    [InlineData("/ping")]
+    [InlineData("/ping@OwnDayBot")]
+    [InlineData("/add Buy groceries")]
+    [InlineData("/capture Buy groceries")]
+    [InlineData("/done invalid")]
+    [InlineData("/unknown")]
+    public async Task HandleAsync_ProcessedCommand_DeletesSourceMessage(string command)
+    {
+        await using var fixture = await HandlerFixture.CreateAsync();
+        using var cancellation = new CancellationTokenSource();
+
+        await fixture.Handler.HandleAsync(
+            CreateTextMessageUpdate(command, chatId: 987, updateId: 42), cancellation.Token);
+
+        var deletion = Assert.Single(fixture.Cleaner.Deletions);
+        Assert.Equal(987, deletion.ChatId);
+        Assert.Equal(42, deletion.MessageId);
+        Assert.Equal(cancellation.Token, deletion.CancellationToken);
+        Assert.NotNull(Assert.Single(fixture.DbContext.ProcessedTelegramUpdates).ProcessedAt);
+        Assert.NotEmpty(fixture.DbContext.TelegramOutboxMessages);
+    }
+
+    [Fact]
+    public async Task HandleAsync_DeletionFails_KeepsCommittedTaskAndReply()
+    {
+        await using var fixture = await HandlerFixture.CreateAsync();
+        fixture.Cleaner.Failure = new InvalidOperationException("Telegram rejected deletion");
+        var update = CreateTextMessageUpdate("/add Buy groceries");
+
+        await fixture.Handler.HandleAsync(update);
+        await fixture.Handler.HandleAsync(update);
+
+        fixture.DbContext.ChangeTracker.Clear();
+        Assert.Single(fixture.Cleaner.Deletions);
+        Assert.Single(fixture.DbContext.Actions);
+        Assert.NotNull(Assert.Single(fixture.DbContext.ProcessedTelegramUpdates).ProcessedAt);
+        Assert.Single(fixture.DbContext.TelegramOutboxMessages);
+    }
+
+    [Fact]
+    public async Task HandleAsync_DeletionCancelled_PropagatesCancellationAfterCommit()
+    {
+        await using var fixture = await HandlerFixture.CreateAsync();
+        fixture.Cleaner.Failure = new OperationCanceledException();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            fixture.Handler.HandleAsync(CreateTextMessageUpdate("/add Buy groceries")));
+
+        fixture.DbContext.ChangeTracker.Clear();
+        Assert.Single(fixture.Cleaner.Deletions);
+        Assert.Single(fixture.DbContext.Actions);
+        Assert.NotNull(Assert.Single(fixture.DbContext.ProcessedTelegramUpdates).ProcessedAt);
+        Assert.Single(fixture.DbContext.TelegramOutboxMessages);
+    }
+
+    [Fact]
+    public async Task HandleAsync_NavigationCallback_PreservesBotMessage()
+    {
+        await using var fixture = await HandlerFixture.CreateAsync();
+        var source = CreateTextMessageUpdate("Menu").Message!;
+        var sender = source.From!;
+        source.From = new User { Id = 123, IsBot = true, FirstName = "OwnDay" };
+        var update = new Update
+        {
+            Id = 1,
+            CallbackQuery = new CallbackQuery
+            {
+                Id = "navigation-callback",
+                From = sender,
+                Message = source,
+                Data = "nav:list"
+            }
+        };
+
+        await fixture.Handler.HandleAsync(update);
+
+        Assert.Empty(fixture.Cleaner.Deletions);
+        Assert.NotNull(Assert.Single(fixture.DbContext.ProcessedTelegramUpdates).ProcessedAt);
+        Assert.Single(fixture.DbContext.TelegramOutboxMessages);
     }
 
     [Fact]
@@ -161,6 +245,7 @@ public sealed class TelegramUpdateHandlerTests
 
         Assert.Single(fixture.DbContext.ProcessedTelegramUpdates);
         Assert.Single(fixture.DbContext.TelegramOutboxMessages);
+        Assert.Single(fixture.Cleaner.Deletions);
     }
 
     [Fact]
@@ -171,6 +256,7 @@ public sealed class TelegramUpdateHandlerTests
         await fixture.Handler.HandleAsync(new Update { Id = 1 });
 
         Assert.Empty(fixture.DatabaseCommands);
+        Assert.Empty(fixture.Cleaner.Deletions);
     }
 
     [Theory]
@@ -186,6 +272,7 @@ public sealed class TelegramUpdateHandlerTests
             fixture.Handler.HandleAsync(CreateTextMessageUpdate(text), cancellation.Token));
 
         Assert.Empty(fixture.DatabaseCommands);
+        Assert.Empty(fixture.Cleaner.Deletions);
     }
 
     [Fact]
@@ -204,12 +291,14 @@ public sealed class TelegramUpdateHandlerTests
         fixture.DbContext.ChangeTracker.Clear();
         Assert.Empty(fixture.DbContext.ProcessedTelegramUpdates);
         Assert.Empty(fixture.DbContext.TelegramOutboxMessages);
+        Assert.Empty(fixture.Cleaner.Deletions);
 
         await fixture.DbContext.Database.ExecuteSqlRawAsync("DROP TRIGGER reject_outbox");
         await fixture.Handler.HandleAsync(CreateTextMessageUpdate("/ping"));
 
         Assert.NotNull(Assert.Single(fixture.DbContext.ProcessedTelegramUpdates).ProcessedAt);
         Assert.Single(fixture.DbContext.TelegramOutboxMessages);
+        Assert.Single(fixture.Cleaner.Deletions);
     }
 
     [Fact]
@@ -240,6 +329,7 @@ public sealed class TelegramUpdateHandlerTests
         Assert.Single(fixture.DbContext.InboxItems);
         Assert.Single(fixture.DbContext.TelegramOutboxMessages);
         Assert.NotNull(Assert.Single(fixture.DbContext.ProcessedTelegramUpdates).ProcessedAt);
+        Assert.Empty(fixture.Cleaner.Deletions);
     }
 
     [Fact]
@@ -252,6 +342,7 @@ public sealed class TelegramUpdateHandlerTests
         await fixture.Handler.HandleAsync(update);
 
         Assert.Empty(fixture.DatabaseCommands);
+        Assert.Empty(fixture.Cleaner.Deletions);
     }
 
     [Theory]
@@ -413,17 +504,21 @@ public sealed class TelegramUpdateHandlerTests
             SqliteConnection connection,
             OwnDayDbContext dbContext,
             TelegramUpdateHandler handler,
+            RecordingTelegramMessageCleaner cleaner,
             List<string> databaseCommands)
         {
             _connection = connection;
             DbContext = dbContext;
             Handler = handler;
+            Cleaner = cleaner;
             DatabaseCommands = databaseCommands;
         }
 
         public OwnDayDbContext DbContext { get; }
 
         public TelegramUpdateHandler Handler { get; }
+
+        public RecordingTelegramMessageCleaner Cleaner { get; }
 
         public List<string> DatabaseCommands { get; }
 
@@ -443,6 +538,7 @@ public sealed class TelegramUpdateHandlerTests
             var router = new TelegramUpdateRouter(
                 new TelegramCommandParser(),
                 Options.Create(new TelegramOptions { BotUsername = "OwnDayBot" }));
+            var cleaner = new RecordingTelegramMessageCleaner();
             var handler = new TelegramUpdateHandler(
                 router,
                 new TelegramActionCommandHandler(new ActionService(new EfActionStore(dbContext), timeProvider)),
@@ -465,10 +561,11 @@ public sealed class TelegramUpdateHandlerTests
                 new TelegramStatisticsCommandHandler(new InboxStatisticsService(new EfInboxStatisticsStore(dbContext), timeProvider)),
                 dbContext,
                 timeProvider,
+                cleaner,
                 NullLogger<TelegramUpdateHandler>.Instance);
 
             databaseCommands.Clear();
-            return new HandlerFixture(connection, dbContext, handler, databaseCommands);
+            return new HandlerFixture(connection, dbContext, handler, cleaner, databaseCommands);
         }
 
         public async ValueTask DisposeAsync()
@@ -483,6 +580,24 @@ public sealed class TelegramUpdateHandlerTests
         public DateTime UtcNow { get; set; } = Now;
 
         public override DateTimeOffset GetUtcNow() => new(UtcNow);
+    }
+
+    private sealed class RecordingTelegramMessageCleaner : ITelegramMessageCleaner
+    {
+        public List<(long ChatId, int MessageId, CancellationToken CancellationToken)> Deletions { get; } = [];
+
+        public Exception? Failure { get; set; }
+
+        public Task DeleteMessageAsync(long chatId, int messageId, CancellationToken cancellationToken)
+        {
+            Deletions.Add((chatId, messageId, cancellationToken));
+            if (Failure is not null)
+            {
+                throw Failure;
+            }
+
+            return Task.CompletedTask;
+        }
     }
 
 }
