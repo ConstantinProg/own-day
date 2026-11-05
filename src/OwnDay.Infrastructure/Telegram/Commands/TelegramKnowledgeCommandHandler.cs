@@ -1,3 +1,4 @@
+using System.Globalization;
 using OwnDay.Application.Interactions;
 using OwnDay.Application.Learning;
 
@@ -9,10 +10,17 @@ public sealed class TelegramKnowledgeCommandHandler(KnowledgeService knowledge, 
 
     public async Task<IReadOnlyList<string>> HandleAsync(ProcessIncomingCommand command, CancellationToken token)
     {
-        if (command.Name == "learn_skills" && string.IsNullOrWhiteSpace(command.Arguments))
-            return TelegramKnowledgePresenter.List(await knowledge.ListAsync(command.UserId, token));
-        if (command.Name == "learn_skills" || !Guid.TryParse(command.Arguments.Trim(), out var id) || id == Guid.Empty)
-            return ["Use /learn_skills, /learn_status <skill id>, or /learn_practice <skill id>."];
+        if (command.Name == "learn_skills")
+        {
+            var page = 1;
+            if (!string.IsNullOrWhiteSpace(command.Arguments) &&
+                (!int.TryParse(command.Arguments.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out page) ||
+                 page is < 1 or > KnowledgeService.MaxPageNumber))
+                return ["Use /learn_skills [page] with a positive page number."];
+            return TelegramKnowledgePresenter.List(await knowledge.ListAsync(command.UserId, token, page));
+        }
+        if (!Guid.TryParse(command.Arguments.Trim(), out var id) || id == Guid.Empty)
+            return ["Use /learn_skills [page], /learn_status <skill id>, or /learn_practice <skill id>."];
         if (command.Name == "learn_practice")
             return TelegramLearningPresenter.Render(await learning.PracticeAsync(command.UserId, id, token));
         var status = await knowledge.StatusAsync(command.UserId, id, token);

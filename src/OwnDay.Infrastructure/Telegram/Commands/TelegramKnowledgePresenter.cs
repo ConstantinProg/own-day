@@ -1,13 +1,20 @@
 using OwnDay.Application.Learning;
 using OwnDay.Domain.Learning;
+using OwnDay.Infrastructure.Telegram.Handling;
 
 namespace OwnDay.Infrastructure.Telegram.Commands;
 
 public static class TelegramKnowledgePresenter
 {
-    public static IReadOnlyList<string> List(IReadOnlyList<Skill> skills) => skills.Count == 0
-        ? ["No skills yet. /learn <topic> or /learn_next"]
-        : skills.Select(s => $"{s.Title}\nSkill: {s.Id}\n/learn_status {s.Id}\n/learn_practice {s.Id}").ToArray();
+    public static IReadOnlyList<string> List(SkillPage page)
+    {
+        if (page.Skills.Count == 0)
+            return [page.Number == 1 ? "No skills yet. /learn <topic> or /learn_next" : "No skills on this page. /learn_skills"];
+        var entries = page.Skills.Select(s => $"{s.Title}\nSkill: {s.Id}\n/learn_status {s.Id}\n/learn_practice {s.Id}").ToList();
+        if (page.Number > 1) entries.Add($"Previous: /learn_skills {page.Number - 1}");
+        if (page.HasNext) entries.Add($"Next: /learn_skills {page.Number + 1}");
+        return TelegramTextLists.Split(entries, $"Skills: page {page.Number}");
+    }
 
     public static IReadOnlyList<string> Status(SkillStatus status)
     {

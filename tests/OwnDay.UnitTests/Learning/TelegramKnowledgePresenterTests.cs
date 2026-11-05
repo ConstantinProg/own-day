@@ -9,6 +9,20 @@ namespace OwnDay.UnitTests.Learning;
 public sealed class TelegramKnowledgePresenterTests
 {
     [Fact]
+    public void List_MaximumTitles_CombinesSkillsWithinTelegramLimitAndShowsNavigation()
+    {
+        var skills = Enumerable.Range(0, KnowledgeService.PageSize)
+            .Select(i => Skill.Create(new UserId(1), i + new string('t', 498))).ToArray();
+        var messages = TelegramKnowledgePresenter.List(new SkillPage(skills, 2, true));
+        Assert.InRange(messages.Count, 1, 2);
+        Assert.All(messages, m => Assert.InRange(m.Length, 1, 4096));
+        var text = string.Join("\n", messages);
+        Assert.All(skills, skill => Assert.Contains(skill.Title, text));
+        Assert.Contains("Previous: /learn_skills 1", text);
+        Assert.Contains("Next: /learn_skills 3", text);
+    }
+
+    [Fact]
     public void Status_MaximumEvidence_KeepsFactsAndHypothesesInReadableTelegramMessages()
     {
         var skill = Skill.Create(new UserId(1), new string('t', 500));
@@ -19,7 +33,7 @@ public sealed class TelegramKnowledgePresenterTests
         var status = new SkillStatus(skill, LearnerSkillState.Evaluate([evidence]), [evidence]);
         var messages = TelegramKnowledgePresenter.Status(status);
         Assert.Equal(3, messages.Count);
-        Assert.All(messages.Concat(TelegramKnowledgePresenter.List([skill])), m => Assert.InRange(m.Length, 1, 4096));
+        Assert.All(messages.Concat(TelegramKnowledgePresenter.List(new SkillPage([skill], 1, false))), m => Assert.InRange(m.Length, 1, 4096));
         Assert.Contains("provisional", messages[0]);
         Assert.Contains("Observed answer", messages[1]);
         Assert.Contains("AI interpretation", messages[2]);

@@ -7,16 +7,21 @@ public interface IKnowledgeStore
 {
     Task<Skill?> FindAsync(UserId user, Guid skillId, CancellationToken token);
     Task<Skill?> FindTopicAsync(UserId user, Guid programId, int version, string topicCode, CancellationToken token);
-    Task<IReadOnlyList<Skill>> ListAsync(UserId user, CancellationToken token);
+    Task<IReadOnlyList<Skill>> ListAsync(UserId user, int offset, int limit, CancellationToken token);
     Task<IReadOnlyList<LearningEvidence>> EvidenceAsync(UserId user, Guid skillId, CancellationToken token);
     void Add(Skill skill);
     void Add(LearningEvidence evidence);
 }
 
+public sealed record SkillPage(IReadOnlyList<Skill> Skills, int Number, bool HasNext);
+
 public sealed record SkillStatus(Skill Skill, LearnerSkillState State, IReadOnlyList<LearningEvidence> Evidence);
 
 public sealed class KnowledgeService(IKnowledgeStore store, TimeProvider clock)
 {
+    public const int PageSize = 10;
+    public const int MaxPageNumber = int.MaxValue / PageSize;
+
     public async Task AttachAsync(Lesson lesson, string description, CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
@@ -42,10 +47,12 @@ public sealed class KnowledgeService(IKnowledgeStore store, TimeProvider clock)
         return store.FindAsync(user, skillId, token);
     }
 
-    public Task<IReadOnlyList<Skill>> ListAsync(UserId user, CancellationToken token)
+    public async Task<SkillPage> ListAsync(UserId user, CancellationToken token, int page = 1)
     {
         Validate(user, token);
-        return store.ListAsync(user, token);
+        if (page is < 1 or > MaxPageNumber) throw new ArgumentOutOfRangeException(nameof(page));
+        var skills = await store.ListAsync(user, (page - 1) * PageSize, PageSize + 1, token);
+        return new(skills.Take(PageSize).ToArray(), page, skills.Count > PageSize);
     }
 
     public async Task<SkillStatus?> StatusAsync(UserId user, Guid skillId, CancellationToken token)

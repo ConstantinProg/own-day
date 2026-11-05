@@ -18,7 +18,8 @@ public sealed class LearningEvidence
     {
         if (lesson.Status != LessonStatus.Completed || lesson.SkillId is null)
             throw new InvalidOperationException("A completed answer with a skill is required.");
-        LearningProgram.Validate(source, 200);
+        if (string.IsNullOrWhiteSpace(source) || source.Length > 200)
+            throw new ArgumentException("Invalid assessment source.", nameof(source));
         if (observedAt.Offset != TimeSpan.Zero) throw new ArgumentException("UTC timestamp required.", nameof(observedAt));
         return new LearningEvidence
         {

@@ -14,6 +14,45 @@ namespace OwnDay.IntegrationTests.Telegram;
 public sealed class TelegramKnowledgeTests
 {
     [Fact]
+    public async Task Post_SkillPages_BoundsRepliesAndKeepsOwnerSkillsReachable()
+    {
+        using var factory = new OwnDayHostFactory();
+        using var client = factory.CreateClient();
+        var skills = Enumerable.Range(0, 23)
+            .Select(i => Skill.Create(new UserId(101), $"Skill {i:D2}")).ToArray();
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
+            db.AddRange(skills);
+            db.Add(Skill.Create(new UserId(202), "Foreign skill"));
+            await db.SaveChangesAsync();
+        }
+
+        await TelegramCurriculumTests.PostAsync(client, 1, 101, "/learn_skills");
+        await TelegramCurriculumTests.PostAsync(client, 2, 101, "/learn_skills 2");
+        await TelegramCurriculumTests.PostAsync(client, 3, 101, "/learn_skills 3");
+        await TelegramCurriculumTests.PostAsync(client, 4, 101, "/learn_skills 4");
+        var invalidArguments = new[] { "0", "-1", "abc", "2147483647", "999999999999" };
+        for (var index = 0; index < invalidArguments.Length; index++)
+            await TelegramCurriculumTests.PostAsync(client, 5 + index, 101, "/learn_skills " + invalidArguments[index]);
+
+        using var verification = factory.Services.CreateScope();
+        var context = verification.ServiceProvider.GetRequiredService<OwnDayDbContext>();
+        var replies = await context.TelegramOutboxMessages.ToListAsync();
+        Assert.Equal(9, replies.Count);
+        Assert.All(replies, reply => Assert.InRange(reply.Text.Length, 1, 4096));
+        var pages = replies.Where(r => r.Text.StartsWith("Skills", StringComparison.Ordinal)).ToArray();
+        Assert.Equal(3, pages.Length);
+        Assert.Contains(pages, r => r.Text.Contains("Next: /learn_skills 2", StringComparison.Ordinal));
+        Assert.DoesNotContain(pages, r => r.Text.Contains("Next: /learn_skills 4", StringComparison.Ordinal));
+        var text = string.Join("\n", pages.Select(r => r.Text));
+        Assert.All(skills, skill => Assert.Equal(1, pages.Count(r => r.Text.Contains($"Skill: {skill.Id}", StringComparison.Ordinal))));
+        Assert.DoesNotContain("Foreign skill", text);
+        Assert.Contains(replies, r => r.Text.StartsWith("No skills on this page.", StringComparison.Ordinal));
+        Assert.Equal(5, replies.Count(r => r.Text.StartsWith("Use /learn_skills", StringComparison.Ordinal)));
+    }
+
+    [Fact]
     public async Task Post_AnswersAndPractice_PreservesFactsAndExplainsContradictoryAssessments()
     {
         using var factory = new OwnDayHostFactory();
