@@ -41,7 +41,7 @@ public abstract record LearningResult
     public sealed record InvalidAnswer : LearningResult;
     public sealed record NoActiveLesson : LearningResult;
     public sealed record ProviderUnavailable : LearningResult;
-    public sealed record Session(string ContextSummary, LessonStatus Status) : LearningResult;
+    public sealed record Session(string Topic, string Question, LessonStatus Status) : LearningResult;
     public sealed record Explanation(string Text, string Topic, string Question) : LearningResult;
     public sealed record InvalidClarification : LearningResult;
     public sealed record InvalidTransition : LearningResult;
@@ -166,7 +166,7 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher)
         }
     }
 
-    private static LearningResult.Session Session(Lesson lesson) => new(lesson.ContextSummary, lesson.Status);
+    private static LearningResult.Session Session(Lesson lesson) => new(lesson.Topic, lesson.Question, lesson.Status);
 
     private static void ValidateUser(UserId user, CancellationToken token)
     {

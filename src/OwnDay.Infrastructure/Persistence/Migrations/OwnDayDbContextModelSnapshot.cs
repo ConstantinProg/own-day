@@ -30,7 +30,6 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
             b.Property<string>("Feedback").HasMaxLength(3000).HasColumnType("character varying(3000)");
             b.Property<bool?>("IsCorrect").HasColumnType("boolean");
             b.Property<int>("Status").HasColumnType("integer");
-            b.Property<string>("ContextSummary").IsRequired().HasMaxLength(2000).HasColumnType("character varying(2000)");
             b.HasKey("Id");
             b.HasIndex("UserId").IsUnique().HasFilter("\"Status\" IN (0, 1)");
             b.ToTable("learning_lessons", (string)null);

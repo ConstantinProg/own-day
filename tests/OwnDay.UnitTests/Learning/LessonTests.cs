@@ -8,23 +8,38 @@ namespace OwnDay.UnitTests.Learning;
 public sealed class LessonTests
 {
     [Fact]
-    public void Pause_ResumeAndComplete_PreservesQuestionAndExpectedAction()
+    public void Pause_ResumeAndComplete_PreservesCurrentStep()
     {
         var lesson = Lesson.Start(new UserId(1), "Topic", "Theory", "Question");
-        var context = lesson.ContextSummary;
+        var step = (lesson.Topic, lesson.Theory, lesson.Question);
         lesson.AddExplanation(LessonInteractionKind.Clarification, "Detour", "Explanation");
         lesson.AddExplanation(LessonInteractionKind.AlternativeExplanation, "Explain differently", "Example");
-        Assert.Equal(context, lesson.ContextSummary);
+        Assert.Equal(step, (lesson.Topic, lesson.Theory, lesson.Question));
         Assert.Equal(2, lesson.Interactions.Count);
         lesson.Pause();
         Assert.Equal(LessonStatus.Paused, lesson.Status);
-        Assert.Contains("Resume the lesson", lesson.ContextSummary);
         lesson.Resume();
-        Assert.Equal(context, lesson.ContextSummary);
+        Assert.Equal(LessonStatus.AwaitingAnswer, lesson.Status);
+        Assert.Equal(step, (lesson.Topic, lesson.Theory, lesson.Question));
         lesson.Complete("Answer", "Feedback", true);
         Assert.Equal(LessonStatus.Completed, lesson.Status);
-        Assert.Contains("Lesson ended", lesson.ContextSummary);
-        Assert.Equal("Question", lesson.Question);
+        Assert.Equal(step, (lesson.Topic, lesson.Theory, lesson.Question));
+    }
+
+    [Fact]
+    public void Interactions_CompletedLesson_RejectsExternalMutation()
+    {
+        var lesson = Lesson.Start(new UserId(1), "Topic", "Theory", "Question");
+        var history = lesson.Interactions;
+        lesson.AddExplanation(LessonInteractionKind.Clarification, "Request", "Explanation");
+        lesson.Complete("Answer", "Feedback", true);
+
+        var interaction = Assert.Single(history);
+        var collection = Assert.IsAssignableFrom<ICollection<LessonInteraction>>(history);
+        Assert.Throws<NotSupportedException>(() => collection.Add(interaction));
+        Assert.Throws<NotSupportedException>(() => collection.Clear());
+        Assert.Same(interaction, Assert.Single(lesson.Interactions));
+        Assert.Equal(LessonStatus.Completed, lesson.Status);
     }
 
     [Theory]
@@ -51,7 +66,7 @@ public sealed class LessonTests
             case LessonStatus.Completed: lesson.Complete("Answer", "Feedback", false); break;
             case LessonStatus.Finished: lesson.Finish(); break;
         }
-        var context = lesson.ContextSummary;
+        var state = (lesson.Topic, lesson.Theory, lesson.Question, lesson.Answer, lesson.Feedback, lesson.IsCorrect);
         Assert.Throws<InvalidOperationException>(() =>
         {
             switch (action)
@@ -64,7 +79,7 @@ public sealed class LessonTests
             }
         });
         Assert.Equal(status, lesson.Status);
-        Assert.Equal(context, lesson.ContextSummary);
+        Assert.Equal(state, (lesson.Topic, lesson.Theory, lesson.Question, lesson.Answer, lesson.Feedback, lesson.IsCorrect));
         Assert.Empty(lesson.Interactions);
     }
 
@@ -85,13 +100,13 @@ public sealed class LessonTests
     [Theory]
     [InlineData("")]
     [InlineData(" ")]
-    public void AddExplanation_InvalidOutput_PreservesContextAndHistory(string explanation)
+    public void AddExplanation_InvalidOutput_PreservesStepAndHistory(string explanation)
     {
         var lesson = Lesson.Start(new UserId(1), "Topic", "Theory", "Question");
-        var context = lesson.ContextSummary;
+        var step = (lesson.Topic, lesson.Theory, lesson.Question);
         Assert.Throws<ArgumentException>(() => lesson.AddExplanation(LessonInteractionKind.Clarification, "Request", explanation));
         Assert.Empty(lesson.Interactions);
-        Assert.Equal(context, lesson.ContextSummary);
+        Assert.Equal(step, (lesson.Topic, lesson.Theory, lesson.Question));
     }
 
     [Fact]

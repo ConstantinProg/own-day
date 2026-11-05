@@ -61,15 +61,15 @@ public sealed class PostgresTelegramRestartIntegrationTests
                 var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
                 var lesson = await db.Set<Lesson>().SingleAsync();
                 Assert.Equal(LessonStatus.Paused, lesson.Status);
-                Assert.Contains("Resume the lesson", lesson.ContextSummary);
+                Assert.Equal("algebra", lesson.Topic);
+                Assert.Equal("Question", lesson.Question);
                 await PostAsync(client, 4004, "/learn_resume");
                 db.ChangeTracker.Clear();
                 lesson = await db.Set<Lesson>().SingleAsync();
                 Assert.Equal(LessonStatus.AwaitingAnswer, lesson.Status);
-                Assert.Contains("Answer the current question", lesson.ContextSummary);
                 Assert.Equal("Question", lesson.Question);
                 Assert.Contains(await db.TelegramOutboxMessages.ToListAsync(), m =>
-                    m.Text.Contains(lesson.ContextSummary, StringComparison.Ordinal));
+                    m.Text.Contains("Topic: algebra\nExpected action: Answer the current question.\nCurrent question: Question", StringComparison.Ordinal));
                 clock.UtcNow = DateTime.UtcNow.AddMinutes(1);
                 await new TelegramOutboxDeliveryService(db, sender, NullLogger<TelegramOutboxDeliveryService>.Instance, clock)
                     .DeliverBatchAsync(CancellationToken.None);

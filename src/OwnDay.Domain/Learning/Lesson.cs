@@ -14,8 +14,7 @@ public sealed class Lesson
     public string? Feedback { get; private set; }
     public bool? IsCorrect { get; private set; }
     public LessonStatus Status { get; private set; }
-    public string ContextSummary { get; private set; } = "";
-    public IReadOnlyCollection<LessonInteraction> Interactions => _interactions;
+    public IReadOnlyCollection<LessonInteraction> Interactions => _interactions.AsReadOnly();
 
     public static Lesson Start(UserId user, string topic, string theory, string question)
     {
@@ -23,9 +22,7 @@ public sealed class Lesson
         Validate(topic, 500);
         Validate(theory, 2500);
         Validate(question, 1000);
-        var lesson = new Lesson { Id = Guid.NewGuid(), UserId = user, Topic = topic, Theory = theory, Question = question };
-        lesson.RefreshContext();
-        return lesson;
+        return new Lesson { Id = Guid.NewGuid(), UserId = user, Topic = topic, Theory = theory, Question = question };
     }
 
     public void Complete(string answer, string feedback, bool correct)
@@ -37,21 +34,18 @@ public sealed class Lesson
         Feedback = feedback;
         IsCorrect = correct;
         Status = LessonStatus.Completed;
-        RefreshContext();
     }
 
     public void Pause()
     {
         RequireAwaitingAnswer();
         Status = LessonStatus.Paused;
-        RefreshContext();
     }
 
     public void Resume()
     {
         if (Status != LessonStatus.Paused) throw new InvalidOperationException("Lesson is not paused.");
         Status = LessonStatus.AwaitingAnswer;
-        RefreshContext();
     }
 
     public void Finish()
@@ -59,7 +53,6 @@ public sealed class Lesson
         if (Status is not (LessonStatus.AwaitingAnswer or LessonStatus.Paused))
             throw new InvalidOperationException("Lesson has ended.");
         Status = LessonStatus.Finished;
-        RefreshContext();
     }
 
     public void AddExplanation(LessonInteractionKind kind, string request, string explanation)
@@ -74,17 +67,6 @@ public sealed class Lesson
     private void RequireAwaitingAnswer()
     {
         if (Status != LessonStatus.AwaitingAnswer) throw new InvalidOperationException("Lesson is not awaiting an answer.");
-    }
-
-    private void RefreshContext()
-    {
-        var expected = Status switch
-        {
-            LessonStatus.AwaitingAnswer => "Expected action: Answer the current question.",
-            LessonStatus.Paused => "Expected action: Resume the lesson before answering.",
-            _ => "Lesson ended. Start another lesson."
-        };
-        ContextSummary = $"Topic: {Topic}\n{expected}\nCurrent question: {Question}";
     }
 
     private static void Validate(string value, int maximum)

@@ -31,15 +31,25 @@ public sealed class LearningServiceTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task ExplainAsync_InvalidOrFailedOutput_DoesNotChangeLesson(bool failure)
+    [InlineData(false, 0)]
+    [InlineData(false, 2501)]
+    [InlineData(true, 0)]
+    public async Task ExplainAsync_InvalidOrFailedOutput_DoesNotChangeLesson(bool failure, int outputLength)
     {
         var lesson = Lesson.Start(new UserId(1), "Topic", "Theory", "Question");
-        var service = new LearningService(new Store { Active = lesson }, new Teacher { Failure = failure });
+        lesson.AddExplanation(LessonInteractionKind.Clarification, "Earlier request", "Earlier explanation");
+        var history = lesson.Interactions.ToArray();
+        var service = new LearningService(new Store { Active = lesson }, new Teacher
+        {
+            Failure = failure,
+            Explanation = new string('e', outputLength)
+        });
         Assert.IsType<LearningResult.ProviderUnavailable>(await service.ExplainAsync(new UserId(1), CancellationToken.None));
         Assert.Equal(LessonStatus.AwaitingAnswer, lesson.Status);
-        Assert.Empty(lesson.Interactions);
+        Assert.Equal("Topic", lesson.Topic);
+        Assert.Equal("Theory", lesson.Theory);
+        Assert.Equal("Question", lesson.Question);
+        Assert.Equal(history, lesson.Interactions);
     }
 
     [Fact]
@@ -110,7 +120,7 @@ public sealed class LearningServiceTests
         var lesson = Lesson.Start(new UserId(1), "Topic", "Theory", "Question");
         var service = new LearningService(new Store { Active = lesson }, new Teacher());
         var result = await service.StartAsync(new UserId(1), "Different topic", CancellationToken.None);
-        Assert.Equal(new LearningResult.Session(lesson.ContextSummary, LessonStatus.AwaitingAnswer), result);
+        Assert.Equal(new LearningResult.Session(lesson.Topic, lesson.Question, LessonStatus.AwaitingAnswer), result);
     }
 
     [Fact]
@@ -145,6 +155,7 @@ public sealed class LearningServiceTests
     private sealed class Teacher : ILessonTeacher
     {
         public CancellationTokenSource? Cancel { get; init; }
+        public string Explanation { get; init; } = "";
         public CancellationToken ReceivedToken { get; private set; }
         public Task<LessonExplanation> ExplainAsync(Lesson lesson, string request, LessonInteractionKind kind, CancellationToken token) =>
             Explain(token);
@@ -154,7 +165,7 @@ public sealed class LearningServiceTests
             ReceivedToken = token;
             Cancel?.Cancel();
             if (Failure) throw new LessonProviderException();
-            return Task.FromResult(new LessonExplanation(Cancel is null ? "" : "Explanation"));
+            return Task.FromResult(new LessonExplanation(Cancel is null ? Explanation : "Explanation"));
         }
         public bool Failure { get; init; }
         public Task<LessonMaterial> GenerateAsync(string topic, CancellationToken token) => throw new InvalidOperationException();

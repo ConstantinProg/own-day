@@ -51,7 +51,6 @@ public sealed class OwnDayDbContext(DbContextOptions<OwnDayDbContext> options)
             entity.Property(l => l.Question).HasMaxLength(1000);
             entity.Property(l => l.Answer).HasMaxLength(3000);
             entity.Property(l => l.Feedback).HasMaxLength(3000);
-            entity.Property(l => l.ContextSummary).HasMaxLength(2000);
             entity.HasIndex(l => l.UserId).IsUnique().HasFilter("\"Status\" IN (0, 1)");
             entity.HasMany(l => l.Interactions).WithOne().HasForeignKey(i => i.LessonId).OnDelete(DeleteBehavior.Cascade);
         });

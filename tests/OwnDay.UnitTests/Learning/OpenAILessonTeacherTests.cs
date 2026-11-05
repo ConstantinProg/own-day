@@ -37,7 +37,10 @@ public sealed class OpenAILessonTeacherTests
         var messages = body.RootElement.GetProperty("messages");
         Assert.Contains("untrusted data", messages[0].GetProperty("content").GetString());
         using var input = JsonDocument.Parse(messages[1].GetProperty("content").GetString()!);
-        Assert.Equal(lesson.ContextSummary, input.RootElement.GetProperty("ContextSummary").GetString());
+        Assert.Equal("Topic", input.RootElement.GetProperty("Topic").GetString());
+        Assert.Equal("Theory", input.RootElement.GetProperty("Theory").GetString());
+        Assert.Equal("AwaitingAnswer", input.RootElement.GetProperty("Status").GetString());
+        Assert.False(input.RootElement.TryGetProperty("ContextSummary", out _));
         Assert.Equal("Question", input.RootElement.GetProperty("Question").GetString());
         Assert.Equal("A detour", input.RootElement.GetProperty("Request").GetString());
         Assert.Equal(kind.ToString(), input.RootElement.GetProperty("Kind").GetString());

@@ -61,15 +61,16 @@ public sealed class TelegramLearningTests
     }
 
     [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public async Task Post_ExplanationFailureOrInvalidOutput_PreservesLessonAndHistory(bool failure)
+    [InlineData(true, 0)]
+    [InlineData(false, 0)]
+    [InlineData(false, 2501)]
+    public async Task Post_ExplanationFailureOrInvalidOutput_PreservesLessonAndHistory(bool failure, int outputLength)
     {
         using var factory = new OwnDayHostFactory();
         using var host = factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
             services.Replace(ServiceDescriptor.Singleton<ILessonTeacher>(new Teacher
             {
-                ExplanationFailure = failure, InvalidExplanation = !failure
+                ExplanationFailure = failure, Explanation = new string('e', outputLength)
             }))));
         using var client = host.CreateClient();
         await PostAsync(client, 1, 101, "/learn algebra");
@@ -144,11 +145,11 @@ public sealed class TelegramLearningTests
             token.ThrowIfCancellationRequested();
             Explained++;
             if (ExplanationFailure) throw new LessonProviderException();
-            return Task.FromResult(new LessonExplanation(InvalidExplanation ? "" : "Another explanation"));
+            return Task.FromResult(new LessonExplanation(Explanation));
         }
         public int Explained { get; private set; }
         public bool ExplanationFailure { get; init; }
-        public bool InvalidExplanation { get; init; }
+        public string Explanation { get; init; } = "Another explanation";
         public int Generated { get; private set; }
         public int Assessed { get; private set; }
         public bool Failure { get; init; }

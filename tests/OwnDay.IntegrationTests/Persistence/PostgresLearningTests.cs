@@ -12,7 +12,90 @@ public sealed class PostgresLearningTests
 {
     [Fact]
     [Trait("Requires", "PostgreSQL via OWNDAY_TEST_POSTGRES_CONNECTION")]
-    public async Task Migrate_ExistingLessons_BackfillsStatesAndContextWithoutLosingResults()
+    public async Task Migrate_StoredPresentation_PreservesLessonDataAndRebuildsContextOnDowngrade()
+    {
+        var connection = Environment.GetEnvironmentVariable("OWNDAY_TEST_POSTGRES_CONNECTION") ??
+            throw new InvalidOperationException("OWNDAY_TEST_POSTGRES_CONNECTION is required.");
+        var schema = "ownday_test_" + Guid.NewGuid().ToString("N");
+        await using var admin = new OwnDayDbContext(new DbContextOptionsBuilder<OwnDayDbContext>().UseNpgsql(connection).Options);
+#pragma warning disable EF1003 // Schema name is generated from a GUID.
+        await admin.Database.ExecuteSqlRawAsync("CREATE SCHEMA " + schema);
+#pragma warning restore EF1003
+        try
+        {
+            var options = new DbContextOptionsBuilder<OwnDayDbContext>().UseNpgsql(connection + ";Search Path=" + schema).Options;
+            await using var db = new OwnDayDbContext(options);
+            var migrator = db.GetService<IMigrator>();
+            const string previousMigration = "20261105164833_AddLessonDialogue";
+            await migrator.MigrateAsync(previousMigration);
+            foreach (var status in Enum.GetValues<LessonStatus>())
+            {
+                var lesson = Lesson.Start(new UserId(101 + (int)status), "Algebra", "Theory", "Question");
+                lesson.AddExplanation(LessonInteractionKind.Clarification, "Request", "Explanation");
+                switch (status)
+                {
+                    case LessonStatus.Paused: lesson.Pause(); break;
+                    case LessonStatus.Completed: lesson.Complete("Answer", "Feedback", true); break;
+                    case LessonStatus.Finished: lesson.Finish(); break;
+                }
+                db.Add(lesson);
+            }
+            await db.SaveChangesAsync();
+            await db.Database.ExecuteSqlRawAsync("""
+                UPDATE learning_lessons SET "ContextSummary" = 'Stored presentation from an older version'
+                """);
+
+            await db.Database.MigrateAsync();
+            db.ChangeTracker.Clear();
+            var lessons = await db.Set<Lesson>().Include(l => l.Interactions).ToListAsync();
+            Assert.Equal(4, lessons.Count);
+            Assert.Equal(4, lessons.Select(l => l.Status).Distinct().Count());
+            Assert.All(lessons, lesson =>
+            {
+                Assert.Equal(new UserId(101 + (int)lesson.Status), lesson.UserId);
+                Assert.Equal("Algebra", lesson.Topic);
+                Assert.Equal("Theory", lesson.Theory);
+                Assert.Equal("Question", lesson.Question);
+                var interaction = Assert.Single(lesson.Interactions);
+                Assert.Equal(lesson.Id, interaction.LessonId);
+                Assert.Equal(LessonInteractionKind.Clarification, interaction.Kind);
+                Assert.Equal("Request", interaction.Request);
+                Assert.Equal("Explanation", interaction.Explanation);
+            });
+            var completed = Assert.Single(lessons, l => l.Status == LessonStatus.Completed);
+            Assert.Equal("Answer", completed.Answer);
+            Assert.Equal("Feedback", completed.Feedback);
+            Assert.True(completed.IsCorrect);
+            Assert.All(lessons.Where(l => l.Status != LessonStatus.Completed), lesson =>
+            {
+                Assert.Null(lesson.Answer);
+                Assert.Null(lesson.Feedback);
+                Assert.Null(lesson.IsCorrect);
+            });
+
+            await migrator.MigrateAsync(previousMigration);
+            var contexts = await db.Database.SqlQueryRaw<string>("""
+                SELECT "ContextSummary" AS "Value" FROM learning_lessons ORDER BY "Status"
+                """).ToListAsync();
+            Assert.Equal(new[]
+            {
+                "Topic: Algebra\nExpected action: Answer the current question.\nCurrent question: Question",
+                "Topic: Algebra\nExpected action: Resume the lesson before answering.\nCurrent question: Question",
+                "Topic: Algebra\nLesson ended. Start another lesson.\nCurrent question: Question",
+                "Topic: Algebra\nLesson ended. Start another lesson.\nCurrent question: Question"
+            }, contexts);
+        }
+        finally
+        {
+#pragma warning disable EF1003 // Same GUID-derived schema name.
+            await admin.Database.ExecuteSqlRawAsync("DROP SCHEMA " + schema + " CASCADE");
+#pragma warning restore EF1003
+        }
+    }
+
+    [Fact]
+    [Trait("Requires", "PostgreSQL via OWNDAY_TEST_POSTGRES_CONNECTION")]
+    public async Task Migrate_ExistingLessons_BackfillsStatesWithoutLosingResults()
     {
         var connection = Environment.GetEnvironmentVariable("OWNDAY_TEST_POSTGRES_CONNECTION") ??
             throw new InvalidOperationException("OWNDAY_TEST_POSTGRES_CONNECTION is required.");
@@ -44,7 +127,9 @@ public sealed class PostgresLearningTests
             var lessons = await db.Set<Lesson>().ToListAsync();
             Assert.Equal(2, lessons.Count(l => l.Status == LessonStatus.Completed && l.Answer == "Answer" && l.IsCorrect == true));
             var active = Assert.Single(lessons, l => l.Status == LessonStatus.AwaitingAnswer);
-            Assert.Equal(Lesson.Start(user, "Algebra", "Theory", "Question").ContextSummary, active.ContextSummary);
+            Assert.Equal("Algebra", active.Topic);
+            Assert.Equal("Theory", active.Theory);
+            Assert.Equal("Question", active.Question);
             active.Finish();
             await db.SaveChangesAsync();
             db.Add(Lesson.Start(user, "Geometry", "Theory", "Next question"));
