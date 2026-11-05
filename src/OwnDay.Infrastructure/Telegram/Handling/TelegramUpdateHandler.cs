@@ -176,8 +176,13 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
             }
             replies = command.Name switch
             {
-                "learn" => [TelegramLearningPresenter.Render(await _learning.StartAsync(command.UserId, command.Arguments, cancellationToken))],
-                "answer" => [TelegramLearningPresenter.Render(await _learning.AnswerAsync(command.UserId, command.Arguments, cancellationToken))],
+                "learn" => TelegramLearningPresenter.Render(await _learning.StartAsync(command.UserId, command.Arguments, cancellationToken)),
+                "answer" => TelegramLearningPresenter.Render(await _learning.AnswerAsync(command.UserId, command.Arguments, cancellationToken)),
+                "learn_ask" => TelegramLearningPresenter.Render(await _learning.ClarifyAsync(command.UserId, command.Arguments, cancellationToken)),
+                "learn_explain" => TelegramLearningPresenter.Render(await _learning.ExplainAsync(command.UserId, cancellationToken)),
+                "learn_pause" => TelegramLearningPresenter.Render(await _learning.PauseAsync(command.UserId, cancellationToken)),
+                "learn_resume" => TelegramLearningPresenter.Render(await _learning.ResumeAsync(command.UserId, cancellationToken)),
+                "learn_finish" => TelegramLearningPresenter.Render(await _learning.FinishAsync(command.UserId, cancellationToken)),
                 "stats" => await _statistics.HandleAsync(command.UserId, command.Arguments, locale, cancellationToken),
                 "settings" => [TelegramTexts.Get(locale, "settings.menu")],
                 "language" => await _languageFlow.SelectAsync(command.UserId, command.Arguments.Trim(), locale, cancellationToken),

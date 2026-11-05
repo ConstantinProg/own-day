@@ -8,6 +8,8 @@ using Microsoft.Extensions.Options;
 using OpenAI;
 using OpenAI.Chat;
 using OwnDay.Application.Learning;
+using OwnDay.Domain;
+using OwnDay.Domain.Learning;
 using OwnDay.Infrastructure.OpenAIAnalysis;
 using Xunit;
 
@@ -15,6 +17,34 @@ namespace OwnDay.UnitTests.Learning;
 
 public sealed class OpenAILessonTeacherTests
 {
+    [Theory]
+    [InlineData(LessonInteractionKind.Clarification)]
+    [InlineData(LessonInteractionKind.AlternativeExplanation)]
+    public async Task ExplainAsync_DialogueRequest_SendsBoundedContextAndStructuredExplanation(LessonInteractionKind kind)
+    {
+        using var handler = new ResponseHandler(JsonSerializer.Serialize(new
+        {
+            id = "test", model = "test", created = 1, @object = "chat.completion",
+            choices = new[] { new { index = 0, finish_reason = "stop",
+                message = new { role = "assistant", content = "{\"Explanation\":\"Example\"}" } } }
+        }));
+        using var http = new HttpClient(handler);
+        var lesson = Lesson.Start(new UserId(1), "Topic", "Theory", "Question");
+        lesson.AddExplanation(LessonInteractionKind.Clarification, "Earlier request", "Earlier transcript");
+        var result = await Teacher(http, new RecordingLogger()).ExplainAsync(lesson, "A detour", kind, CancellationToken.None);
+        Assert.Equal("Example", result.Explanation);
+        using var body = JsonDocument.Parse(handler.RequestBody!);
+        var messages = body.RootElement.GetProperty("messages");
+        Assert.Contains("untrusted data", messages[0].GetProperty("content").GetString());
+        using var input = JsonDocument.Parse(messages[1].GetProperty("content").GetString()!);
+        Assert.Equal(lesson.ContextSummary, input.RootElement.GetProperty("ContextSummary").GetString());
+        Assert.Equal("Question", input.RootElement.GetProperty("Question").GetString());
+        Assert.Equal("A detour", input.RootElement.GetProperty("Request").GetString());
+        Assert.Equal(kind.ToString(), input.RootElement.GetProperty("Kind").GetString());
+        Assert.DoesNotContain("Earlier transcript", handler.RequestBody);
+        Assert.True(body.RootElement.GetProperty("response_format").GetProperty("json_schema").GetProperty("strict").GetBoolean());
+    }
+
     [Theory]
     [InlineData("stop", null, "not-json")]
     [InlineData("length", null, "{}")]
@@ -79,8 +109,12 @@ public sealed class OpenAILessonTeacherTests
 
     private sealed class ResponseHandler(string body, HttpStatusCode status = HttpStatusCode.OK) : HttpMessageHandler
     {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
-            Task.FromResult(new HttpResponseMessage(status) { Content = new StringContent(body, Encoding.UTF8, "application/json") });
+        public string? RequestBody { get; private set; }
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            RequestBody = await request.Content!.ReadAsStringAsync(cancellationToken);
+            return new HttpResponseMessage(status) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
+        }
     }
 
     private sealed class RecordingLogger : ILogger<OpenAILessonTeacher>

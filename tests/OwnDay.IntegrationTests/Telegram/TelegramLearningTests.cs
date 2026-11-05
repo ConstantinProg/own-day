@@ -13,6 +13,77 @@ namespace OwnDay.IntegrationTests.Telegram;
 public sealed class TelegramLearningTests
 {
     [Fact]
+    public async Task Post_DetourPauseResumeAndFinish_PreservesStepAndRejectsInvalidTransitions()
+    {
+        using var factory = new OwnDayHostFactory();
+        var teacher = new Teacher();
+        using var host = factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
+            services.Replace(ServiceDescriptor.Singleton<ILessonTeacher>(teacher))));
+        using var client = host.CreateClient();
+        await PostAsync(client, 1, 101, "/learn algebra");
+        await PostAsync(client, 2, 101, "/learn_ask How is this used in physics?");
+        await PostAsync(client, 2, 101, "/learn_ask How is this used in physics?");
+        await PostAsync(client, 3, 101, "/learn_explain");
+        await PostAsync(client, 4, 101, "/learn_pause");
+        await PostAsync(client, 4, 101, "/learn_pause");
+        await PostAsync(client, 5, 101, "/answer four");
+        await PostAsync(client, 6, 101, "/learn_ask Explain while paused");
+        await PostAsync(client, 7, 202, "/learn_explain");
+        await PostAsync(client, 8, 101, "/learn other topic");
+        await PostAsync(client, 9, 101, "/learn_resume");
+        await PostAsync(client, 10, 101, "/learn_finish");
+        await PostAsync(client, 10, 101, "/learn_finish");
+        await PostAsync(client, 11, 101, "/answer four");
+        await PostAsync(client, 12, 101, "/learn_resume");
+        await PostAsync(client, 13, 101, "/learn geometry");
+        await PostAsync(client, 14, 101, "/answer four");
+        using var scope = host.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
+        var lessons = await db.Set<Lesson>().Include(l => l.Interactions).ToListAsync();
+        var finished = Assert.Single(lessons, l => l.Status == LessonStatus.Finished);
+        Assert.Equal("algebra", finished.Topic);
+        Assert.Equal("Two plus two?", finished.Question);
+        Assert.Null(finished.Answer);
+        Assert.Null(finished.IsCorrect);
+        Assert.Equal(2, finished.Interactions.Count);
+        Assert.Contains(finished.Interactions, i => i.Request == "How is this used in physics?");
+        Assert.Contains(finished.Interactions, i => i.Kind == LessonInteractionKind.AlternativeExplanation);
+        Assert.Equal("geometry", Assert.Single(lessons, l => l.Status == LessonStatus.Completed).Topic);
+        Assert.Equal(2, teacher.Generated);
+        Assert.Equal(2, teacher.Explained);
+        Assert.Equal(1, teacher.Assessed);
+        Assert.Equal(14, await db.ProcessedTelegramUpdates.CountAsync());
+        var replies = await db.TelegramOutboxMessages.ToListAsync();
+        Assert.Equal(18, replies.Count);
+        Assert.Contains(replies, r => r.Text.Contains("Return to: algebra\nTwo plus two?", StringComparison.Ordinal));
+        Assert.Contains(replies, r => r.Text.Contains("Topic: algebra\nExpected action: Answer the current question", StringComparison.Ordinal));
+        Assert.All(replies.Where(r => r.ChatId == 202), r => Assert.DoesNotContain("algebra", r.Text));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Post_ExplanationFailureOrInvalidOutput_PreservesLessonAndHistory(bool failure)
+    {
+        using var factory = new OwnDayHostFactory();
+        using var host = factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
+            services.Replace(ServiceDescriptor.Singleton<ILessonTeacher>(new Teacher
+            {
+                ExplanationFailure = failure, InvalidExplanation = !failure
+            }))));
+        using var client = host.CreateClient();
+        await PostAsync(client, 1, 101, "/learn algebra");
+        await PostAsync(client, 2, 101, "/learn_ask Why?");
+        using var scope = host.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
+        var lesson = Assert.Single(await db.Set<Lesson>().Include(l => l.Interactions).ToListAsync());
+        Assert.Equal(LessonStatus.AwaitingAnswer, lesson.Status);
+        Assert.Empty(lesson.Interactions);
+        Assert.Equal("Two plus two?", lesson.Question);
+        Assert.Contains(await db.TelegramOutboxMessages.ToListAsync(), r => r.Text.Contains("Retry", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task Post_LessonAndAnswer_PersistsIsolatesAndDeduplicates()
     {
         using var factory = new OwnDayHostFactory();
@@ -31,7 +102,7 @@ public sealed class TelegramLearningTests
         Assert.Equal("four", lesson.Answer);
         Assert.True(lesson.IsCorrect);
         Assert.Equal("Good", lesson.Feedback);
-        Assert.Equal(3, await db.TelegramOutboxMessages.CountAsync());
+        Assert.Equal(4, await db.TelegramOutboxMessages.CountAsync());
         Assert.Equal(1, teacher.Generated);
         Assert.Equal(1, teacher.Assessed);
     }
@@ -68,6 +139,16 @@ public sealed class TelegramLearningTests
 
     private sealed class Teacher : ILessonTeacher
     {
+        public Task<LessonExplanation> ExplainAsync(Lesson lesson, string request, LessonInteractionKind kind, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            Explained++;
+            if (ExplanationFailure) throw new LessonProviderException();
+            return Task.FromResult(new LessonExplanation(InvalidExplanation ? "" : "Another explanation"));
+        }
+        public int Explained { get; private set; }
+        public bool ExplanationFailure { get; init; }
+        public bool InvalidExplanation { get; init; }
         public int Generated { get; private set; }
         public int Assessed { get; private set; }
         public bool Failure { get; init; }

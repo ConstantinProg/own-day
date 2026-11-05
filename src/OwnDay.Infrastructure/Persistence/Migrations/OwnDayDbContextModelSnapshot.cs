@@ -29,9 +29,24 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
             b.Property<string>("Answer").HasMaxLength(3000).HasColumnType("character varying(3000)");
             b.Property<string>("Feedback").HasMaxLength(3000).HasColumnType("character varying(3000)");
             b.Property<bool?>("IsCorrect").HasColumnType("boolean");
+            b.Property<int>("Status").HasColumnType("integer");
+            b.Property<string>("ContextSummary").IsRequired().HasMaxLength(2000).HasColumnType("character varying(2000)");
             b.HasKey("Id");
-            b.HasIndex("UserId").IsUnique().HasFilter("\"Answer\" IS NULL");
+            b.HasIndex("UserId").IsUnique().HasFilter("\"Status\" IN (0, 1)");
             b.ToTable("learning_lessons", (string)null);
+        });
+
+        modelBuilder.Entity("OwnDay.Domain.Learning.LessonInteraction", b =>
+        {
+            b.Property<long>("Id").ValueGeneratedOnAdd().HasColumnType("bigint");
+            NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+            b.Property<Guid>("LessonId").HasColumnType("uuid");
+            b.Property<int>("Kind").HasColumnType("integer");
+            b.Property<string>("Request").IsRequired().HasMaxLength(1000).HasColumnType("character varying(1000)");
+            b.Property<string>("Explanation").IsRequired().HasMaxLength(2500).HasColumnType("character varying(2500)");
+            b.HasKey("Id");
+            b.HasIndex("LessonId");
+            b.ToTable("learning_interactions", (string)null);
         });
 
 
@@ -819,6 +834,12 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
                     .OnDelete(DeleteBehavior.Cascade)
                     .IsRequired();
             });
+        modelBuilder.Entity("OwnDay.Domain.Learning.LessonInteraction", b =>
+        {
+            b.HasOne("OwnDay.Domain.Learning.Lesson", null).WithMany("Interactions")
+                .HasForeignKey("LessonId").OnDelete(DeleteBehavior.Cascade).IsRequired();
+        });
+        modelBuilder.Entity("OwnDay.Domain.Learning.Lesson", b => b.Navigation("Interactions"));
 #pragma warning restore 612, 618
     }
 }

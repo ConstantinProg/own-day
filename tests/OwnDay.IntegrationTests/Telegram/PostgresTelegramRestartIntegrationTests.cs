@@ -6,9 +6,13 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging.Abstractions;
+using OwnDay.Application.Learning;
 using OwnDay.Domain.Inbox;
+using OwnDay.Domain.Learning;
 using OwnDay.Infrastructure.Persistence;
 using OwnDay.Infrastructure.Telegram.Cleanup;
+using OwnDay.Infrastructure.Telegram.Delivery;
 using OwnDay.Infrastructure.Telegram.Localization;
 using Xunit;
 
@@ -16,6 +20,134 @@ namespace OwnDay.IntegrationTests.Telegram;
 
 public sealed class PostgresTelegramRestartIntegrationTests
 {
+    [Fact]
+    [Trait("Requires", "PostgreSQL via OWNDAY_TEST_POSTGRES_CONNECTION")]
+    public async Task Post_LessonAndDeliveryAcrossHostRestarts_RestoresStepAndRetriesDurableReply()
+    {
+        var connection = Environment.GetEnvironmentVariable("OWNDAY_TEST_POSTGRES_CONNECTION") ??
+            throw new InvalidOperationException("OWNDAY_TEST_POSTGRES_CONNECTION is required.");
+        var schema = "ownday_test_" + Guid.NewGuid().ToString("N");
+        await using var admin = new OwnDayDbContext(new DbContextOptionsBuilder<OwnDayDbContext>().UseNpgsql(connection).Options);
+#pragma warning disable EF1003 // Schema name is generated from a GUID.
+        await admin.Database.ExecuteSqlRawAsync("CREATE SCHEMA " + schema);
+#pragma warning restore EF1003
+        try
+        {
+            var scopedConnection = connection + ";Search Path=" + schema;
+            var options = new DbContextOptionsBuilder<OwnDayDbContext>().UseNpgsql(scopedConnection).Options;
+            await using (var setup = new OwnDayDbContext(options))
+            {
+                await setup.Database.MigrateAsync();
+            }
+            var teacher = new LessonTeacher();
+            var clock = new LessonClock();
+            var sender = new LessonSender();
+            using (var factory = new PostgresHostFactory(scopedConnection))
+            using (var host = factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
+                services.Replace(ServiceDescriptor.Singleton<ILessonTeacher>(teacher)))))
+            using (var client = host.CreateClient())
+            {
+                await PostAsync(client, 4001, "/learn algebra");
+                await PostAsync(client, 4002, "/learn_ask Why?");
+                await PostAsync(client, 4003, "/learn_pause");
+            }
+            using (var factory = new PostgresHostFactory(scopedConnection))
+            using (var host = factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
+                services.Replace(ServiceDescriptor.Singleton<ILessonTeacher>(teacher)))))
+            using (var client = host.CreateClient())
+            {
+                await PostAsync(client, 4002, "/learn_ask Why?");
+                using var scope = host.Services.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
+                var lesson = await db.Set<Lesson>().SingleAsync();
+                Assert.Equal(LessonStatus.Paused, lesson.Status);
+                Assert.Contains("Resume the lesson", lesson.ContextSummary);
+                await PostAsync(client, 4004, "/learn_resume");
+                db.ChangeTracker.Clear();
+                lesson = await db.Set<Lesson>().SingleAsync();
+                Assert.Equal(LessonStatus.AwaitingAnswer, lesson.Status);
+                Assert.Contains("Answer the current question", lesson.ContextSummary);
+                Assert.Equal("Question", lesson.Question);
+                Assert.Contains(await db.TelegramOutboxMessages.ToListAsync(), m =>
+                    m.Text.Contains(lesson.ContextSummary, StringComparison.Ordinal));
+                clock.UtcNow = DateTime.UtcNow.AddMinutes(1);
+                await new TelegramOutboxDeliveryService(db, sender, NullLogger<TelegramOutboxDeliveryService>.Instance, clock)
+                    .DeliverBatchAsync(CancellationToken.None);
+                Assert.Single(sender.Attempts);
+                Assert.Equal(6, await db.TelegramOutboxMessages.CountAsync(m => m.Status == OutboxMessageStatus.Pending));
+            }
+            using (var factory = new PostgresHostFactory(scopedConnection))
+            using (var host = factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
+                services.Replace(ServiceDescriptor.Singleton<ILessonTeacher>(teacher)))))
+            using (var client = host.CreateClient())
+            {
+                await PostAsync(client, 4005, "/answer Answer");
+                await PostAsync(client, 4005, "/answer Answer");
+                clock.UtcNow = clock.UtcNow.AddSeconds(3);
+                using var scope = host.Services.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
+                await new TelegramOutboxDeliveryService(db, sender, NullLogger<TelegramOutboxDeliveryService>.Instance, clock)
+                    .DeliverBatchAsync(CancellationToken.None);
+                Assert.Equal(7, await db.TelegramOutboxMessages.CountAsync(m => m.Status == OutboxMessageStatus.Sent));
+                Assert.Equal(8, sender.Attempts.Count);
+                Assert.Equal(sender.Attempts[0], sender.Attempts[1]);
+                Assert.Equal(LessonStatus.Completed, (await db.Set<Lesson>().SingleAsync()).Status);
+                Assert.Equal(1, await db.Set<LessonInteraction>().CountAsync());
+                Assert.Equal(1, teacher.Generated);
+                Assert.Equal(1, teacher.Explained);
+                Assert.Equal(1, teacher.Assessed);
+            }
+        }
+        finally
+        {
+#pragma warning disable EF1003 // Same GUID-derived schema name.
+            await admin.Database.ExecuteSqlRawAsync("DROP SCHEMA " + schema + " CASCADE");
+#pragma warning restore EF1003
+        }
+    }
+
+    private sealed class LessonTeacher : ILessonTeacher
+    {
+        public int Generated { get; private set; }
+        public int Explained { get; private set; }
+        public int Assessed { get; private set; }
+        public Task<LessonMaterial> GenerateAsync(string topic, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            Generated++;
+            return Task.FromResult(new LessonMaterial("Theory", "Question"));
+        }
+        public Task<LessonExplanation> ExplainAsync(Lesson lesson, string request, LessonInteractionKind kind, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            Explained++;
+            return Task.FromResult(new LessonExplanation("Explanation"));
+        }
+        public Task<LessonAssessment> AssessAsync(Lesson lesson, string answer, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            Assessed++;
+            return Task.FromResult(new LessonAssessment("Feedback", true));
+        }
+    }
+
+    private sealed class LessonClock : TimeProvider
+    {
+        public DateTime UtcNow { get; set; }
+        public override DateTimeOffset GetUtcNow() => new(UtcNow);
+    }
+
+    private sealed class LessonSender : ITelegramMessageSender
+    {
+        public List<string> Attempts { get; } = [];
+        public Task SendMessageAsync(long chatId, string text, string? replyMarkupJson, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Attempts.Add(text);
+            return Attempts.Count == 1 ? Task.FromException(new HttpRequestException("Temporary failure")) : Task.CompletedTask;
+        }
+    }
+
     [Fact]
     [Trait("Requires", "PostgreSQL via OWNDAY_TEST_POSTGRES_CONNECTION")]
     public async Task Post_LanguageSelectionAcrossHostRestart_PersistsSelectedLanguage()
