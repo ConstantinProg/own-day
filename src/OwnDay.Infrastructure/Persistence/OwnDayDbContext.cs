@@ -40,6 +40,19 @@ public sealed class OwnDayDbContext(DbContextOptions<OwnDayDbContext> options)
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<OwnDay.Domain.Learning.Lesson>(entity =>
+        {
+            entity.ToTable("learning_lessons");
+            entity.HasKey(l => l.Id);
+            entity.Property(l => l.Id).ValueGeneratedNever();
+            entity.Property(l => l.UserId).HasConversion(id => id.Value, value => new UserId(value));
+            entity.Property(l => l.Topic).HasMaxLength(500);
+            entity.Property(l => l.Theory).HasMaxLength(2500);
+            entity.Property(l => l.Question).HasMaxLength(1000);
+            entity.Property(l => l.Answer).HasMaxLength(3000);
+            entity.Property(l => l.Feedback).HasMaxLength(3000);
+            entity.HasIndex(l => l.UserId).IsUnique().HasFilter("\"Answer\" IS NULL");
+        });
         InboxAnalysisModel.Configure(modelBuilder);
         InboxObservabilityModel.Configure(modelBuilder);
         modelBuilder.Entity<TelegramInboxDestination>(entity =>

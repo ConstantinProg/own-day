@@ -45,6 +45,9 @@ public static class TelegramServiceCollectionExtensions
         services.AddScoped<TelegramLanguageFlow>();
         services.AddSingleton<TelegramUpdateRouter>();
 
+        services.AddScoped<OwnDay.Application.Learning.ILessonStore, OwnDay.Infrastructure.Persistence.EfLessonStore>();
+        services.AddScoped<OwnDay.Application.Learning.ILessonTeacher, OwnDay.Infrastructure.OpenAIAnalysis.OpenAILessonTeacher>();
+        services.AddScoped<OwnDay.Application.Learning.LearningService>();
         services.AddScoped<TelegramUpdateHandler>();
         services.AddScoped<ITelegramUpdateHandler>(
             serviceProvider =>

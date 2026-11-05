@@ -19,6 +19,22 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
 
         NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+        modelBuilder.Entity("OwnDay.Domain.Learning.Lesson", b =>
+        {
+            b.Property<Guid>("Id").HasColumnType("uuid");
+            b.Property<long>("UserId").HasColumnType("bigint");
+            b.Property<string>("Topic").IsRequired().HasMaxLength(500).HasColumnType("character varying(500)");
+            b.Property<string>("Theory").IsRequired().HasMaxLength(2500).HasColumnType("character varying(2500)");
+            b.Property<string>("Question").IsRequired().HasMaxLength(1000).HasColumnType("character varying(1000)");
+            b.Property<string>("Answer").HasMaxLength(3000).HasColumnType("character varying(3000)");
+            b.Property<string>("Feedback").HasMaxLength(3000).HasColumnType("character varying(3000)");
+            b.Property<bool?>("IsCorrect").HasColumnType("boolean");
+            b.HasKey("Id");
+            b.HasIndex("UserId").IsUnique().HasFilter("\"Answer\" IS NULL");
+            b.ToTable("learning_lessons", (string)null);
+        });
+
+
         modelBuilder.Entity("OwnDay.Application.Inbox.Observability.InboxOperationEvent", b =>
             {
                 b.Property<Guid>("Id")

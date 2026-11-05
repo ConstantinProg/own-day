@@ -15,6 +15,7 @@ namespace OwnDay.Infrastructure.Telegram.Handling;
 
 public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
 {
+    private readonly OwnDay.Application.Learning.LearningService? _learning;
     private readonly TelegramStatisticsCommandHandler _statistics;
     private readonly TelegramActionCommandHandler _actionCommandHandler;
     private readonly TelegramStructuredCommandHandler _structuredCommandHandler;
@@ -38,7 +39,8 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         TimeProvider timeProvider,
         ITelegramMessageCleaner messageCleaner,
         ILogger<TelegramUpdateHandler> logger,
-        ITelegramCallbackResponder? callbackResponder = null)
+        ITelegramCallbackResponder? callbackResponder = null,
+        OwnDay.Application.Learning.LearningService? learning = null)
     {
         ArgumentNullException.ThrowIfNull(router);
         ArgumentNullException.ThrowIfNull(actionCommandHandler);
@@ -49,6 +51,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         ArgumentNullException.ThrowIfNull(messageCleaner);
         ArgumentNullException.ThrowIfNull(logger);
 
+        _learning = learning;
         _statistics = statistics;
         _router = router;
         _actionCommandHandler = actionCommandHandler;
@@ -172,6 +175,8 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
             }
             replies = command.Name switch
             {
+                "learn" or "answer" => await _learning!
+                    .HandleAsync(command.UserId, command.Name == "learn", command.Arguments, cancellationToken),
                 "stats" => await _statistics.HandleAsync(command.UserId, command.Arguments, locale, cancellationToken),
                 "settings" => [TelegramTexts.Get(locale, "settings.menu")],
                 "language" => await _languageFlow.SelectAsync(command.UserId, command.Arguments.Trim(), locale, cancellationToken),
