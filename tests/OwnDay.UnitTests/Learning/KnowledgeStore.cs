@@ -9,6 +9,10 @@ internal sealed class KnowledgeStore : IKnowledgeStore
     public List<Skill> Skills { get; } = [];
     public List<LearningEvidence> Evidence { get; } = [];
     public List<ReviewSchedule> Reviews { get; } = [];
+    public List<ProgramSkillLink> Links { get; } = [];
+    public void Add(ProgramSkillLink link) => Links.Add(link);
+    public Task<IReadOnlyList<ProgramSkillLink>> LinksAsync(UserId user, Guid programId, int progressVersion, CancellationToken token) =>
+        Task.FromResult<IReadOnlyList<ProgramSkillLink>>(Links.Where(l => l.UserId == user && l.ProgramId == programId && l.ProgressVersion == progressVersion).ToArray());
     public Task<Skill?> FindAsync(UserId user, Guid skillId, CancellationToken token) =>
         Task.FromResult(Skills.SingleOrDefault(s => s.UserId == user && s.Id == skillId));
     public Task<Skill?> FindTopicAsync(UserId user, Guid programId, int version, string topicCode, CancellationToken token) =>

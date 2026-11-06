@@ -9,11 +9,13 @@ public interface IKnowledgeStore
     Task<Skill?> FindTopicAsync(UserId user, Guid programId, int version, string topicCode, CancellationToken token);
     Task<IReadOnlyList<Skill>> ListAsync(UserId user, int offset, int limit, CancellationToken token);
     Task<IReadOnlyList<LearningEvidence>> EvidenceAsync(UserId user, Guid skillId, CancellationToken token);
+    Task<IReadOnlyList<ProgramSkillLink>> LinksAsync(UserId user, Guid programId, int progressVersion, CancellationToken token);
     Task<ReviewSchedule?> ReviewAsync(UserId user, Guid skillId, CancellationToken token);
     Task<IReadOnlyList<ReviewItem>> DueReviewsAsync(UserId user, DateTimeOffset now, int offset, int limit, CancellationToken token);
     void Add(Skill skill);
     void Add(LearningEvidence evidence);
     void Add(ReviewSchedule schedule);
+    void Add(ProgramSkillLink link);
 }
 
 public sealed record SkillPage(IReadOnlyList<Skill> Skills, int Number, bool HasNext);
@@ -29,6 +31,30 @@ public sealed class KnowledgeService(IKnowledgeStore store, TimeProvider clock)
 {
     public const int PageSize = 10;
     public const int MaxPageNumber = int.MaxValue / PageSize;
+
+    public Task<IReadOnlyList<ProgramSkillLink>> LinksAsync(LearningProgram program, CancellationToken token)
+    {
+        Validate(program.UserId, token);
+        return store.LinksAsync(program.UserId, program.Id, program.CurrentRoute.ProgressVersion ?? program.CurrentRoute.Version, token);
+    }
+
+    public async Task<ProgramSkillLink?> ConfirmTopicAsync(LearningProgram program, string code, Guid skillId, string reason, CancellationToken token)
+    {
+        Validate(program.UserId, token);
+        if (program.DiagnosticPending || !program.CurrentRoute.Topics.Any(t => t.Code == code) ||
+            string.IsNullOrWhiteSpace(reason) || reason.Length > ProgramSkillLink.MaxReasonLength) return null;
+        var skill = await store.FindAsync(program.UserId, skillId, token);
+        if (skill is null) return null;
+        var existing = (await LinksAsync(program, token)).SingleOrDefault(l => l.TopicCode == code);
+        if (existing is not null) return existing.SkillId == skillId ? existing : null;
+        // Never merge or relabel an identity that already has lessons and evidence.
+        var topicSkill = await store.FindTopicAsync(program.UserId, program.Id, program.CurrentRoute.Version, code, token);
+        if (topicSkill is not null && topicSkill.Id != skillId) return null;
+        token.ThrowIfCancellationRequested();
+        var link = ProgramSkillLink.Confirm(program, code, skill, reason, clock.GetUtcNow());
+        store.Add(link);
+        return link;
+    }
 
     public async Task AttachAsync(Lesson lesson, string description, CancellationToken token)
     {

@@ -280,6 +280,8 @@ Enter the text (up to 200 characters), or a period to keep it.
 /settings; /language; /language en; /language ru
 /learn &lt;topic&gt;; /answer &lt;answer&gt;; /learn_ask &lt;question&gt;; /learn_explain
 /learn_pause; /learn_resume; /learn_finish
+/learn_programs [page]; /learn_select &lt;program id&gt;
+/learn_link &lt;topic code&gt; | &lt;skill id&gt; | &lt;reason&gt;; /learn_links
 /learn_request &lt;request&gt; | &lt;experience&gt;; /learn_program &lt;goal&gt; | &lt;experience&gt;
 /learn_project &lt;id&gt; | &lt;experience&gt;; /learn_diagnose &lt;answer|skip&gt;
 /learn_route; /learn_next; /learn_adapt; /learn_focus &lt;topic code&gt;

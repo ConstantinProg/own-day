@@ -7,6 +7,9 @@ namespace OwnDay.Application.Learning;
 public interface ICurriculumStore
 {
     Task<LearningProgram?> FindAsync(UserId user, CancellationToken token);
+    Task<LearningProgram?> FindAsync(UserId user, Guid programId, CancellationToken token);
+    Task<IReadOnlyList<LearningProgram>> ListAsync(UserId user, int offset, int limit, CancellationToken token);
+    Task SelectAsync(LearningProgram program, CancellationToken token);
     Task<IReadOnlySet<string>> CompletedTopicsAsync(UserId user, Guid programId, int version, CancellationToken token);
     void Add(LearningProgram program);
 }
@@ -29,6 +32,11 @@ public abstract record CurriculumResult
     public sealed record InvalidTransition : CurriculumResult;
     public sealed record RouteCompleted : CurriculumResult;
     public sealed record ProviderUnavailable : CurriculumResult;
+    public sealed record Programs(IReadOnlyList<LearningProgram> Items, int Page, bool HasNext) : CurriculumResult;
+    public sealed record ProgramNotFound : CurriculumResult;
+    public sealed record LessonInProgress : CurriculumResult;
+    public sealed record Linked(ProgramSkillLink Link) : CurriculumResult;
+    public sealed record Links(IReadOnlyList<ProgramSkillLink> Items) : CurriculumResult;
     public sealed record Adapted(LearningResult Value, string Reason) : CurriculumResult;
 }
 
@@ -49,8 +57,7 @@ public sealed class CurriculumService(ICurriculumStore store, ICurriculumPlanner
             goal = project.Title;
         }
         if (goal.Length is < 1 or > LearningProgram.MaxGoalLength) return new CurriculumResult.InvalidInput();
-        var existing = await store.FindAsync(user, token);
-        if (existing is not null) return new CurriculumResult.Program(existing);
+        if (await lessons.FindActiveAsync(user, token) is not null) return new CurriculumResult.LessonInProgress();
         try
         {
             var proposal = await planner.PlanAsync(new(goal, experience, null, null), token);
@@ -58,12 +65,49 @@ public sealed class CurriculumService(ICurriculumStore store, ICurriculumPlanner
             var program = LearningProgram.Create(user, goal, experience, projectId,
                 proposal.Discipline, proposal.Topics, proposal.DiagnosticQuestion);
             store.Add(program);
+            await store.SelectAsync(program, token);
             return new CurriculumResult.Program(program);
         }
         catch (Exception exception) when (exception is LessonProviderException or ArgumentException)
         {
             return new CurriculumResult.ProviderUnavailable();
         }
+    }
+
+    public async Task<CurriculumResult> ListAsync(UserId user, int page, CancellationToken token)
+    {
+        ValidateUser(user, token);
+        if (page is < 1 or > KnowledgeService.MaxPageNumber) return new CurriculumResult.InvalidInput();
+        var items = await store.ListAsync(user, (page - 1) * KnowledgeService.PageSize, KnowledgeService.PageSize + 1, token);
+        return new CurriculumResult.Programs(items.Take(KnowledgeService.PageSize).ToArray(), page, items.Count > KnowledgeService.PageSize);
+    }
+
+    public async Task<CurriculumResult> SelectAsync(UserId user, Guid programId, CancellationToken token)
+    {
+        ValidateUser(user, token);
+        var program = await store.FindAsync(user, programId, token);
+        if (program is null) return new CurriculumResult.ProgramNotFound();
+        var current = await store.FindAsync(user, token);
+        if (current?.Id != program.Id && await lessons.FindActiveAsync(user, token) is not null)
+            return new CurriculumResult.LessonInProgress();
+        await store.SelectAsync(program, token);
+        return new CurriculumResult.Program(program);
+    }
+
+    public async Task<CurriculumResult> LinkAsync(UserId user, string topicCode, Guid skillId, string reason, CancellationToken token)
+    {
+        ValidateUser(user, token);
+        var program = await store.FindAsync(user, token);
+        if (program is null) return new CurriculumResult.NoProgram();
+        var link = await knowledge.ConfirmTopicAsync(program, topicCode, skillId, reason.Trim(), token);
+        return link is null ? new CurriculumResult.InvalidInput() : new CurriculumResult.Linked(link);
+    }
+
+    public async Task<CurriculumResult> LinksAsync(UserId user, CancellationToken token)
+    {
+        ValidateUser(user, token);
+        var program = await store.FindAsync(user, token);
+        return program is null ? new CurriculumResult.NoProgram() : new CurriculumResult.Links(await knowledge.LinksAsync(program, token));
     }
 
     public async Task<CurriculumResult> ShowAsync(UserId user, CancellationToken token)
@@ -154,9 +198,11 @@ public sealed class CurriculumService(ICurriculumStore store, ICurriculumPlanner
                 teaching = new(action, reason, state, feedback);
                 status = await knowledge.TopicStatusAsync(user, program.Id, program.CurrentRoute.Version, topic.Code, token);
             }
+            var sharedLink = (await knowledge.LinksAsync(program, token)).SingleOrDefault(l => l.TopicCode == topic.Code);
+            var shared = sharedLink is not null && status is not null ? new SharedSkillContext(status.Skill.Description, status.State) : null;
             var material = await teacher.GenerateAsync(new LessonRequest(topic.Title,
                 new LessonProgramContext(program.Discipline, program.Goal, program.Experience,
-                    program.DiagnosticQuestion, program.DiagnosticAnswer), teaching), token);
+                    program.DiagnosticQuestion, program.DiagnosticAnswer), teaching, SharedSkill: shared), token);
             token.ThrowIfCancellationRequested();
             var lesson = Lesson.Start(user, topic.Title, material.Theory, material.Question);
             token.ThrowIfCancellationRequested();

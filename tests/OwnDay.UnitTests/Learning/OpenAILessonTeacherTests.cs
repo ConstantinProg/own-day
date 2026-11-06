@@ -18,6 +18,29 @@ namespace OwnDay.UnitTests.Learning;
 public sealed class OpenAILessonTeacherTests
 {
     [Fact]
+    public async Task GenerateAsync_ConfirmedSharedSkill_SendsDescriptionAndProvisionalStateInProgramContext()
+    {
+        using var handler = new ResponseHandler(JsonSerializer.Serialize(new
+        {
+            id = "test", model = "test", created = 1, @object = "chat.completion",
+            choices = new[] { new { index = 0, finish_reason = "stop",
+                message = new { role = "assistant", content = "{\"Theory\":\"Context\",\"Question\":\"Application\"}" } } }
+        }));
+        using var http = new HttpClient(handler);
+        await Teacher(http, new RecordingLogger()).GenerateAsync(new("Mechanics", new("Physics", "Goal", "Beginner", null, null),
+            SharedSkill: new("Algebraic concept", new(SkillMastery.Developing, 1, 1, 0))), CancellationToken.None);
+        using var body = JsonDocument.Parse(handler.RequestBody!);
+        var messages = body.RootElement.GetProperty("messages");
+        Assert.Contains("explicitly confirmed", messages[0].GetProperty("content").GetString());
+        Assert.Contains("Do not assume the new topic is complete", messages[0].GetProperty("content").GetString());
+        using var input = JsonDocument.Parse(messages[1].GetProperty("content").GetString()!);
+        Assert.Equal("Physics", input.RootElement.GetProperty("Program").GetProperty("Discipline").GetString());
+        var shared = input.RootElement.GetProperty("SharedSkill");
+        Assert.Equal("Algebraic concept", shared.GetProperty("Description").GetString());
+        Assert.Equal(1, shared.GetProperty("State").GetProperty("PositiveAssessments").GetInt32());
+    }
+
+    [Fact]
     public async Task GenerateAsync_ScheduledReview_RequestsNewApplicationWithoutRevealingAnswer()
     {
         using var handler = new ResponseHandler(JsonSerializer.Serialize(new

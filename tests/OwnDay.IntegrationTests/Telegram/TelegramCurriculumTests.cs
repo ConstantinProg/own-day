@@ -258,13 +258,16 @@ public sealed class TelegramCurriculumTests
         await PostAsync(client, 5, 101, "/learn_program other | Expert");
         using var scope = host.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
-        var program = Assert.Single(await db.Set<LearningProgram>().Include(p => p.Routes).ToListAsync());
+        var programs = await db.Set<LearningProgram>().Include(p => p.Routes).ToListAsync();
+        Assert.Equal(2, programs.Count);
+        var program = Assert.Single(programs, p => p.Goal == "Build a website");
         Assert.Equal("Build a website", program.Goal);
         Assert.Equal(command == "learn_project" ? 1L : (long?)null, program.ProjectId);
         Assert.False(program.DiagnosticPending);
         Assert.Null(program.DiagnosticAnswer);
         Assert.Equal(1, program.CurrentRoute.Version);
-        Assert.Single(planner.Requests);
+        Assert.Equal(2, planner.Requests.Count);
+        Assert.Equal(programs.Single(p => p.Goal == "other").Id, (await db.Set<LearningContext>().SingleAsync()).ProgramId);
         Assert.Equal(ProjectStatus.Active, (await db.Projects.SingleAsync()).Status);
         Assert.Empty(await db.Actions.ToListAsync());
     }

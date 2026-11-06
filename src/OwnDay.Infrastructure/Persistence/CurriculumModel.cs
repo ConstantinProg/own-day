@@ -11,6 +11,30 @@ internal static class CurriculumModel
 {
     internal static void Configure(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<LearningContext>(entity =>
+        {
+            entity.ToTable("learning_contexts");
+            entity.HasKey(c => c.UserId);
+            entity.Property(c => c.UserId).HasConversion(id => id.Value, value => new UserId(value)).ValueGeneratedNever();
+            entity.HasOne<LearningProgram>().WithMany().HasForeignKey(c => new { c.ProgramId, c.UserId })
+                .HasPrincipalKey(p => new { p.Id, p.UserId }).OnDelete(DeleteBehavior.Restrict);
+        });
+        modelBuilder.Entity<ProgramSkillLink>(entity =>
+        {
+            entity.ToTable("learning_program_skill_links");
+            entity.HasKey(l => new { l.ProgramId, l.ProgressVersion, l.TopicCode });
+            entity.Property(l => l.UserId).HasConversion(id => id.Value, value => new UserId(value));
+            entity.Property(l => l.TopicCode).HasMaxLength(CurriculumTopic.MaxCodeLength);
+            entity.Property(l => l.Reason).HasMaxLength(ProgramSkillLink.MaxReasonLength);
+            entity.Property(l => l.Source).HasMaxLength(50);
+            entity.Property(l => l.Trust).HasMaxLength(50);
+            entity.HasOne<LearningProgram>().WithMany().HasForeignKey(l => new { l.ProgramId, l.UserId })
+                .HasPrincipalKey(p => new { p.Id, p.UserId }).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<CurriculumRoute>().WithMany().HasForeignKey(l => new { l.ProgramId, l.ProgressVersion })
+                .HasPrincipalKey(r => new { r.ProgramId, r.Version }).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<Skill>().WithMany().HasForeignKey(l => new { l.SkillId, l.UserId })
+                .HasPrincipalKey(s => new { s.Id, s.UserId }).OnDelete(DeleteBehavior.Restrict);
+        });
         modelBuilder.Entity<LearningProgram>(entity =>
         {
             entity.ToTable("learning_programs");
@@ -18,7 +42,7 @@ internal static class CurriculumModel
             entity.Property(p => p.Id).ValueGeneratedNever();
             entity.Property(p => p.UserId).HasConversion(id => id.Value, value => new UserId(value));
             entity.HasAlternateKey(p => new { p.Id, p.UserId });
-            entity.HasIndex(p => p.UserId).IsUnique();
+            entity.HasIndex(p => p.UserId);
             entity.Property(p => p.Goal).HasMaxLength(LearningProgram.MaxGoalLength);
             entity.Property(p => p.Experience).HasMaxLength(LearningProgram.MaxExperienceLength);
             entity.Property(p => p.Discipline).HasMaxLength(LearningProgram.MaxDisciplineLength);

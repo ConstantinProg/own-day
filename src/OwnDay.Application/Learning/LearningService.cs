@@ -12,7 +12,8 @@ public interface ILessonStore
 public sealed record LessonProgramContext(string Discipline, string Goal, string Experience,
     string? DiagnosticQuestion, string? DiagnosticAnswer);
 public sealed record LessonRequest(string Topic, LessonProgramContext? Program = null, TeachingContext? Teaching = null,
-    bool IsReview = false);
+    bool IsReview = false, SharedSkillContext? SharedSkill = null);
+public sealed record SharedSkillContext(string Description, LearnerSkillState State);
 
 public sealed record LessonMaterial(string Theory, string Question);
 public sealed record LessonAssessment(string Feedback, bool IsCorrect)

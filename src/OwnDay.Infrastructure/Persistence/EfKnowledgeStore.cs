@@ -16,6 +16,11 @@ public sealed class EfKnowledgeStore(OwnDayDbContext db) : IKnowledgeStore
             .SingleOrDefaultAsync(p => p.UserId == user && p.Id == programId, token);
         if (program is null) return null;
         var versions = program.ProgressVersions(version);
+        var root = program.Routes.Single(r => r.Version == version);
+        var progressVersion = root.ProgressVersion ?? root.Version;
+        var linked = await db.Set<ProgramSkillLink>().Where(l => l.UserId == user && l.ProgramId == programId &&
+            l.ProgressVersion == progressVersion && l.TopicCode == topicCode).Select(l => (Guid?)l.SkillId).SingleOrDefaultAsync(token);
+        if (linked is Guid skillId) return await FindAsync(user, skillId, token);
         return await db.Set<Skill>().FirstOrDefaultAsync(s => s.UserId == user && db.Set<Lesson>().Any(l =>
             l.UserId == user && l.ProgramId == programId && l.RouteVersion != null && versions.Contains(l.RouteVersion.Value) &&
             l.TopicCode == topicCode && l.SkillId == s.Id), token);
@@ -33,6 +38,11 @@ public sealed class EfKnowledgeStore(OwnDayDbContext db) : IKnowledgeStore
     public void Add(Skill skill) => db.Set<Skill>().Add(skill);
     public void Add(LearningEvidence evidence) => db.Set<LearningEvidence>().Add(evidence);
     public void Add(ReviewSchedule schedule) => db.Set<ReviewSchedule>().Add(schedule);
+    public void Add(ProgramSkillLink link) => db.Set<ProgramSkillLink>().Add(link);
+
+    public async Task<IReadOnlyList<ProgramSkillLink>> LinksAsync(UserId user, Guid programId, int progressVersion, CancellationToken token) =>
+        await db.Set<ProgramSkillLink>().Where(l => l.UserId == user && l.ProgramId == programId && l.ProgressVersion == progressVersion)
+            .OrderBy(l => l.TopicCode).ToListAsync(token);
 
     public Task<ReviewSchedule?> ReviewAsync(UserId user, Guid skillId, CancellationToken token) =>
         db.Set<ReviewSchedule>().SingleOrDefaultAsync(r => r.UserId == user && r.SkillId == skillId, token);

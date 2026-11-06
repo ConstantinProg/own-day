@@ -939,8 +939,7 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
                 b.Property<long>("UserId")
                     .HasColumnType("bigint");
                 b.HasKey("Id");
-                b.HasIndex("UserId")
-                    .IsUnique();
+                b.HasIndex("UserId");
                 b.HasIndex("ProjectId", "UserId");
                 b.ToTable("learning_programs", (string)null);
             });
@@ -1091,6 +1090,100 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
 
         modelBuilder.Entity("OwnDay.Domain.Learning.ReviewSchedule", b =>
             {
+                b.HasOne("OwnDay.Domain.Learning.Skill", null)
+                    .WithMany()
+                    .HasForeignKey("SkillId", "UserId")
+                    .HasPrincipalKey("Id", "UserId")
+                    .OnDelete(DeleteBehavior.Restrict)
+                    .IsRequired();
+            });
+
+        modelBuilder.Entity("OwnDay.Domain.Learning.LearningContext", b =>
+            {
+                b.Property<long>("UserId")
+                    .HasColumnType("bigint");
+
+                b.Property<Guid>("ProgramId")
+                    .HasColumnType("uuid");
+
+                b.HasKey("UserId");
+
+                b.HasIndex("ProgramId", "UserId");
+
+                b.ToTable("learning_contexts", (string)null);
+            });
+
+        modelBuilder.Entity("OwnDay.Domain.Learning.ProgramSkillLink", b =>
+            {
+                b.Property<Guid>("ProgramId")
+                    .HasColumnType("uuid");
+
+                b.Property<int>("ProgressVersion")
+                    .HasColumnType("integer");
+
+                b.Property<string>("TopicCode")
+                    .HasMaxLength(40)
+                    .HasColumnType("character varying(40)");
+
+                b.Property<DateTimeOffset>("ConfirmedAt")
+                    .HasColumnType("timestamp with time zone");
+
+                b.Property<string>("Reason")
+                    .IsRequired()
+                    .HasMaxLength(500)
+                    .HasColumnType("character varying(500)");
+
+                b.Property<Guid>("SkillId")
+                    .HasColumnType("uuid");
+
+                b.Property<string>("Source")
+                    .IsRequired()
+                    .HasMaxLength(50)
+                    .HasColumnType("character varying(50)");
+
+                b.Property<string>("Trust")
+                    .IsRequired()
+                    .HasMaxLength(50)
+                    .HasColumnType("character varying(50)");
+
+                b.Property<long>("UserId")
+                    .HasColumnType("bigint");
+
+                b.HasKey("ProgramId", "ProgressVersion", "TopicCode");
+
+                b.HasIndex("ProgramId", "UserId");
+
+                b.HasIndex("SkillId", "UserId");
+
+                b.ToTable("learning_program_skill_links", (string)null);
+            });
+
+        modelBuilder.Entity("OwnDay.Domain.Learning.LearningContext", b =>
+            {
+                b.HasOne("OwnDay.Domain.Learning.LearningProgram", null)
+                    .WithMany()
+                    .HasForeignKey("ProgramId", "UserId")
+                    .HasPrincipalKey("Id", "UserId")
+                    .OnDelete(DeleteBehavior.Restrict)
+                    .IsRequired();
+            });
+
+        modelBuilder.Entity("OwnDay.Domain.Learning.ProgramSkillLink", b =>
+            {
+                b.HasOne("OwnDay.Domain.Learning.CurriculumRoute", null)
+                    .WithMany()
+                    .HasForeignKey("ProgramId", "ProgressVersion")
+                    .HasPrincipalKey("ProgramId", "Version")
+                    .OnDelete(DeleteBehavior.Restrict)
+                    .IsRequired();
+
+                b.HasOne("OwnDay.Domain.Learning.LearningProgram", null)
+                    .WithMany()
+                    .HasForeignKey("ProgramId", "UserId")
+                    .HasPrincipalKey("Id", "UserId")
+                    .OnDelete(DeleteBehavior.Restrict)
+                    .IsRequired();
+
                 b.HasOne("OwnDay.Domain.Learning.Skill", null)
                     .WithMany()
                     .HasForeignKey("SkillId", "UserId")

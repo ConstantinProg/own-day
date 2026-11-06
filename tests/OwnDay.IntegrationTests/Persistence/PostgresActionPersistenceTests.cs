@@ -102,8 +102,8 @@ public sealed class PostgresActionPersistenceTests
                     await service.CompleteAsync(new UserId(101), 42, CancellationToken.None));
 
                 var sqlGenerator = db.GetService<IMigrationsSqlGenerator>();
-                // Remove the newer program-to-project dependency before rolling back project tables.
-                Migration[] rollback = [new AddLearningPrograms(), new AddStructuredItems(), new RenameTasksToActions()];
+                // Remove context/skill links and the program-to-project dependency before project tables.
+                Migration[] rollback = [new AddMultipleLearningPrograms(), new AddLearningPrograms(), new AddStructuredItems(), new RenameTasksToActions()];
                 foreach (var migration in rollback)
                 {
                     foreach (var migrationCommand in sqlGenerator.Generate(migration.DownOperations, db.Model))
