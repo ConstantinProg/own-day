@@ -44,6 +44,9 @@ public sealed class CurriculumService(ICurriculumStore store, ICurriculumPlanner
     ILessonStore lessons, ILessonTeacher teacher, StructuredItemService projects, KnowledgeService knowledge,
     ITeachingPlanner teachingPlanner)
 {
+    public const int PageSize = 10;
+    public const int MaxPageNumber = int.MaxValue / PageSize;
+
     public async Task<CurriculumResult> CreateAsync(UserId user, string goal, string experience, long? projectId, CancellationToken token)
     {
         ValidateUser(user, token);
@@ -77,9 +80,9 @@ public sealed class CurriculumService(ICurriculumStore store, ICurriculumPlanner
     public async Task<CurriculumResult> ListAsync(UserId user, int page, CancellationToken token)
     {
         ValidateUser(user, token);
-        if (page is < 1 or > KnowledgeService.MaxPageNumber) return new CurriculumResult.InvalidInput();
-        var items = await store.ListAsync(user, (page - 1) * KnowledgeService.PageSize, KnowledgeService.PageSize + 1, token);
-        return new CurriculumResult.Programs(items.Take(KnowledgeService.PageSize).ToArray(), page, items.Count > KnowledgeService.PageSize);
+        if (page is < 1 or > MaxPageNumber) return new CurriculumResult.InvalidInput();
+        var items = await store.ListAsync(user, (page - 1) * PageSize, PageSize + 1, token);
+        return new CurriculumResult.Programs(items.Take(PageSize).ToArray(), page, items.Count > PageSize);
     }
 
     public async Task<CurriculumResult> SelectAsync(UserId user, Guid programId, CancellationToken token)

@@ -35,7 +35,7 @@ public sealed class KnowledgeService(IKnowledgeStore store, TimeProvider clock)
     public Task<IReadOnlyList<ProgramSkillLink>> LinksAsync(LearningProgram program, CancellationToken token)
     {
         Validate(program.UserId, token);
-        return store.LinksAsync(program.UserId, program.Id, program.CurrentRoute.ProgressVersion ?? program.CurrentRoute.Version, token);
+        return store.LinksAsync(program.UserId, program.Id, program.CurrentRoute.ProgressRootVersion, token);
     }
 
     public async Task<ProgramSkillLink?> ConfirmTopicAsync(LearningProgram program, string code, Guid skillId, string reason, CancellationToken token)

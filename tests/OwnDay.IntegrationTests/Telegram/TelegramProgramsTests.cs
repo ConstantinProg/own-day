@@ -12,6 +12,51 @@ namespace OwnDay.IntegrationTests.Telegram;
 public sealed class TelegramProgramsTests
 {
     [Fact]
+    public async Task Post_SharedSkillWithRepeatedDifficulty_AdaptsNewProgramWithoutTransferringProgress()
+    {
+        using var factory = new OwnDayHostFactory();
+        var planner = new TelegramCurriculumTests.Planner { NoQuestion = true };
+        var teachingPlanner = new TelegramAdaptiveTeachingTests.Planner();
+        var teacher = new TelegramCurriculumTests.Teacher();
+        using var host = factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
+        {
+            Configure(services, planner, teacher);
+            services.Replace(ServiceDescriptor.Singleton<ITeachingPlanner>(teachingPlanner));
+        }));
+        using var client = host.CreateClient();
+        await Post(client, 1, "/learn_program Algebra | Beginner");
+        await Post(client, 2, "/learn_next");
+        await Post(client, 3, "/answer wrong");
+        await Post(client, 4, "/learn_next");
+        await Post(client, 5, "/answer wrong");
+        Assert.Empty(teachingPlanner.Requests);
+        Guid skillId;
+        using (var scope = host.Services.CreateScope())
+            skillId = (await scope.ServiceProvider.GetRequiredService<OwnDayDbContext>().Set<Skill>().SingleAsync()).Id;
+        planner.DifferentDiscipline = true;
+        await Post(client, 6, "/learn_program Physics | Beginner");
+        await Post(client, 7, $"/learn_link basics | {skillId} | The same algebraic concept");
+        await Post(client, 8, "/learn_next");
+
+        var adaptation = Assert.Single(teachingPlanner.Requests);
+        Assert.Equal("Physics", adaptation.Discipline);
+        Assert.Equal(2, adaptation.State.NegativeAssessments);
+        Assert.Empty(adaptation.Completed);
+        var lesson = teacher.Requests[^1];
+        Assert.Equal(TeachingAction.Simplify, Assert.IsType<TeachingContext>(lesson.Teaching).Action);
+        Assert.Equal(2, Assert.IsType<SharedSkillContext>(lesson.SharedSkill).State.NegativeAssessments);
+        using var inspection = host.Services.CreateScope();
+        var db = inspection.ServiceProvider.GetRequiredService<OwnDayDbContext>();
+        var programs = await db.Set<LearningProgram>().Include(p => p.Routes).ToListAsync();
+        Assert.Single(programs.Single(p => p.Goal == "Algebra").Routes);
+        var target = programs.Single(p => p.Goal == "Physics");
+        Assert.Equal(2, target.CurrentRoute.Version);
+        Assert.Equal(1, target.CurrentRoute.ProgressRootVersion);
+        Assert.Equal(skillId, (await db.Set<Lesson>().SingleAsync(l => l.ProgramId == target.Id)).SkillId);
+        Assert.Equal(2, await db.Set<LearningEvidence>().CountAsync());
+    }
+
+    [Fact]
     public async Task Post_ProgramPages_ListsOnlyOwnedProgramsWithStableNavigation()
     {
         using var host = new OwnDayHostFactory();

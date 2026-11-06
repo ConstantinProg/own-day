@@ -102,14 +102,14 @@ public sealed class LearningProgram
         }
         var route = CurriculumRoute.Create(Id, CurrentRoute.Version + 1, reason,
             CurrentRoute.Topics.OrderBy(t => priority.Contains(t.Code) ? 0 : 1));
-        route.PreserveProgress(CurrentRoute.ProgressVersion ?? CurrentRoute.Version);
+        route.PreserveProgress(CurrentRoute.ProgressRootVersion);
         return route;
     }
 
     public void ApplyAdaptation(CurriculumRoute route)
     {
         if (route.ProgramId != Id || route.Version != CurrentRoute.Version + 1 ||
-            route.ProgressVersion != (CurrentRoute.ProgressVersion ?? CurrentRoute.Version))
+            route.ProgressVersion != CurrentRoute.ProgressRootVersion)
             throw new ArgumentException("Invalid adaptation revision.", nameof(route));
         _routes.Add(route);
     }
@@ -117,8 +117,8 @@ public sealed class LearningProgram
     public int[] ProgressVersions(int version)
     {
         var route = _routes.Single(r => r.Version == version);
-        var root = route.ProgressVersion ?? route.Version;
-        return _routes.Where(r => r.Version <= version && (r.ProgressVersion ?? r.Version) == root)
+        var root = route.ProgressRootVersion;
+        return _routes.Where(r => r.Version <= version && r.ProgressRootVersion == root)
             .Select(r => r.Version).ToArray();
     }
 
@@ -139,6 +139,7 @@ public sealed class CurriculumRoute
     public int Version { get; private set; }
     public string Reason { get; private set; } = "";
     public int? ProgressVersion { get; private set; }
+    public int ProgressRootVersion => ProgressVersion ?? Version;
     public IReadOnlyList<CurriculumTopic> Topics { get; private set; } = [];
 
     internal void PreserveProgress(int version) => ProgressVersion = version;

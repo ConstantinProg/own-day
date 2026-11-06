@@ -23,7 +23,7 @@ public sealed class ProgramSkillLink
         return new ProgramSkillLink
         {
             ProgramId = program.Id, UserId = program.UserId,
-            ProgressVersion = program.CurrentRoute.ProgressVersion ?? program.CurrentRoute.Version,
+            ProgressVersion = program.CurrentRoute.ProgressRootVersion,
             TopicCode = topicCode, SkillId = skill.Id, Reason = reason, ConfirmedAt = now.ToUniversalTime()
         };
     }

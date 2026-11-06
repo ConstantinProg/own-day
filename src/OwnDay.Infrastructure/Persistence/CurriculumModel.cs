@@ -57,6 +57,7 @@ internal static class CurriculumModel
         modelBuilder.Entity<CurriculumRoute>(entity =>
         {
             entity.ToTable("learning_routes");
+            entity.Ignore(r => r.ProgressRootVersion);
             entity.HasKey(r => r.Id);
             entity.Property(r => r.Id).ValueGeneratedNever();
             entity.HasAlternateKey(r => new { r.ProgramId, r.Version });

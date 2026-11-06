@@ -16,8 +16,7 @@ public sealed class EfKnowledgeStore(OwnDayDbContext db) : IKnowledgeStore
             .SingleOrDefaultAsync(p => p.UserId == user && p.Id == programId, token);
         if (program is null) return null;
         var versions = program.ProgressVersions(version);
-        var root = program.Routes.Single(r => r.Version == version);
-        var progressVersion = root.ProgressVersion ?? root.Version;
+        var progressVersion = program.Routes.Single(r => r.Version == version).ProgressRootVersion;
         var linked = await db.Set<ProgramSkillLink>().Where(l => l.UserId == user && l.ProgramId == programId &&
             l.ProgressVersion == progressVersion && l.TopicCode == topicCode).Select(l => (Guid?)l.SkillId).SingleOrDefaultAsync(token);
         if (linked is Guid skillId) return await FindAsync(user, skillId, token);
