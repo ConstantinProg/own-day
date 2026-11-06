@@ -19,8 +19,7 @@ public static class TelegramProgressPresenter
             "A credited question does not establish long-term mastery.\n" +
             $"/learn_select {program.Id}",
             "Skill estimates use distinct assessed answers across all routes and confirmed shared identities. " +
-            "Unknown: no answers; NeedsPractice: negative only; Developing: 1-2 positive; " +
-            "Demonstrated: at least 3 positive with no negatives; Conflicting: mixed results or validator disagreement. " +
+            string.Join(" ", Enum.GetValues<SkillMastery>().Select(TelegramSkillMasteryText.Explain)) + " " +
             "All estimates are provisional. Gaps below include unassessed topics and uncertain skills."
         };
         foreach (var item in report.Topics)
@@ -39,6 +38,8 @@ public static class TelegramProgressPresenter
                   $"/learn_status {status!.Skill.Id}\n";
             if (status?.Evidence.LastOrDefault() is { } evidence)
                 text += $"Latest assessment ({evidence.ObservedAt:O}): {evidence.AssessmentStatus}; " +
+                    $"AI interpretation: {((evidence.AiAssessedCorrect ?? evidence.AssessedCorrect) ? "positive" : "negative")}\n" +
+                    TelegramLearningPresenter.RenderAssessment(evidence.AssessmentStatus, evidence.DeterministicIsCorrect) + "\n" +
                     $"source: {evidence.AssessmentSource}\nBasis (excerpt): {Excerpt(evidence.AssessmentFeedback)}\n";
             text += status?.Review is { } review
                 ? $"Review (UTC): {review.DueAt:O}; {(item.ReviewDue ? "due" : "upcoming")}\n/learn_review {status.Skill.Id}\n"

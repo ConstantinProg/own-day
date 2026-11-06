@@ -29,15 +29,7 @@ public static class TelegramKnowledgePresenter
     public static IReadOnlyList<string> Status(SkillStatus status)
     {
         var state = status.State;
-        var explanation = state.Mastery switch
-        {
-            SkillMastery.Unknown => "Unknown: no assessed answers.",
-            SkillMastery.NeedsPractice => "Needs practice: only negative AI assessments so far.",
-            SkillMastery.Developing => "Developing: one or two positive AI assessments; evidence is limited.",
-            SkillMastery.Conflicting => "Conflicting: mixed AI results or disagreement with a deterministic check; further verification is needed.",
-            SkillMastery.Demonstrated => "Demonstrated: at least three distinct answers assessed positively by AI, with no negative assessments.",
-            _ => throw new ArgumentOutOfRangeException(nameof(status))
-        };
+        var explanation = TelegramSkillMasteryText.Explain(state.Mastery);
         var messages = new List<string>
         {
             $"{status.Skill.Title}\nSkill: {status.Skill.Id}\n" +

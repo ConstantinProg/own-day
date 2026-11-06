@@ -8,6 +8,44 @@ namespace OwnDay.UnitTests.Learning;
 
 public sealed class TelegramCurriculumPresenterTests
 {
+    [Theory]
+    [InlineData(true, null, "AiOnly", "AI only; no deterministic check.")]
+    [InlineData(false, null, "AiOnly", "AI only; no deterministic check.")]
+    [InlineData(true, "answer", "Agreement", "reference match: True")]
+    [InlineData(false, "other", "Agreement", "reference match: False")]
+    [InlineData(true, "other", "Conflict", "reference match: False")]
+    [InlineData(false, "answer", "Conflict", "reference match: True")]
+    public void Render_LatestAssessment_ShowsAiResultAndReferenceCheck(bool aiCorrect, string? expectedAnswer,
+        string assessmentStatus, string checkText)
+    {
+        var user = new UserId(1);
+        var program = LearningProgram.Create(user, "Goal", "Beginner", null, "Math", [new("basics", "Basics", [])], null);
+        var skill = Skill.Create(user, "Basics");
+        var prior = Lesson.Start(user, "Basics", "Theory", "Question");
+        prior.LinkToSkill(skill);
+        prior.Complete("answer", "Earlier feedback", !aiCorrect);
+        var latest = Lesson.Start(user, "Basics", "Theory", "Question", expectedAnswer: expectedAnswer);
+        latest.LinkToSkill(skill);
+        latest.Complete("answer", "Latest feedback", aiCorrect);
+        var evidence = new[]
+        {
+            LearningEvidence.FromAnswer(prior, DateTimeOffset.UnixEpoch, "old-model"),
+            LearningEvidence.FromAnswer(latest, DateTimeOffset.UnixEpoch.AddDays(1), "latest-model")
+        };
+        var status = new SkillStatus(skill, LearnerSkillState.Evaluate(evidence), evidence);
+        Assert.Equal(SkillMastery.Conflicting, status.State.Mastery);
+        var report = new LearningProgress(program, true, null,
+            [new(program.CurrentRoute.Topics[0], false, true, status, false, null)], 1, false);
+
+        var text = string.Join('\n', TelegramProgressPresenter.Render(report));
+
+        Assert.Contains($"Latest assessment ({evidence[1].ObservedAt:O}): {assessmentStatus}; " +
+            $"AI interpretation: {(aiCorrect ? "positive" : "negative")}", text);
+        Assert.Contains(checkText, text);
+        Assert.Contains("source: latest-model\nBasis (excerpt): Latest feedback", text);
+        Assert.DoesNotContain("Earlier feedback", text);
+    }
+
     [Fact]
     public void Render_MaximumProgressReport_PreservesEveryTopicAndNavigationWithinTelegramLimit()
     {
