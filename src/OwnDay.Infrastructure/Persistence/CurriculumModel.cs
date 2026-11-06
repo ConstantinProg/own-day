@@ -68,6 +68,10 @@ internal static class CurriculumModel
         });
         modelBuilder.Entity<Lesson>(entity =>
         {
+            entity.ToTable("learning_lessons", table => table.HasCheckConstraint(
+                "CK_learning_lessons_project_action", "\"ProjectActionId\" IS NULL OR \"ProgramId\" IS NOT NULL"));
+            entity.HasOne<OwnDay.Domain.Actions.Action>().WithMany().HasForeignKey(l => new { l.ProjectActionId, l.UserId })
+                .HasPrincipalKey(a => new { a.Id, a.UserId }).OnDelete(DeleteBehavior.Restrict);
             entity.Property(l => l.TopicCode).HasMaxLength(CurriculumTopic.MaxCodeLength);
             entity.HasOne<LearningProgram>().WithMany().HasForeignKey(l => new { l.ProgramId, l.UserId })
                 .HasPrincipalKey(p => new { p.Id, p.UserId }).OnDelete(DeleteBehavior.Restrict);

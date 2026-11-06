@@ -547,7 +547,7 @@ public sealed class TelegramUpdateHandlerTests
             var learning = new OwnDay.Application.Learning.LearningService(new EfLessonStore(dbContext), teacher, knowledge);
             var curriculum = new OwnDay.Application.Learning.CurriculumService(new EfCurriculumStore(dbContext), teacher,
                 new EfLessonStore(dbContext), teacher,
-                new StructuredItemService(new EfStructuredItemStore(dbContext), timeProvider), knowledge, teacher);
+                new StructuredItemService(new EfStructuredItemStore(dbContext), timeProvider), knowledge, teacher, new EfActionStore(dbContext));
             var handler = new TelegramUpdateHandler(
                 router,
                 new TelegramActionCommandHandler(new ActionService(new EfActionStore(dbContext), timeProvider)),

@@ -11,12 +11,15 @@ public static class TelegramLearningPresenter
     {
         LearningResult.Material material => RenderMaterial(material),
         LearningResult.Assessment assessment => ["AI assessment (may be inaccurate):\n" + assessment.Feedback + "\n" +
-            RenderAssessment(assessment.Status, assessment.DeterministicIsCorrect) + "\n\n/learn_skills · /learn <topic> · /learn_next (program)"],
+            RenderAssessment(assessment.Status, assessment.DeterministicIsCorrect) + "\n\n/learn_skills · /learn <topic> · /learn_next (program)",
+            .. assessment.ProjectActionId is long actionId ? new[] { ProjectPracticeNotice(actionId) } : Array.Empty<string>()],
         LearningResult.InvalidTopic => ["Use /learn <topic> (up to 500 characters)."],
         LearningResult.InvalidAnswer => ["Use /answer <answer> (up to 3000 characters)."],
         LearningResult.NoActiveLesson => ["Start a lesson with /learn <topic>."],
         LearningResult.ProviderUnavailable => ["The teacher is temporarily unavailable or returned invalid material. Retry the command."],
-        LearningResult.Session session => session.Provenance is null ? [RenderSession(session)] : [RenderSession(session), RenderProvenance(session.Provenance)],
+        LearningResult.Session session => [RenderSession(session),
+            .. session.ProjectActionId is long id ? new[] { ProjectPracticeNotice(id) } : Array.Empty<string>(),
+            .. session.Provenance is not null ? new[] { RenderProvenance(session.Provenance) } : Array.Empty<string>()],
         LearningResult.Explanation explanation => [explanation.Text + "\nAI explanation; no independent source verification.", "Return to: " + explanation.Topic + "\n" + explanation.Question + "\n\n" + Actions],
         LearningResult.InvalidClarification => ["Use /learn_ask <question> (up to 1000 characters)."],
         LearningResult.InvalidTransition => ["This action is unavailable in the current lesson state. Use /learn_resume or /learn_finish."],
@@ -30,10 +33,14 @@ public static class TelegramLearningPresenter
     private static IReadOnlyList<string> RenderMaterial(LearningResult.Material material)
     {
         var messages = new List<string> { material.Topic + "\n\n" + material.Theory, material.Question + "\n\n" + Actions };
+        if (material.ProjectActionId is long id) messages.Add(ProjectPracticeNotice(id));
         if (material.Provenance is not null) messages.Add(RenderProvenance(material.Provenance));
         if (material.HasReferenceCheck) messages.Add($"Answer check: {NormalizedTextAnswerCheck.MethodName}; case and whitespace are ignored. The reference was proposed by AI and may be inaccurate.");
         return messages;
     }
+
+    private static string ProjectPracticeNotice(long id) =>
+        $"Educational practice related to task #{id}. Your answer does not complete the real task or project. No Commitments are created. /learn_project_report";
 
     public static string RenderAssessment(AnswerAssessmentStatus status, bool? deterministic) => status switch
     {

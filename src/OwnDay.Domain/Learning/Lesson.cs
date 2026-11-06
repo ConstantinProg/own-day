@@ -24,6 +24,7 @@ public sealed class Lesson
     public int? RouteVersion { get; private set; }
     public string? TopicCode { get; private set; }
     public Guid? SkillId { get; private set; }
+    public long? ProjectActionId { get; private set; }
     public bool IsReview { get; private set; }
     public IReadOnlyCollection<LessonInteraction> Interactions => _interactions.AsReadOnly();
 
@@ -64,6 +65,15 @@ public sealed class Lesson
         ProgramId = program.Id;
         RouteVersion = program.CurrentRoute.Version;
         TopicCode = topicCode;
+    }
+
+    public void LinkToProjectAction(LearningProgram program, long actionId)
+    {
+        RequireAwaitingAnswer();
+        if (ProjectActionId is not null || actionId <= 0 || program.Id != ProgramId ||
+            program.UserId != UserId || program.ProjectId is null)
+            throw new ArgumentException("Project practice requires a linked project program and task.");
+        ProjectActionId = actionId;
     }
 
     public void Pause()

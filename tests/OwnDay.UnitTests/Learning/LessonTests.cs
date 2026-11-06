@@ -8,6 +8,27 @@ namespace OwnDay.UnitTests.Learning;
 public sealed class LessonTests
 {
     [Fact]
+    public void LinkToProjectAction_RequiresProjectProgramAndCannotBeReassignedOrChangedAfterAnswer()
+    {
+        var user = new UserId(1);
+        var projectProgram = LearningProgram.Create(user, "Goal", "Beginner", 1, "Math", [new("basics", "Basics", [])], null);
+        var standalone = LearningProgram.Create(user, "Goal", "Beginner", null, "Math", [new("basics", "Basics", [])], null);
+        var lesson = Lesson.Start(user, "Topic", "Theory", "Question");
+        Assert.Throws<ArgumentException>(() => lesson.LinkToProjectAction(projectProgram, 1));
+        lesson.LinkToProgram(projectProgram, "basics");
+        Assert.Throws<ArgumentException>(() => lesson.LinkToProjectAction(standalone, 1));
+        Assert.Throws<ArgumentException>(() => lesson.LinkToProjectAction(projectProgram, 0));
+        lesson.LinkToProjectAction(projectProgram, 1);
+        Assert.Throws<ArgumentException>(() => lesson.LinkToProjectAction(projectProgram, 2));
+        lesson.Complete("Answer", "Feedback", true);
+        Assert.Throws<InvalidOperationException>(() => lesson.LinkToProjectAction(projectProgram, 1));
+        Assert.Equal(1, lesson.ProjectActionId);
+        var ordinary = Lesson.Start(user, "Topic", "Theory", "Question");
+        ordinary.LinkToProgram(standalone, "basics");
+        Assert.Throws<ArgumentException>(() => ordinary.LinkToProjectAction(standalone, 1));
+    }
+
+    [Fact]
     public void Pause_ResumeAndComplete_PreservesCurrentStep()
     {
         var lesson = Lesson.Start(new UserId(1), "Topic", "Theory", "Question");

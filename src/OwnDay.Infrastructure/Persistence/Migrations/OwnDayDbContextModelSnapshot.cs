@@ -1289,6 +1289,24 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
                     .OnDelete(DeleteBehavior.Restrict);
             });
 
+        modelBuilder.Entity("OwnDay.Domain.Actions.Action", b =>
+            {
+                b.HasAlternateKey("Id", "UserId");
+            });
+
+        modelBuilder.Entity("OwnDay.Domain.Learning.Lesson", b =>
+            {
+                b.Property<long?>("ProjectActionId").HasColumnType("bigint");
+                b.HasIndex("ProjectActionId", "UserId");
+                b.ToTable("learning_lessons", null, t => t.HasCheckConstraint(
+                    "CK_learning_lessons_project_action", "\"ProjectActionId\" IS NULL OR \"ProgramId\" IS NOT NULL"));
+                b.HasOne("OwnDay.Domain.Actions.Action", null)
+                    .WithMany()
+                    .HasForeignKey("ProjectActionId", "UserId")
+                    .HasPrincipalKey("Id", "UserId")
+                    .OnDelete(DeleteBehavior.Restrict);
+            });
+
 #pragma warning restore 612, 618
     }
 }

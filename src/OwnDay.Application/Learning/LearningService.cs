@@ -12,7 +12,8 @@ public interface ILessonStore
 public sealed record LessonProgramContext(string Discipline, string Goal, string Experience,
     string? DiagnosticQuestion, string? DiagnosticAnswer);
 public sealed record LessonRequest(string Topic, LessonProgramContext? Program = null, TeachingContext? Teaching = null,
-    bool IsReview = false, SharedSkillContext? SharedSkill = null);
+    bool IsReview = false, SharedSkillContext? SharedSkill = null, ProjectPracticeContext? ProjectPractice = null);
+public sealed record ProjectPracticeContext(long ProjectId, string ProjectTitle, long ActionId, string ActionTitle);
 public sealed record SharedSkillContext(string Description, LearnerSkillState State);
 
 public sealed record LessonMaterial(string Theory, string Question)
@@ -52,11 +53,13 @@ public abstract record LearningResult
     {
         public LessonProvenance? Provenance { get; init; }
         public bool HasReferenceCheck { get; init; }
+        public long? ProjectActionId { get; init; }
     }
     public sealed record Assessment(string Feedback) : LearningResult
     {
         public AnswerAssessmentStatus Status { get; init; }
         public bool? DeterministicIsCorrect { get; init; }
+        public long? ProjectActionId { get; init; }
     }
     public sealed record InvalidTopic : LearningResult;
     public sealed record InvalidAnswer : LearningResult;
@@ -65,6 +68,7 @@ public abstract record LearningResult
     public sealed record Session(string Topic, string Question, LessonStatus Status) : LearningResult
     {
         public LessonProvenance? Provenance { get; init; }
+        public long? ProjectActionId { get; init; }
     }
     public sealed record Explanation(string Text, string Topic, string Question) : LearningResult;
     public sealed record InvalidClarification : LearningResult;
@@ -147,7 +151,7 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
         await knowledge.RecordAnswerAsync(active, result.Source, token);
         return new LearningResult.Assessment(result.Feedback)
         {
-            Status = active.AssessmentStatus, DeterministicIsCorrect = active.DeterministicIsCorrect
+            Status = active.AssessmentStatus, DeterministicIsCorrect = active.DeterministicIsCorrect, ProjectActionId = active.ProjectActionId
         };
     }
 
@@ -261,12 +265,12 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
 
     internal static LearningResult.Material Material(Lesson lesson) => new(lesson.Theory, lesson.Question, lesson.Topic)
     {
-        Provenance = lesson.Provenance, HasReferenceCheck = lesson.ExpectedAnswer is not null
+        Provenance = lesson.Provenance, HasReferenceCheck = lesson.ExpectedAnswer is not null, ProjectActionId = lesson.ProjectActionId
     };
 
     private static LearningResult.Session Session(Lesson lesson) => new(lesson.Topic, lesson.Question, lesson.Status)
     {
-        Provenance = lesson.Provenance
+        Provenance = lesson.Provenance, ProjectActionId = lesson.ProjectActionId
     };
 
     private static void ValidateUser(UserId user, CancellationToken token)

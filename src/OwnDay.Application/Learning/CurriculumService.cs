@@ -1,3 +1,4 @@
+using OwnDay.Application.Actions;
 using OwnDay.Application.StructuredItems;
 using OwnDay.Domain;
 using OwnDay.Domain.Learning;
@@ -38,11 +39,15 @@ public abstract record CurriculumResult
     public sealed record Linked(ProgramSkillLink Link) : CurriculumResult;
     public sealed record Links(IReadOnlyList<ProgramSkillLink> Items) : CurriculumResult;
     public sealed record Adapted(LearningResult Value, string Reason) : CurriculumResult;
+    public sealed record ProjectReport(ProjectLearningReport Value) : CurriculumResult;
+    public sealed record NoProject : CurriculumResult;
+    public sealed record ProjectCompleted : CurriculumResult;
+    public sealed record ProjectActionNotFound : CurriculumResult;
 }
 
-public sealed class CurriculumService(ICurriculumStore store, ICurriculumPlanner planner,
+public sealed partial class CurriculumService(ICurriculumStore store, ICurriculumPlanner planner,
     ILessonStore lessons, ILessonTeacher teacher, StructuredItemService projects, KnowledgeService knowledge,
-    ITeachingPlanner teachingPlanner)
+    ITeachingPlanner teachingPlanner, IActionStore actions)
 {
     public const int PageSize = 10;
     public const int MaxPageNumber = int.MaxValue / PageSize;
@@ -168,7 +173,10 @@ public sealed class CurriculumService(ICurriculumStore store, ICurriculumPlanner
         if (program is null) return new CurriculumResult.NoProgram();
         if (program.DiagnosticPending) return new CurriculumResult.Program(program);
         var active = await lessons.FindActiveAsync(user, token);
-        if (active is not null) return new CurriculumResult.Lesson(new LearningResult.Session(active.Topic, active.Question, active.Status));
+        if (active is not null) return new CurriculumResult.Lesson(new LearningResult.Session(active.Topic, active.Question, active.Status)
+        {
+            Provenance = active.Provenance, ProjectActionId = active.ProjectActionId
+        });
         var completed = await store.CompletedTopicsAsync(user, program.Id, program.CurrentRoute.Version, token);
         var topic = program.NextTopic(completed);
         if (selection == LessonSelection.Focus)
