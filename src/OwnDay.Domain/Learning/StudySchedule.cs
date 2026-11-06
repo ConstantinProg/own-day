@@ -112,6 +112,7 @@ public sealed class StudySchedule
         // A DST gap can consume a whole window (or date). Skip it without sending outside the window.
         for (var day = 0; day < 370; day++, date = date.AddDays(1))
         {
+            DateTimeOffset? earliest = null;
             foreach (var window in Windows)
             {
                 var local = date.ToDateTime(window.Start, DateTimeKind.Unspecified);
@@ -119,11 +120,12 @@ public sealed class StudySchedule
                 while (local < end && zone.IsInvalidTime(local)) local = local.AddMinutes(1);
                 if (local >= end) continue;
                 var offsets = zone.IsAmbiguousTime(local) ? zone.GetAmbiguousTimeOffsets(local) : [zone.GetUtcOffset(local)];
-                foreach (var candidate in offsets.Select(offset => new DateTimeOffset(local, offset).ToUniversalTime()).Order())
+                foreach (var candidate in offsets.Select(offset => new DateTimeOffset(local, offset).ToUniversalTime()))
                 {
-                    if (candidate >= notBefore) return candidate;
+                    if (candidate >= notBefore && (earliest is null || candidate < earliest.Value)) earliest = candidate;
                 }
             }
+            if (earliest is { } next) return next;
         }
         throw new InvalidOperationException("No valid study window found.");
     }

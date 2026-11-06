@@ -71,7 +71,7 @@ public sealed class PostgresTelegramRestartIntegrationTests
                 Assert.Contains(await db.TelegramOutboxMessages.ToListAsync(), m =>
                     m.Text.Contains("Topic: algebra\nExpected action: Answer the current question.\nCurrent question: Question", StringComparison.Ordinal));
                 clock.UtcNow = DateTime.UtcNow.AddMinutes(1);
-                await new TelegramOutboxDeliveryService(db, sender, NullLogger<TelegramOutboxDeliveryService>.Instance, clock)
+                await new TelegramOutboxDeliveryService(db, sender, NullLogger<TelegramOutboxDeliveryService>.Instance, clock, new EfLessonStore(db))
                     .DeliverBatchAsync(CancellationToken.None);
                 Assert.Single(sender.Attempts);
                 Assert.Equal(6, await db.TelegramOutboxMessages.CountAsync(m => m.Status == OutboxMessageStatus.Pending));
@@ -86,7 +86,7 @@ public sealed class PostgresTelegramRestartIntegrationTests
                 clock.UtcNow = clock.UtcNow.AddSeconds(3);
                 using var scope = host.Services.CreateScope();
                 var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
-                await new TelegramOutboxDeliveryService(db, sender, NullLogger<TelegramOutboxDeliveryService>.Instance, clock)
+                await new TelegramOutboxDeliveryService(db, sender, NullLogger<TelegramOutboxDeliveryService>.Instance, clock, new EfLessonStore(db))
                     .DeliverBatchAsync(CancellationToken.None);
                 Assert.Equal(7, await db.TelegramOutboxMessages.CountAsync(m => m.Status == OutboxMessageStatus.Sent));
                 Assert.Equal(8, sender.Attempts.Count);

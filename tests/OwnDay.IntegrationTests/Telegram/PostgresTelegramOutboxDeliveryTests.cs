@@ -42,14 +42,14 @@ public sealed class PostgresTelegramOutboxDeliveryTests
                     Message(Guid.Parse("00000000-0000-0000-0000-000000000004"), 20, "Other chat", createdAt.AddMinutes(2)));
                 await db.SaveChangesAsync();
 
-                await new TelegramOutboxDeliveryService(db, sender, NullLogger<TelegramOutboxDeliveryService>.Instance, clock)
+                await new TelegramOutboxDeliveryService(db, sender, NullLogger<TelegramOutboxDeliveryService>.Instance, clock, new EfLessonStore(db))
                     .DeliverBatchAsync(CancellationToken.None);
                 Assert.Equal(new[] { "First", "Other chat" }, sender.Attempts);
             }
             await using (var restarted = new OwnDayDbContext(options))
             {
                 var delivery = new TelegramOutboxDeliveryService(restarted, sender,
-                    NullLogger<TelegramOutboxDeliveryService>.Instance, clock);
+                    NullLogger<TelegramOutboxDeliveryService>.Instance, clock, new EfLessonStore(restarted));
                 await delivery.DeliverBatchAsync(CancellationToken.None);
                 Assert.Equal(2, sender.Attempts.Count);
 

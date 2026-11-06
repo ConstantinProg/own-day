@@ -17,22 +17,26 @@ public sealed class TelegramOutboxDeliveryService
     private readonly ITelegramMessageSender _messageSender;
     private readonly ILogger<TelegramOutboxDeliveryService> _logger;
     private readonly TimeProvider _timeProvider;
+    private readonly ILessonStore _lessons;
 
     public TelegramOutboxDeliveryService(
         OwnDayDbContext dbContext,
         ITelegramMessageSender messageSender,
         ILogger<TelegramOutboxDeliveryService> logger,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        ILessonStore lessons)
     {
         ArgumentNullException.ThrowIfNull(dbContext);
         ArgumentNullException.ThrowIfNull(messageSender);
         ArgumentNullException.ThrowIfNull(logger);
         ArgumentNullException.ThrowIfNull(timeProvider);
+        ArgumentNullException.ThrowIfNull(lessons);
 
         _dbContext = dbContext;
         _messageSender = messageSender;
         _logger = logger;
         _timeProvider = timeProvider;
+        _lessons = lessons;
     }
 
     public async Task<BatchProcessingResult> DeliverBatchAsync(CancellationToken cancellationToken)
@@ -81,8 +85,7 @@ public sealed class TelegramOutboxDeliveryService
                 var user = new UserId(message.ChatId);
                 var schedule = await _dbContext.Set<StudySchedule>().AsNoTracking().SingleOrDefaultAsync(
                     s => s.UserId == user, cancellationToken);
-                var active = await _dbContext.Set<Lesson>().AnyAsync(l => l.UserId == user &&
-                    (l.Status == LessonStatus.AwaitingAnswer || l.Status == LessonStatus.Paused), cancellationToken);
+                var active = await _lessons.FindActiveAsync(user, cancellationToken) is not null;
                 var review = schedule?.SkillId is { } skillId
                     ? await _dbContext.Set<ReviewSchedule>().AsNoTracking().SingleOrDefaultAsync(
                         r => r.UserId == user && r.SkillId == skillId, cancellationToken) : null;

@@ -292,7 +292,7 @@ public sealed partial class TelegramInboxFeedbackTests
     }
 
     private static TelegramOutboxDeliveryService Delivery(OwnDayDbContext db, ITelegramMessageSender sender) =>
-        new(db, sender, NullLogger<TelegramOutboxDeliveryService>.Instance, TimeProvider.System);
+        new(db, sender, NullLogger<TelegramOutboxDeliveryService>.Instance, TimeProvider.System, new EfLessonStore(db));
 
     [Fact]
     public async Task ApplyAsync_SupersededFailure_DoesNotQueueMisleadingAttentionMessage()

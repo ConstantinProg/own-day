@@ -103,6 +103,21 @@ public sealed class StudyScheduleTests
     }
 
     [Theory]
+    [InlineData(5, 25, 5, 30)]
+    [InlineData(5, 45, 6, 10)]
+    [InlineData(6, 25, 6, 30)]
+    public void Create_MultipleWindowsDuringDaylightSavingOverlap_ChoosesEarliestUtcInstant(
+        int hour, int minute, int expectedHour, int expectedMinute)
+    {
+        var schedule = StudySchedule.Create(new(1), "America/New_York", 1,
+            [new(new(1, 10), new(1, 20)), new(new(1, 30), new(1, 40))],
+            new(2026, 11, 1, hour, minute, 0, TimeSpan.Zero));
+
+        Assert.Equal(new DateTimeOffset(2026, 11, 1, expectedHour, expectedMinute, 0, TimeSpan.Zero), schedule.NextAt);
+        Assert.True(schedule.IsWithinWindow(schedule.NextAt));
+    }
+
+    [Theory]
     [InlineData(0, 18, 20)]
     [InlineData(31, 18, 20)]
     [InlineData(1, 20, 18)]
