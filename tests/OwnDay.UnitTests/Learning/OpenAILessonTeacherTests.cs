@@ -17,6 +17,36 @@ namespace OwnDay.UnitTests.Learning;
 
 public sealed class OpenAILessonTeacherTests
 {
+    [Fact]
+    public async Task GenerateAsync_PersonalizationAndTransfer_UsesExplicitChoicesAndOnlyRepeatedUnconflictedEvidence()
+    {
+        using var handler = new ResponseHandler(JsonSerializer.Serialize(new
+        {
+            id = "test", model = "test", created = 1, @object = "chat.completion",
+            choices = new[] { new { index = 0, finish_reason = "stop",
+                message = new { role = "assistant", content = "{\"Theory\":\"Context\",\"Question\":\"Application\"}" } } }
+        }));
+        using var http = new HttpClient(handler);
+        var profile = new LearningPersonalization(new("dialogue", "in depth", "slow", "music"),
+            [new(PedagogicalStrategy.Simplify, 1, 1, 0, 0), new(PedagogicalStrategy.Explain, 3, 3, 0, 0),
+             new(PedagogicalStrategy.Hint, 3, 2, 0, 1)]);
+        var relation = new InterdisciplinaryPractice(Guid.NewGuid(), 1, "algebra", "Math", "Physics", Guid.NewGuid(),
+            "Same algebraic concept", "User confirmation");
+        await Teacher(http, new RecordingLogger()).GenerateAsync(new("Mechanics", Personalization: profile,
+            Transfer: new("Algebra", relation)), default);
+        using var body = JsonDocument.Parse(handler.RequestBody!);
+        var messages = body.RootElement.GetProperty("messages");
+        var prompt = messages[0].GetProperty("content").GetString();
+        Assert.Contains("explicit user choices take priority", prompt);
+        Assert.Contains("never a stable learner trait", prompt);
+        Assert.Contains("do not invent other skill relations", prompt);
+        using var input = JsonDocument.Parse(messages[1].GetProperty("content").GetString()!);
+        var personalization = input.RootElement.GetProperty("Personalization");
+        Assert.Equal("in depth", personalization.GetProperty("ExplicitPreferences").GetProperty("Depth").GetString());
+        Assert.Equal("Explain", Assert.Single(personalization.GetProperty("StrategyEvidence").EnumerateArray()).GetProperty("Strategy").GetString());
+        Assert.Equal(relation, input.RootElement.GetProperty("Transfer").GetProperty("Relation").Deserialize<InterdisciplinaryPractice>());
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

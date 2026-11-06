@@ -12,7 +12,9 @@ public interface ILessonStore
 public sealed record LessonProgramContext(string Discipline, string Goal, string Experience,
     string? DiagnosticQuestion, string? DiagnosticAnswer);
 public sealed record LessonRequest(string Topic, LessonProgramContext? Program = null, TeachingContext? Teaching = null,
-    bool IsReview = false, SharedSkillContext? SharedSkill = null, ProjectPracticeContext? ProjectPractice = null);
+    bool IsReview = false, SharedSkillContext? SharedSkill = null, ProjectPracticeContext? ProjectPractice = null,
+    LearningPersonalization? Personalization = null, TransferPracticeContext? Transfer = null);
+public sealed record TransferPracticeContext(string SourceTopic, InterdisciplinaryPractice Relation);
 public sealed record ProjectPracticeContext(long ProjectId, string ProjectTitle, long ActionId, string ActionTitle);
 public sealed record SharedSkillContext(string Description, LearnerSkillState State);
 
@@ -54,6 +56,7 @@ public abstract record LearningResult
         public LessonProvenance? Provenance { get; init; }
         public bool HasReferenceCheck { get; init; }
         public long? ProjectActionId { get; init; }
+        public InterdisciplinaryPractice? Transfer { get; init; }
     }
     public sealed record Assessment(string Feedback) : LearningResult
     {
@@ -69,6 +72,7 @@ public abstract record LearningResult
     {
         public LessonProvenance? Provenance { get; init; }
         public long? ProjectActionId { get; init; }
+        public InterdisciplinaryPractice? Transfer { get; init; }
     }
     public sealed record Explanation(string Text, string Topic, string Question) : LearningResult;
     public sealed record InvalidClarification : LearningResult;
@@ -98,9 +102,11 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
 
         try
         {
-            var material = await teacher.GenerateAsync(new LessonRequest(topic), token);
+            var personalization = await knowledge.PersonalizationAsync(user, token);
+            var material = await teacher.GenerateAsync(new LessonRequest(topic, Personalization: personalization.ForGeneration()), token);
             token.ThrowIfCancellationRequested();
             var lesson = Lesson.Start(user, topic, material.Theory, material.Question, material.Provenance, material.ExpectedAnswer);
+            lesson.SetTeaching(new(PedagogicalStrategy.Standard, personalization.ExplicitPreferences));
             await knowledge.AttachAsync(lesson, lesson.Topic, token);
             store.Add(lesson);
             return Material(lesson);
@@ -204,9 +210,13 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
         }
         try
         {
-            var material = await teacher.GenerateAsync(new LessonRequest(skill.Description, IsReview: kind == SkillLessonKind.Review), token);
+            var personalization = await knowledge.PersonalizationAsync(user, token);
+            var material = await teacher.GenerateAsync(new LessonRequest(skill.Description, IsReview: kind == SkillLessonKind.Review,
+                Personalization: personalization.ForGeneration()), token);
             token.ThrowIfCancellationRequested();
             var lesson = Lesson.Start(user, skill.Title, material.Theory, material.Question, material.Provenance, material.ExpectedAnswer);
+            lesson.SetTeaching(new(kind == SkillLessonKind.Review ? PedagogicalStrategy.Review : PedagogicalStrategy.Practice,
+                personalization.ExplicitPreferences));
             lesson.LinkToSkill(skill);
             if (kind == SkillLessonKind.Review) lesson.MarkAsReview();
             store.Add(lesson);
@@ -265,12 +275,13 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
 
     internal static LearningResult.Material Material(Lesson lesson) => new(lesson.Theory, lesson.Question, lesson.Topic)
     {
-        Provenance = lesson.Provenance, HasReferenceCheck = lesson.ExpectedAnswer is not null, ProjectActionId = lesson.ProjectActionId
+        Provenance = lesson.Provenance, HasReferenceCheck = lesson.ExpectedAnswer is not null, ProjectActionId = lesson.ProjectActionId,
+        Transfer = lesson.Transfer
     };
 
     private static LearningResult.Session Session(Lesson lesson) => new(lesson.Topic, lesson.Question, lesson.Status)
     {
-        Provenance = lesson.Provenance, ProjectActionId = lesson.ProjectActionId
+        Provenance = lesson.Provenance, ProjectActionId = lesson.ProjectActionId, Transfer = lesson.Transfer
     };
 
     private static void ValidateUser(UserId user, CancellationToken token)

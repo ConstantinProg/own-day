@@ -7,6 +7,30 @@ namespace OwnDay.Infrastructure.Persistence;
 
 public sealed class EfKnowledgeStore(OwnDayDbContext db) : IKnowledgeStore
 {
+    public async Task<IReadOnlyList<LearningPreference>> PreferencesAsync(UserId user, CancellationToken token)
+    {
+        await db.Set<LearningPreference>().Where(p => p.UserId == user).LoadAsync(token);
+        // The command reply is built before the surrounding update transaction commits.
+        return db.Set<LearningPreference>().Local.Where(p => p.UserId == user).OrderBy(p => p.Kind).ToArray();
+    }
+
+    public void Add(LearningPreference preference) => db.Set<LearningPreference>().Add(preference);
+    public void Remove(LearningPreference preference) => db.Set<LearningPreference>().Remove(preference);
+
+    public async Task<IReadOnlyList<StrategyObservation>> StrategyObservationsAsync(UserId user, CancellationToken token)
+    {
+        // One row per assessed lesson; old lessons without a teaching snapshot are not reclassified.
+        var recent = await (from evidence in db.Set<LearningEvidence>()
+                            join lesson in db.Set<Lesson>() on new { evidence.LessonId, evidence.UserId }
+                                equals new { LessonId = lesson.Id, lesson.UserId }
+                            where evidence.UserId == user && lesson.Teaching != null
+                            orderby evidence.ObservedAt descending, evidence.LessonId
+                            select new { evidence.LessonId, lesson.Teaching, evidence.AssessedCorrect, evidence.AssessmentStatus })
+            .Take(100).ToListAsync(token);
+        return recent.Select(e => new StrategyObservation(e.LessonId, e.Teaching!.Strategy,
+            e.AssessedCorrect, e.AssessmentStatus == AnswerAssessmentStatus.Conflict)).ToArray();
+    }
+
     public async Task<IReadOnlyDictionary<string, SkillStatus>> TopicStatusesAsync(LearningProgram program, CancellationToken token)
     {
         var user = program.UserId;

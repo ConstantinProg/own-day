@@ -17,6 +17,10 @@ public interface IKnowledgeStore
     void Add(LearningEvidence evidence);
     void Add(ReviewSchedule schedule);
     void Add(ProgramSkillLink link);
+    Task<IReadOnlyList<LearningPreference>> PreferencesAsync(UserId user, CancellationToken token);
+    Task<IReadOnlyList<StrategyObservation>> StrategyObservationsAsync(UserId user, CancellationToken token);
+    void Add(LearningPreference preference);
+    void Remove(LearningPreference preference);
 }
 
 public sealed record SkillPage(IReadOnlyList<Skill> Skills, int Number, bool HasNext);
@@ -28,7 +32,7 @@ public sealed record SkillStatus(Skill Skill, LearnerSkillState State, IReadOnly
     public ReviewSchedule? Review { get; init; }
 }
 
-public sealed class KnowledgeService(IKnowledgeStore store, TimeProvider clock)
+public sealed partial class KnowledgeService(IKnowledgeStore store, TimeProvider clock)
 {
     public const int PageSize = 10;
     public const int MaxPageNumber = int.MaxValue / PageSize;

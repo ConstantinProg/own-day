@@ -280,6 +280,9 @@
 /settings; /language; /language en; /language ru
 /learn &lt;тема&gt;; /answer &lt;ответ&gt;; /learn_ask &lt;вопрос&gt;; /learn_explain
 /learn_pause; /learn_resume; /learn_finish
+/learn_preferences; /learn_preference format|depth|pace|examples | &lt;value&gt;
+/learn_preference_reset format|depth|pace|examples|all
+/learn_transfer &lt;topic code&gt; | &lt;other program id&gt; | &lt;other topic code&gt;
 /learn_programs [страница]; /learn_select &lt;id программы&gt;
 /learn_link &lt;код темы&gt; | &lt;id навыка&gt; | &lt;основание&gt;; /learn_links
 /learn_request &lt;запрос&gt; | &lt;опыт&gt;; /learn_program &lt;цель&gt; | &lt;опыт&gt;

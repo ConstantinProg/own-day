@@ -14,9 +14,13 @@ public static class TelegramCurriculumPresenter
         CurriculumResult.ProjectActionNotFound => ["Active task not found in this program's project for this user. /learn_project_report"],
         CurriculumResult.Programs programs => RenderPrograms(programs),
         CurriculumResult.ProgramNotFound => ["Program not found for this user. /learn_programs"],
+        CurriculumResult.TransferUnavailable => ["Interdisciplinary practice requires two owned programs in different disciplines, completed diagnosis and prerequisites, " +
+            "and the current topic's shared skill explicitly confirmed with /learn_link. The other topic must use that same skill. " +
+            "/learn_transfer <current topic code> | <other program id> | <other topic code>. /learn_programs · /learn_route · /learn_links"],
         CurriculumResult.LessonInProgress => ["Answer or finish the current lesson before starting another lesson or changing programs. /answer <answer> · /learn_resume · /learn_finish"],
         CurriculumResult.Linked linked => [RenderLink(linked.Link), "Shared identity confirmed by you. AI evidence and review schedule are reused; this does not complete this program's topics or prove mastery. /learn_links · /learn_next"],
-        CurriculumResult.Links links => links.Items.Count == 0 ? ["No confirmed shared skills in this route. /learn_link <topic code> | <skill id from /learn_skills> | <reason>"] : links.Items.Select(RenderLink).ToArray(),
+        CurriculumResult.Links links => links.Items.Count == 0 ? ["No confirmed shared skills in this route. /learn_link <topic code> | <skill id from /learn_skills> | <reason>"] :
+            [.. links.Items.Select(RenderLink), "/learn_transfer <current topic code> | <other program id from /learn_programs> | <other topic code>. Requires different disciplines and the same confirmed skill."],
         CurriculumResult.Lesson lesson => TelegramLearningPresenter.Render(lesson.Value),
         CurriculumResult.Adapted adapted => ["Teaching adjustment:\n" + adapted.Reason + "\n/learn_route",
             .. TelegramLearningPresenter.Render(adapted.Value)],

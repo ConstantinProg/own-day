@@ -6,6 +6,14 @@ namespace OwnDay.UnitTests.Learning;
 
 internal sealed class KnowledgeStore : IKnowledgeStore
 {
+    public List<LearningPreference> Preferences { get; } = [];
+    public List<StrategyObservation> StrategyObservations { get; } = [];
+    public Task<IReadOnlyList<LearningPreference>> PreferencesAsync(UserId user, CancellationToken token) =>
+        Task.FromResult<IReadOnlyList<LearningPreference>>(Preferences.Where(p => p.UserId == user).ToArray());
+    public Task<IReadOnlyList<StrategyObservation>> StrategyObservationsAsync(UserId user, CancellationToken token) =>
+        Task.FromResult<IReadOnlyList<StrategyObservation>>(StrategyObservations);
+    public void Add(LearningPreference preference) => Preferences.Add(preference);
+    public void Remove(LearningPreference preference) => Preferences.Remove(preference);
     public Task<IReadOnlyDictionary<string, SkillStatus>> TopicStatusesAsync(LearningProgram program, CancellationToken token) =>
         Task.FromResult<IReadOnlyDictionary<string, SkillStatus>>(new Dictionary<string, SkillStatus>());
 

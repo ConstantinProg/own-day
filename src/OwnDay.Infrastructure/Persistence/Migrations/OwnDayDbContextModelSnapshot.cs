@@ -888,7 +888,7 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
                     .IsRequired()
                     .HasMaxLength(50)
                     .HasColumnType("character varying(50)");
-                b.Property<DateTimeOffset>("ObservedAt")
+                b.Property<DateTime>("ObservedAt")
                     .HasColumnType("timestamp with time zone");
                 b.Property<Guid>("SkillId")
                     .HasColumnType("uuid");
@@ -919,6 +919,39 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
                     .HasColumnType("integer");
                 b.HasKey("Id");
                 b.ToTable("learning_routes", (string)null);
+            });
+
+        modelBuilder.Entity("OwnDay.Domain.Learning.LearningPreference", b =>
+            {
+                b.Property<long>("UserId")
+                    .HasColumnType("bigint");
+
+                b.Property<int>("Kind")
+                    .HasColumnType("integer");
+
+                b.Property<string>("Source")
+                    .IsRequired()
+                    .HasMaxLength(50)
+                    .HasColumnType("character varying(50)");
+
+                b.Property<DateTimeOffset>("UpdatedAt")
+                    .HasColumnType("timestamp with time zone");
+
+                b.Property<string>("Value")
+                    .IsRequired()
+                    .HasMaxLength(200)
+                    .HasColumnType("character varying(200)");
+
+                b.HasKey("UserId", "Kind");
+
+                b.ToTable("learning_preferences", null, t =>
+                    {
+                        t.HasCheckConstraint("CK_learning_preference_kind", "\"Kind\" BETWEEN 0 AND 3");
+
+                        t.HasCheckConstraint("CK_learning_preference_owner", "\"UserId\" > 0");
+
+                        t.HasCheckConstraint("CK_learning_preference_value", "length(trim(\"Value\")) BETWEEN 1 AND 200");
+                    });
             });
 
         modelBuilder.Entity("OwnDay.Domain.Learning.LearningProgram", b =>
@@ -999,6 +1032,11 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
                     .HasColumnType("uuid");
                 b.Property<int>("Status")
                     .HasColumnType("integer");
+                b.Property<string>("Teaching")
+                    .HasColumnType("jsonb");
+
+                b.Property<string>("Transfer")
+                    .HasColumnType("jsonb");
                 b.Property<string>("Theory")
                     .IsRequired()
                     .HasMaxLength(2500)

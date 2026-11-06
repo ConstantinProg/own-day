@@ -18,6 +18,7 @@ public static class TelegramLearningPresenter
         LearningResult.NoActiveLesson => ["Start a lesson with /learn <topic>."],
         LearningResult.ProviderUnavailable => ["The teacher is temporarily unavailable or returned invalid material. Retry the command."],
         LearningResult.Session session => [RenderSession(session),
+            .. session.Transfer is not null ? new[] { TransferNotice(session.Transfer) } : Array.Empty<string>(),
             .. session.ProjectActionId is long id ? new[] { ProjectPracticeNotice(id) } : Array.Empty<string>(),
             .. session.Provenance is not null ? new[] { RenderProvenance(session.Provenance) } : Array.Empty<string>()],
         LearningResult.Explanation explanation => [explanation.Text + "\nAI explanation; no independent source verification.", "Return to: " + explanation.Topic + "\n" + explanation.Question + "\n\n" + Actions],
@@ -34,6 +35,7 @@ public static class TelegramLearningPresenter
     {
         var messages = new List<string> { material.Topic + "\n\n" + material.Theory, material.Question + "\n\n" + Actions };
         if (material.ProjectActionId is long id) messages.Add(ProjectPracticeNotice(id));
+        if (material.Transfer is not null) messages.Add(TransferNotice(material.Transfer));
         if (material.Provenance is not null) messages.Add(RenderProvenance(material.Provenance));
         if (material.HasReferenceCheck) messages.Add($"Answer check: {NormalizedTextAnswerCheck.MethodName}; case and whitespace are ignored. The reference was proposed by AI and may be inaccurate.");
         return messages;
@@ -41,6 +43,12 @@ public static class TelegramLearningPresenter
 
     private static string ProjectPracticeNotice(long id) =>
         $"Educational practice related to task #{id}. Your answer does not complete the real task or project. No Commitments are created. /learn_project_report";
+
+    private static string TransferNotice(InterdisciplinaryPractice transfer) =>
+        $"Interdisciplinary practice: {transfer.SourceDiscipline} -> {transfer.TargetDiscipline}.\n" +
+        $"Shared skill: {transfer.SkillId}\nSource program: {transfer.SourceProgramId}, route {transfer.SourceRouteVersion}, topic {transfer.SourceTopicCode}\n" +
+        $"Relation source: {transfer.Source}. Basis: {transfer.Reason}\n" +
+        "Only this shared skill is assessed. The other program's progress is unchanged; the link does not prove mastery. /learn_links";
 
     public static string RenderAssessment(AnswerAssessmentStatus status, bool? deterministic) => status switch
     {

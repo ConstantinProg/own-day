@@ -26,6 +26,8 @@ public sealed class Lesson
     public Guid? SkillId { get; private set; }
     public long? ProjectActionId { get; private set; }
     public bool IsReview { get; private set; }
+    public LessonTeaching? Teaching { get; private set; }
+    public InterdisciplinaryPractice? Transfer { get; private set; }
     public IReadOnlyCollection<LessonInteraction> Interactions => _interactions.AsReadOnly();
 
     public static Lesson Start(UserId user, string topic, string theory, string question,
@@ -81,6 +83,24 @@ public sealed class Lesson
     {
         RequireAwaitingAnswer();
         Status = LessonStatus.Paused;
+    }
+
+    public void SetTeaching(LessonTeaching teaching)
+    {
+        RequireAwaitingAnswer();
+        if (Teaching is not null || !Enum.IsDefined(teaching.Strategy)) throw new ArgumentException("Invalid teaching snapshot.");
+        foreach (var value in new[] { teaching.Preferences.Format, teaching.Preferences.Depth, teaching.Preferences.Pace, teaching.Preferences.Examples })
+            if (value is not null) Validate(value, LearningPreference.MaxValueLength);
+        Teaching = teaching;
+    }
+
+    public void LinkTransfer(LearningProgram target, LearningProgram source, string sourceCode, ProgramSkillLink link)
+    {
+        RequireAwaitingAnswer();
+        if (Transfer is not null || SkillId is null || ProgramId != target.Id || target.UserId != UserId ||
+            link.TopicCode != TopicCode || link.SkillId != SkillId)
+            throw new ArgumentException("Transfer requires a confirmed shared identity across disciplines.");
+        Transfer = InterdisciplinaryPractice.Create(target, source, sourceCode, link);
     }
 
     public void LinkToSkill(Skill skill)

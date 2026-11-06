@@ -6,12 +6,20 @@ namespace OwnDay.Infrastructure.Telegram.Commands;
 public sealed class TelegramCurriculumCommandHandler(CurriculumService service)
 {
     public bool Handles(string name) => name is "learn_request" or "learn_program" or "learn_project" or "learn_diagnose" or "learn_route" or "learn_next" or "learn_adapt" or "learn_focus"
-        or "learn_programs" or "learn_select" or "learn_link" or "learn_links" or "learn_project_report" or "learn_project_practice";
+        or "learn_programs" or "learn_select" or "learn_link" or "learn_links" or "learn_project_report" or "learn_project_practice" or "learn_transfer";
 
     public async Task<IReadOnlyList<string>> HandleAsync(ProcessIncomingCommand command, CancellationToken token)
     {
         CurriculumResult result;
-        if (command.Name is "learn_programs" or "learn_project_report")
+        if (command.Name == "learn_transfer")
+        {
+            var parts = command.Arguments.Split('|', 3, StringSplitOptions.TrimEntries);
+            if (parts.Length != 3 || !Guid.TryParse(parts[1], out var id))
+                return ["/learn_transfer <current topic code> | <other program id> | <other topic code>. " +
+                    "Requires different disciplines and a shared skill explicitly confirmed with /learn_link. /learn_programs · /learn_links"];
+            result = await service.TransferPracticeAsync(command.UserId, parts[0], id, parts[2], token);
+        }
+        else if (command.Name is "learn_programs" or "learn_project_report")
         {
             var page = 1;
             if (!string.IsNullOrWhiteSpace(command.Arguments) && !int.TryParse(command.Arguments, out page))

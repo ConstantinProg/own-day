@@ -43,6 +43,7 @@ public abstract record CurriculumResult
     public sealed record NoProject : CurriculumResult;
     public sealed record ProjectCompleted : CurriculumResult;
     public sealed record ProjectActionNotFound : CurriculumResult;
+    public sealed record TransferUnavailable : CurriculumResult;
 }
 
 public sealed partial class CurriculumService(ICurriculumStore store, ICurriculumPlanner planner,
@@ -175,7 +176,7 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
         var active = await lessons.FindActiveAsync(user, token);
         if (active is not null) return new CurriculumResult.Lesson(new LearningResult.Session(active.Topic, active.Question, active.Status)
         {
-            Provenance = active.Provenance, ProjectActionId = active.ProjectActionId
+            Provenance = active.Provenance, ProjectActionId = active.ProjectActionId, Transfer = active.Transfer
         });
         var completed = await store.CompletedTopicsAsync(user, program.Id, program.CurrentRoute.Version, token);
         var topic = program.NextTopic(completed);
@@ -211,11 +212,15 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
             }
             var sharedLink = (await knowledge.LinksAsync(program, token)).SingleOrDefault(l => l.TopicCode == topic.Code);
             var shared = sharedLink is not null && status is not null ? new SharedSkillContext(status.Skill.Description, status.State) : null;
+            var personalization = await knowledge.PersonalizationAsync(user, token);
             var material = await teacher.GenerateAsync(new LessonRequest(topic.Title,
                 new LessonProgramContext(program.Discipline, program.Goal, program.Experience,
-                    program.DiagnosticQuestion, program.DiagnosticAnswer), teaching, SharedSkill: shared), token);
+                    program.DiagnosticQuestion, program.DiagnosticAnswer), teaching, SharedSkill: shared,
+                Personalization: personalization.ForGeneration()), token);
             token.ThrowIfCancellationRequested();
             var lesson = Lesson.Start(user, topic.Title, material.Theory, material.Question, material.Provenance, material.ExpectedAnswer);
+            lesson.SetTeaching(new(teaching is null ? PedagogicalStrategy.Standard : Enum.Parse<PedagogicalStrategy>(teaching.Action.ToString()),
+                personalization.ExplicitPreferences));
             token.ThrowIfCancellationRequested();
             if (status is not null) lesson.LinkToSkill(status.Skill);
             else await knowledge.AttachAsync(lesson, $"{topic.Title}\nDiscipline: {program.Discipline}\nLearning goal: {program.Goal}", token);
