@@ -98,7 +98,9 @@ public sealed class PostgresProjectLearningTests
                 var program = await foreignLink.Set<LearningProgram>().Include(p => p.Routes).SingleAsync();
                 var forged = Lesson.Start(new(101), "Forged", "Theory", "Question");
                 forged.LinkToProgram(program, "basics");
-                forged.LinkToProjectAction(program, foreignActionId);
+                var foreignAction = await foreignLink.Actions.SingleAsync(a => a.Id == foreignActionId);
+                Assert.Throws<ArgumentException>(() => forged.LinkToProjectAction(program, foreignAction));
+                foreignLink.Entry(forged).Property(l => l.ProjectActionId).CurrentValue = foreignActionId;
                 foreignLink.Add(forged);
                 await Assert.ThrowsAsync<DbUpdateException>(() => foreignLink.SaveChangesAsync());
             }

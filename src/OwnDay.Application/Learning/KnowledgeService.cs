@@ -5,6 +5,7 @@ namespace OwnDay.Application.Learning;
 
 public interface IKnowledgeStore
 {
+    Task<IReadOnlyDictionary<string, SkillStatus>> TopicStatusesAsync(LearningProgram program, CancellationToken token);
     Task<Skill?> FindAsync(UserId user, Guid skillId, CancellationToken token);
     Task<Skill?> FindTopicAsync(UserId user, Guid programId, int version, string topicCode, CancellationToken token);
     Task<IReadOnlyList<Skill>> ListAsync(UserId user, int offset, int limit, CancellationToken token);
@@ -105,6 +106,12 @@ public sealed class KnowledgeService(IKnowledgeStore store, TimeProvider clock)
     {
         Validate(user, token);
         return store.FindAsync(user, skillId, token);
+    }
+
+    public Task<IReadOnlyDictionary<string, SkillStatus>> TopicStatusesAsync(LearningProgram program, CancellationToken token)
+    {
+        Validate(program.UserId, token);
+        return store.TopicStatusesAsync(program, token);
     }
 
     public async Task<SkillStatus?> TopicStatusAsync(UserId user, Guid programId, int version, string code, CancellationToken token)

@@ -7,6 +7,39 @@ namespace OwnDay.Infrastructure.Persistence;
 
 public sealed class EfKnowledgeStore(OwnDayDbContext db) : IKnowledgeStore
 {
+    public async Task<IReadOnlyDictionary<string, SkillStatus>> TopicStatusesAsync(LearningProgram program, CancellationToken token)
+    {
+        var user = program.UserId;
+        var versions = program.ProgressVersions(program.CurrentRoute.Version);
+        var links = await LinksAsync(user, program.Id, program.CurrentRoute.ProgressRootVersion, token);
+        var lessonSkills = await db.Set<Lesson>().Where(l => l.UserId == user && l.ProgramId == program.Id &&
+            l.RouteVersion != null && versions.Contains(l.RouteVersion.Value) && l.SkillId != null)
+            .Select(l => new { l.TopicCode, l.SkillId }).Distinct().ToListAsync(token);
+        var topicSkills = new Dictionary<string, Guid>(StringComparer.Ordinal);
+        foreach (var topic in program.CurrentRoute.Topics)
+        {
+            var skillId = links.SingleOrDefault(l => l.TopicCode == topic.Code)?.SkillId
+                ?? lessonSkills.FirstOrDefault(l => l.TopicCode == topic.Code)?.SkillId;
+            if (skillId is Guid id) topicSkills.Add(topic.Code, id);
+        }
+        if (topicSkills.Count == 0) return new Dictionary<string, SkillStatus>();
+        var ids = topicSkills.Values.Distinct().ToArray();
+        var skills = await db.Set<Skill>().Where(s => s.UserId == user && ids.Contains(s.Id)).ToDictionaryAsync(s => s.Id, token);
+        var evidence = await db.Set<LearningEvidence>().Where(e => e.UserId == user && ids.Contains(e.SkillId)).ToListAsync(token);
+        var reviews = await db.Set<ReviewSchedule>().Where(r => r.UserId == user && ids.Contains(r.SkillId)).ToDictionaryAsync(r => r.SkillId, token);
+        var statuses = new Dictionary<string, SkillStatus>(StringComparer.Ordinal);
+        foreach (var (code, id) in topicSkills)
+        {
+            if (!skills.TryGetValue(id, out var skill)) continue;
+            var observations = evidence.Where(e => e.SkillId == id).OrderBy(e => e.ObservedAt).ThenBy(e => e.LessonId).ToArray();
+            statuses.Add(code, new(skill, LearnerSkillState.Evaluate(observations), observations)
+            {
+                Review = reviews.GetValueOrDefault(id)
+            });
+        }
+        return statuses;
+    }
+
     public Task<Skill?> FindAsync(UserId user, Guid skillId, CancellationToken token) =>
         db.Set<Skill>().SingleOrDefaultAsync(s => s.UserId == user && s.Id == skillId, token);
 

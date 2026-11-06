@@ -13,19 +13,33 @@ public sealed class LessonTests
         var user = new UserId(1);
         var projectProgram = LearningProgram.Create(user, "Goal", "Beginner", 1, "Math", [new("basics", "Basics", [])], null);
         var standalone = LearningProgram.Create(user, "Goal", "Beginner", null, "Math", [new("basics", "Basics", [])], null);
+        var action = OwnDay.Domain.Actions.Action.Create(user, "Task", DateTime.UnixEpoch, 1);
+        typeof(OwnDay.Domain.Actions.Action).GetProperty(nameof(action.Id))!.SetValue(action, 1L);
         var lesson = Lesson.Start(user, "Topic", "Theory", "Question");
-        Assert.Throws<ArgumentException>(() => lesson.LinkToProjectAction(projectProgram, 1));
+        Assert.Throws<ArgumentException>(() => lesson.LinkToProjectAction(projectProgram, action));
         lesson.LinkToProgram(projectProgram, "basics");
-        Assert.Throws<ArgumentException>(() => lesson.LinkToProjectAction(standalone, 1));
-        Assert.Throws<ArgumentException>(() => lesson.LinkToProjectAction(projectProgram, 0));
-        lesson.LinkToProjectAction(projectProgram, 1);
-        Assert.Throws<ArgumentException>(() => lesson.LinkToProjectAction(projectProgram, 2));
+        Assert.Throws<ArgumentException>(() => lesson.LinkToProjectAction(standalone, action));
+        var unsaved = OwnDay.Domain.Actions.Action.Create(user, "Task", DateTime.UnixEpoch, 1);
+        Assert.Throws<ArgumentException>(() => lesson.LinkToProjectAction(projectProgram, unsaved));
+        foreach (var invalid in new[]
+        {
+            OwnDay.Domain.Actions.Action.Create(new(2), "Foreign", DateTime.UnixEpoch, 1),
+            OwnDay.Domain.Actions.Action.Create(user, "Other project", DateTime.UnixEpoch, 2),
+            OwnDay.Domain.Actions.Action.Create(user, "Standalone", DateTime.UnixEpoch)
+        })
+        {
+            typeof(OwnDay.Domain.Actions.Action).GetProperty(nameof(invalid.Id))!.SetValue(invalid, 2L);
+            Assert.Throws<ArgumentException>(() => lesson.LinkToProjectAction(projectProgram, invalid));
+            Assert.Null(lesson.ProjectActionId);
+        }
+        lesson.LinkToProjectAction(projectProgram, action);
+        Assert.Throws<ArgumentException>(() => lesson.LinkToProjectAction(projectProgram, action));
         lesson.Complete("Answer", "Feedback", true);
-        Assert.Throws<InvalidOperationException>(() => lesson.LinkToProjectAction(projectProgram, 1));
+        Assert.Throws<InvalidOperationException>(() => lesson.LinkToProjectAction(projectProgram, action));
         Assert.Equal(1, lesson.ProjectActionId);
         var ordinary = Lesson.Start(user, "Topic", "Theory", "Question");
         ordinary.LinkToProgram(standalone, "basics");
-        Assert.Throws<ArgumentException>(() => ordinary.LinkToProjectAction(standalone, 1));
+        Assert.Throws<ArgumentException>(() => ordinary.LinkToProjectAction(standalone, action));
     }
 
     [Fact]

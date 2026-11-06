@@ -156,6 +156,10 @@ public sealed class ActionServiceTests
                 Actions.Where(action => action.UserId == userId && action.Status == ActionStatus.Active).ToList());
         }
 
+        public Task<IReadOnlyList<Action>> GetActiveProjectPageAsync(UserId userId, long projectId, int offset, int limit, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<Action>>(Actions.Where(a => a.UserId == userId && a.ProjectId == projectId && a.Status == ActionStatus.Active)
+                .OrderBy(a => a.Id).Skip(offset).Take(limit).ToArray());
+
         public Task<Action?> FindAsync(UserId userId, long actionId, CancellationToken cancellationToken)
         {
             LastToken = cancellationToken;

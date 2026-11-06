@@ -6,6 +6,9 @@ namespace OwnDay.UnitTests.Learning;
 
 internal sealed class KnowledgeStore : IKnowledgeStore
 {
+    public Task<IReadOnlyDictionary<string, SkillStatus>> TopicStatusesAsync(LearningProgram program, CancellationToken token) =>
+        Task.FromResult<IReadOnlyDictionary<string, SkillStatus>>(new Dictionary<string, SkillStatus>());
+
     public List<Skill> Skills { get; } = [];
     public List<LearningEvidence> Evidence { get; } = [];
     public List<ReviewSchedule> Reviews { get; } = [];

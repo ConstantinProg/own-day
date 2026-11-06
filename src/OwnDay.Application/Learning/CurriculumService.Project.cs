@@ -23,16 +23,16 @@ public sealed partial class CurriculumService
         if (project is null) return new CurriculumResult.ProjectNotFound();
         var completed = await store.CompletedTopicsAsync(user, program.Id, program.CurrentRoute.Version, token);
         var topics = new List<ProjectTopicRecommendation>();
+        var statuses = await knowledge.TopicStatusesAsync(program, token);
         foreach (var topic in program.CurrentRoute.Topics)
         {
-            var status = await knowledge.TopicStatusAsync(user, program.Id, program.CurrentRoute.Version, topic.Code, token);
+            statuses.TryGetValue(topic.Code, out var status);
             topics.Add(new(topic, status, !program.DiagnosticPending && topic.Prerequisites.All(completed.Contains)));
         }
-        var items = (await actions.GetActiveAsync(user, token)).Where(a => a.ProjectId == projectId)
-            .OrderBy(a => a.Id).Skip((page - 1) * PageSize).Take(PageSize + 1).ToArray();
+        var items = await actions.GetActiveProjectPageAsync(user, projectId, (page - 1) * PageSize, PageSize + 1, token);
         token.ThrowIfCancellationRequested();
         return new CurriculumResult.ProjectReport(new(program, project, topics,
-            items.Take(PageSize).Select(a => new ProjectActionOption(a.Id, a.Title)).ToArray(), page, items.Length > PageSize));
+            items.Take(PageSize).Select(a => new ProjectActionOption(a.Id, a.Title)).ToArray(), page, items.Count > PageSize));
     }
 
     public async Task<CurriculumResult> ProjectPracticeAsync(UserId user, string code, long actionId, CancellationToken token)
@@ -67,7 +67,7 @@ public sealed partial class CurriculumService
             token.ThrowIfCancellationRequested();
             var lesson = Lesson.Start(user, topic.Title, material.Theory, material.Question, material.Provenance, material.ExpectedAnswer);
             lesson.LinkToProgram(program, code);
-            lesson.LinkToProjectAction(program, action.Id);
+            lesson.LinkToProjectAction(program, action);
             if (status is not null) lesson.LinkToSkill(status.Skill);
             else await knowledge.AttachAsync(lesson, $"{topic.Title}\nDiscipline: {program.Discipline}\nLearning goal: {program.Goal}", token);
             token.ThrowIfCancellationRequested();

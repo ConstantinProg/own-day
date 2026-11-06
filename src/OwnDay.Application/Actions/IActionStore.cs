@@ -9,6 +9,7 @@ public interface IActionStore
     Task<bool> ProjectBelongsToAsync(long projectId, UserId userId, CancellationToken cancellationToken);
     Task<Action> AddAsync(Action action, CancellationToken cancellationToken);
     Task<IReadOnlyList<Action>> GetActiveAsync(UserId userId, CancellationToken cancellationToken);
+    Task<IReadOnlyList<Action>> GetActiveProjectPageAsync(UserId userId, long projectId, int offset, int limit, CancellationToken cancellationToken);
     Task<Action?> FindAsync(UserId userId, long actionId, CancellationToken cancellationToken);
     Task SaveAsync(CancellationToken cancellationToken);
 }

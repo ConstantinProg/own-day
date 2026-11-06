@@ -67,13 +67,14 @@ public sealed class Lesson
         TopicCode = topicCode;
     }
 
-    public void LinkToProjectAction(LearningProgram program, long actionId)
+    public void LinkToProjectAction(LearningProgram program, OwnDay.Domain.Actions.Action action)
     {
         RequireAwaitingAnswer();
-        if (ProjectActionId is not null || actionId <= 0 || program.Id != ProgramId ||
+        if (ProjectActionId is not null || action.Id <= 0 || action.UserId != UserId ||
+            action.ProjectId != program.ProjectId || program.Id != ProgramId ||
             program.UserId != UserId || program.ProjectId is null)
             throw new ArgumentException("Project practice requires a linked project program and task.");
-        ProjectActionId = actionId;
+        ProjectActionId = action.Id;
     }
 
     public void Pause()

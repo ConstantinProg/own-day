@@ -27,6 +27,12 @@ public sealed class EfActionStore(OwnDayDbContext dbContext) : IActionStore
             .ThenBy(action => action.Id)
             .ToListAsync(cancellationToken);
 
+    public async Task<IReadOnlyList<Action>> GetActiveProjectPageAsync(
+        UserId userId, long projectId, int offset, int limit, CancellationToken cancellationToken) =>
+        await dbContext.Actions.AsNoTracking()
+            .Where(action => action.UserId == userId && action.ProjectId == projectId && action.Status == ActionStatus.Active)
+            .OrderBy(action => action.Id).Skip(offset).Take(limit).ToListAsync(cancellationToken);
+
     public Task<Action?> FindAsync(UserId userId, long actionId, CancellationToken cancellationToken) =>
         dbContext.Actions.SingleOrDefaultAsync(action => action.UserId == userId && action.Id == actionId, cancellationToken);
 
