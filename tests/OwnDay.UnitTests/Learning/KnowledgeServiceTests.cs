@@ -8,6 +8,46 @@ namespace OwnDay.UnitTests.Learning;
 public sealed class KnowledgeServiceTests
 {
     [Fact]
+    public async Task RecordAnswerAsync_ExistingSchedule_UpdatesWithoutCreatingDuplicate()
+    {
+        var store = new KnowledgeStore();
+        var skill = Skill.Create(new UserId(1), "Topic");
+        store.Add(skill);
+        var initial = ReviewScheduleTests.Answer(skill, DateTimeOffset.UnixEpoch.AddDays(-1), true);
+        var schedule = ReviewSchedule.FromAnswer(initial);
+        store.Add(schedule);
+        var lesson = Lesson.Start(skill.UserId, skill.Title, "Context", "Question");
+        lesson.LinkToSkill(skill);
+        lesson.MarkAsReview();
+        lesson.Complete("Answer", "Feedback", true);
+
+        await new KnowledgeService(store, new Clock()).RecordAnswerAsync(lesson, "test-model", CancellationToken.None);
+
+        Assert.Same(schedule, Assert.Single(store.Reviews));
+        Assert.Equal(lesson.Id, schedule.LastLessonId);
+        Assert.Equal(1, schedule.SuccessfulReviews);
+        Assert.Equal(DateTimeOffset.UnixEpoch.AddDays(3), schedule.DueAt);
+        Assert.Equal(lesson.Id, Assert.Single(store.Evidence).LessonId);
+    }
+
+    [Fact]
+    public async Task RecordAnswerAsync_CanceledRequest_DoesNotCreateScheduleOrEvidence()
+    {
+        var store = new KnowledgeStore();
+        var lesson = Lesson.Start(new UserId(1), "Topic", "Theory", "Question");
+        lesson.LinkToSkill(Skill.Create(lesson.UserId, "Topic"));
+        lesson.Complete("Answer", "Feedback", true);
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            new KnowledgeService(store, new Clock()).RecordAnswerAsync(lesson, "test-model", cancellation.Token));
+
+        Assert.Empty(store.Reviews);
+        Assert.Empty(store.Evidence);
+    }
+
+    [Fact]
     public async Task AnswerAsync_AssessedAnswer_RecordsObservationAndProvenanceAtControlledTime()
     {
         var store = new KnowledgeStore();

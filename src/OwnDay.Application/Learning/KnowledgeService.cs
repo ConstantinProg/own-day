@@ -46,9 +46,12 @@ public sealed class KnowledgeService(IKnowledgeStore store, TimeProvider clock)
         lesson.LinkToSkill(skill);
     }
 
-    public void RecordAnswer(Lesson lesson, string source, ReviewSchedule? schedule)
+    public async Task RecordAnswerAsync(Lesson lesson, string source, CancellationToken token)
     {
+        Validate(lesson.UserId, token);
         var evidence = LearningEvidence.FromAnswer(lesson, clock.GetUtcNow(), source);
+        var schedule = await store.ReviewAsync(evidence.UserId, evidence.SkillId, token);
+        token.ThrowIfCancellationRequested();
         if (schedule is null) store.Add(ReviewSchedule.FromAnswer(evidence));
         else schedule.Record(evidence);
         store.Add(evidence);
@@ -62,7 +65,7 @@ public sealed class KnowledgeService(IKnowledgeStore store, TimeProvider clock)
 
     public bool IsDue(ReviewSchedule schedule) => schedule.IsDue(clock.GetUtcNow());
 
-    public void Defer(ReviewSchedule schedule, bool skip) => schedule.Defer(clock.GetUtcNow(), skip);
+    public void Defer(ReviewSchedule schedule, ReviewDeferral deferral) => schedule.Defer(clock.GetUtcNow(), deferral);
 
     public async Task<ReviewPage> ReviewsAsync(UserId user, CancellationToken token, int page = 1)
     {

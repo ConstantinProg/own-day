@@ -25,7 +25,7 @@ public sealed class ReviewFlowTests
         else
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => action == "review"
                 ? service.ReviewAsync(skill.UserId, skill.Id, cancellation.Token)
-                : service.DeferReviewAsync(skill.UserId, skill.Id, action == "skip", cancellation.Token));
+                : service.DeferReviewAsync(skill.UserId, skill.Id, action == "skip" ? ReviewDeferral.Skip : ReviewDeferral.Postpone, cancellation.Token));
         Assert.Equal(deadline, schedule.DueAt);
         Assert.Null(teacher.Request);
     }

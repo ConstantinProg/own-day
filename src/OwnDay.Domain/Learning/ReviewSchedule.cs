@@ -1,5 +1,11 @@
 namespace OwnDay.Domain.Learning;
 
+public enum ReviewDeferral
+{
+    Postpone,
+    Skip
+}
+
 public sealed class ReviewSchedule
 {
     private static readonly int[] _successfulReviewDays = [3, 7, 14, 30];
@@ -48,10 +54,16 @@ public sealed class ReviewSchedule
         LastLessonId = evidence.LessonId;
     }
 
-    public void Defer(DateTimeOffset now, bool skip)
+    public void Defer(DateTimeOffset now, ReviewDeferral deferral)
     {
+        var days = deferral switch
+        {
+            ReviewDeferral.Postpone => 1,
+            ReviewDeferral.Skip => 7,
+            _ => throw new ArgumentOutOfRangeException(nameof(deferral))
+        };
         if (now.Offset != TimeSpan.Zero) throw new ArgumentException("UTC timestamp required.", nameof(now));
         if (!IsDue(now)) throw new InvalidOperationException("Review is not due.");
-        DueAt = now.AddDays(skip ? 7 : 1);
+        DueAt = now.AddDays(days);
     }
 }

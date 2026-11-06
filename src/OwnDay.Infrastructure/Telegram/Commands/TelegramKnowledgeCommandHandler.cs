@@ -1,6 +1,7 @@
 using System.Globalization;
 using OwnDay.Application.Interactions;
 using OwnDay.Application.Learning;
+using OwnDay.Domain.Learning;
 
 namespace OwnDay.Infrastructure.Telegram.Commands;
 
@@ -28,7 +29,7 @@ public sealed class TelegramKnowledgeCommandHandler(KnowledgeService knowledge, 
             return TelegramLearningPresenter.Render(await learning.ReviewAsync(command.UserId, id, token));
         if (command.Name is "learn_review_later" or "learn_review_skip")
             return TelegramLearningPresenter.Render(await learning.DeferReviewAsync(command.UserId, id,
-                command.Name == "learn_review_skip", token));
+                command.Name == "learn_review_skip" ? ReviewDeferral.Skip : ReviewDeferral.Postpone, token));
         if (command.Name == "learn_practice")
             return TelegramLearningPresenter.Render(await learning.PracticeAsync(command.UserId, id, token));
         var status = await knowledge.StatusAsync(command.UserId, id, token);

@@ -12,9 +12,11 @@ namespace OwnDay.IntegrationTests.Telegram;
 
 public sealed class PostgresReviewTests
 {
-    [Fact]
+    [Theory]
+    [InlineData(3, 8)]
+    [InlineData(11, 1)]
     [Trait("Requires", "PostgreSQL via OWNDAY_TEST_POSTGRES_CONNECTION")]
-    public async Task Post_ReviewsAcrossMigrationAndRestarts_PreservesDeadlinesEvidenceAndPendingDelivery()
+    public async Task Post_ReviewsAcrossMigrationAndRestarts_PreservesDeadlinesEvidenceAndPendingDelivery(int month, int day)
     {
         var connection = Environment.GetEnvironmentVariable("OWNDAY_TEST_POSTGRES_CONNECTION") ??
             throw new InvalidOperationException("OWNDAY_TEST_POSTGRES_CONNECTION is required.");
@@ -26,9 +28,9 @@ public sealed class PostgresReviewTests
         try
         {
             const string previous = "20261106114130_AddAdaptiveTeaching";
-            var scopedConnection = connection + ";Search Path=" + schema;
+            var scopedConnection = connection + ";Search Path=" + schema + ";Timezone=America/New_York";
             var options = new DbContextOptionsBuilder<OwnDayDbContext>().UseNpgsql(scopedConnection).Options;
-            var clock = new TelegramReviewTests.Clock();
+            var clock = new TelegramReviewTests.Clock { Now = new DateTimeOffset(2026, month, day, 12, 0, 0, TimeSpan.Zero) };
             var teacher = new TelegramReviewTests.Teacher();
             var skill = Skill.Create(new UserId(101), "Fractions", "Apply fractions in a concrete setting");
             var lessonId = Guid.NewGuid();

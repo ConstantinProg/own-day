@@ -61,7 +61,7 @@ namespace OwnDay.Infrastructure.Persistence.Migrations
             migrationBuilder.Sql("""
                 INSERT INTO learning_reviews ("SkillId", "UserId", "DueAt", "LastObservedAt", "LastLessonId", "SuccessfulReviews")
                 SELECT "SkillId", "UserId",
-                    "ObservedAt" + CASE WHEN "AssessedCorrect" THEN INTERVAL '1 day' ELSE INTERVAL '1 hour' END,
+                    "ObservedAt" + CASE WHEN "AssessedCorrect" THEN INTERVAL '24 hours' ELSE INTERVAL '1 hour' END,
                     "ObservedAt", "LessonId", 0
                 FROM (
                     SELECT DISTINCT ON ("SkillId") "SkillId", "UserId", "ObservedAt", "LessonId", "AssessedCorrect"

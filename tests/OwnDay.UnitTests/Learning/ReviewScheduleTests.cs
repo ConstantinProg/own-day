@@ -86,21 +86,21 @@ public sealed class ReviewScheduleTests
     }
 
     [Theory]
-    [InlineData(false, 1)]
-    [InlineData(true, 7)]
-    public void Defer_DueReview_MovesSingleDeadlineWithoutChangingEvidenceOrStreak(bool skip, int days)
+    [InlineData(ReviewDeferral.Postpone, 1)]
+    [InlineData(ReviewDeferral.Skip, 7)]
+    public void Defer_DueReview_MovesSingleDeadlineWithoutChangingEvidenceOrStreak(ReviewDeferral deferral, int days)
     {
         var skill = Skill.Create(new UserId(1), "Fractions");
         var first = Answer(skill, _start, true);
         var schedule = ReviewSchedule.FromAnswer(first);
         var now = schedule.DueAt.AddDays(100);
-        schedule.Defer(now, skip);
+        schedule.Defer(now, deferral);
         Assert.Equal(now.AddDays(days), schedule.DueAt);
         Assert.Equal(first.LessonId, schedule.LastLessonId);
         Assert.Equal(first.ObservedAt, schedule.LastObservedAt);
         Assert.Equal(0, schedule.SuccessfulReviews);
-        Assert.Throws<InvalidOperationException>(() => schedule.Defer(now, skip));
-        Assert.Throws<ArgumentException>(() => schedule.Defer(now.ToOffset(TimeSpan.FromHours(3)), skip));
+        Assert.Throws<InvalidOperationException>(() => schedule.Defer(now, deferral));
+        Assert.Throws<ArgumentException>(() => schedule.Defer(now.ToOffset(TimeSpan.FromHours(3)), deferral));
     }
 
     [Fact]
