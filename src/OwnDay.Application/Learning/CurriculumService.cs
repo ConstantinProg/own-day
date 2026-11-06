@@ -44,6 +44,8 @@ public abstract record CurriculumResult
     public sealed record ProjectCompleted : CurriculumResult;
     public sealed record ProjectActionNotFound : CurriculumResult;
     public sealed record TransferUnavailable : CurriculumResult;
+    public sealed record Progress(LearningProgress Value) : CurriculumResult;
+    public sealed record NoProgress(int Page) : CurriculumResult;
 }
 
 public sealed partial class CurriculumService(ICurriculumStore store, ICurriculumPlanner planner,

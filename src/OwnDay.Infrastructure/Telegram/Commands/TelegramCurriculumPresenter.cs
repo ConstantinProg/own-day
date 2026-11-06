@@ -8,6 +8,10 @@ public static class TelegramCurriculumPresenter
     public static IReadOnlyList<string> Render(CurriculumResult result) => result switch
     {
         CurriculumResult.Program program => RenderProgram(program.Value),
+        CurriculumResult.Progress progress => TelegramProgressPresenter.Render(progress.Value),
+        CurriculumResult.NoProgress empty => [empty.Page == 1
+            ? "No programs yet. /learn_program <goal> | <experience>. Free lesson skills: /learn_skills"
+            : "No program on this page. /learn_progress"],
         CurriculumResult.ProjectReport report => RenderProjectReport(report.Value),
         CurriculumResult.NoProject => ["This program has no project link. Create a project program: /learn_project <id from /projects> | <experience>"],
         CurriculumResult.ProjectCompleted => ["This project is completed. Project practice requires an active project. /learn_project_report"],

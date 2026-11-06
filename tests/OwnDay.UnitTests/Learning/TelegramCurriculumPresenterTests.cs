@@ -9,6 +9,37 @@ namespace OwnDay.UnitTests.Learning;
 public sealed class TelegramCurriculumPresenterTests
 {
     [Fact]
+    public void Render_MaximumProgressReport_PreservesEveryTopicAndNavigationWithinTelegramLimit()
+    {
+        var user = new UserId(1);
+        var program = LearningProgram.Create(user, new string('g', 500), "Beginner", null, new string('d', 100),
+            Enumerable.Range(0, 12).Select(i => new CurriculumTopic(i.ToString().PadLeft(40, 'c'), new string('t', 100), [])), null);
+        program.ApplyAdaptation(program.ProposeAdaptation(program.CurrentRoute.Topics[0].Code, new string('r', 500)));
+        var skill = Skill.Create(user, "Shared skill");
+        var lesson = Lesson.Start(user, "Topic", "Theory", "Question");
+        lesson.LinkToSkill(skill);
+        lesson.Complete("Answer", new string('f', 3000), true);
+        var evidence = LearningEvidence.FromAnswer(lesson, DateTimeOffset.UnixEpoch, new string('s', 200));
+        var status = new SkillStatus(skill, LearnerSkillState.Evaluate([evidence]), [evidence])
+        {
+            Review = ReviewSchedule.FromAnswer(evidence)
+        };
+        var report = new LearningProgress(program, false, null, program.CurrentRoute.Topics.Select(topic =>
+            new TopicProgress(topic, false, true, status, true,
+                ProgramSkillLink.Confirm(program, topic.Code, skill, new string('b', 500), DateTimeOffset.UnixEpoch))).ToArray(), 2, true);
+        var messages = TelegramCurriculumPresenter.Render(new CurriculumResult.Progress(report));
+        var text = string.Join('\n', messages);
+        Assert.All(messages, m => Assert.InRange(m.Length, 1, 4096));
+        Assert.All(program.CurrentRoute.Topics, topic => Assert.Contains(topic.Code + ": " + topic.Title, text));
+        Assert.Contains("Route questions credited: 0/12", text);
+        Assert.Contains("Shared identity", text);
+        Assert.Contains("Basis (excerpt): " + new string('f', 299) + "…", text);
+        Assert.Contains("/learn_status " + skill.Id, text);
+        Assert.Contains("Previous: /learn_progress 1", text);
+        Assert.Contains("Next: /learn_progress 3", text);
+    }
+
+    [Fact]
     public void Render_ProjectReportWithMaximumText_LabelsProposalsAndFitsTelegramMessages()
     {
         var user = new UserId(1);

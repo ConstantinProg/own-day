@@ -16,6 +16,8 @@ they do not establish that every capability already exists.
 - [Undo and correction](features/inbox/undo.md): whole-result undo and conflict rules.
 - [Observability and cost control](features/inbox/observability-and-cost-control.md): statistics, usage and admission budgets.
 - [Historical v1 policy](features/inbox/policy-v1.md): explicit evaluation and compatibility rules.
+- [Learning commands](phase-5/learning-commands.md): programs, lessons, knowledge, reviews, scheduling and progress.
+- [Learning acceptance and operational review](phase-5/acceptance.md): scenario coverage, configuration, migrations and limitations.
 
 Earlier guides retain historical implementation context. Follow their links to automatic processing and the
 Telegram UX guide for behavior that supersedes the original manual flows.

@@ -284,6 +284,7 @@ Enter the text (up to 200 characters), or a period to keep it.
 /learn_preference_reset format|depth|pace|examples|all
 /learn_transfer &lt;topic code&gt; | &lt;other program id&gt; | &lt;other topic code&gt;
 /learn_programs [page]; /learn_select &lt;program id&gt;
+/learn_progress [page]; /learn_project_report [page]
 /learn_link &lt;topic code&gt; | &lt;skill id&gt; | &lt;reason&gt;; /learn_links
 /learn_request &lt;request&gt; | &lt;experience&gt;; /learn_program &lt;goal&gt; | &lt;experience&gt;
 /learn_project &lt;id&gt; | &lt;experience&gt;; /learn_diagnose &lt;answer|skip&gt;

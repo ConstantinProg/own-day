@@ -284,6 +284,7 @@
 /learn_preference_reset format|depth|pace|examples|all
 /learn_transfer &lt;topic code&gt; | &lt;other program id&gt; | &lt;other topic code&gt;
 /learn_programs [страница]; /learn_select &lt;id программы&gt;
+/learn_progress [страница]; /learn_project_report [страница]
 /learn_link &lt;код темы&gt; | &lt;id навыка&gt; | &lt;основание&gt;; /learn_links
 /learn_request &lt;запрос&gt; | &lt;опыт&gt;; /learn_program &lt;цель&gt; | &lt;опыт&gt;
 /learn_project &lt;id&gt; | &lt;опыт&gt;; /learn_diagnose &lt;ответ|skip&gt;

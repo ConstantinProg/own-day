@@ -6,12 +6,21 @@ namespace OwnDay.Infrastructure.Telegram.Commands;
 public sealed class TelegramCurriculumCommandHandler(CurriculumService service)
 {
     public bool Handles(string name) => name is "learn_request" or "learn_program" or "learn_project" or "learn_diagnose" or "learn_route" or "learn_next" or "learn_adapt" or "learn_focus"
-        or "learn_programs" or "learn_select" or "learn_link" or "learn_links" or "learn_project_report" or "learn_project_practice" or "learn_transfer";
+        or "learn_programs" or "learn_select" or "learn_link" or "learn_links" or "learn_project_report" or "learn_project_practice" or "learn_transfer" or "learn_progress";
 
     public async Task<IReadOnlyList<string>> HandleAsync(ProcessIncomingCommand command, CancellationToken token)
     {
         CurriculumResult result;
-        if (command.Name == "learn_transfer")
+        if (command.Name == "learn_progress")
+        {
+            var page = 1;
+            if ((!string.IsNullOrWhiteSpace(command.Arguments) &&
+                 !int.TryParse(command.Arguments, System.Globalization.NumberStyles.None,
+                     System.Globalization.CultureInfo.InvariantCulture, out page)) || page is < 1 or > CurriculumService.MaxPageNumber)
+                return ["Use /learn_progress [page] with a positive page number."];
+            result = await service.ProgressAsync(command.UserId, page, token);
+        }
+        else if (command.Name == "learn_transfer")
         {
             var parts = command.Arguments.Split('|', 3, StringSplitOptions.TrimEntries);
             if (parts.Length != 3 || !Guid.TryParse(parts[1], out var id))
