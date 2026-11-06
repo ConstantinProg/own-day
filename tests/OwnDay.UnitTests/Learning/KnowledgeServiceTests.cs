@@ -102,6 +102,36 @@ public sealed class KnowledgeServiceTests
         Assert.Single(store.Skills);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StartSkillLessonAsync_PracticeOrReview_MatchesRequestedStrategyAndSavedPreferences(bool review)
+    {
+        var store = new KnowledgeStore();
+        var skill = Skill.Create(new UserId(1), "Topic");
+        store.Add(skill);
+        store.Add(ReviewSchedule.FromAnswer(ReviewScheduleTests.Answer(skill, DateTimeOffset.UnixEpoch.AddDays(-2), true)));
+        var knowledge = new KnowledgeService(store, new Clock());
+        await knowledge.SetPreferenceAsync(skill.UserId, LearningPreferenceKind.Depth, "brief", default);
+        var lessons = new Lessons(null);
+        var teacher = new Teacher();
+        var service = new LearningService(lessons, teacher, knowledge);
+
+        var result = review ? await service.ReviewAsync(skill.UserId, skill.Id, default)
+            : await service.PracticeAsync(skill.UserId, skill.Id, default);
+
+        Assert.IsType<LearningResult.Material>(result);
+        var request = Assert.IsType<LessonRequest>(teacher.Request);
+        var lesson = Assert.IsType<Lesson>(lessons.Added);
+        Assert.Equal(review, request.IsReview);
+        Assert.Equal(review, lesson.IsReview);
+        if (review) Assert.Null(request.Teaching);
+        else Assert.Equal(TeachingAction.Practice, request.Teaching!.Action);
+        Assert.Equal(review ? PedagogicalStrategy.Review : PedagogicalStrategy.Practice, lesson.Teaching!.Strategy);
+        Assert.Equal(request.Personalization!.ExplicitPreferences, lesson.Teaching.Preferences);
+        Assert.Equal("brief", lesson.Teaching.Preferences.Depth);
+    }
+
     [Fact]
     public async Task StatusAsync_CanceledRequest_PropagatesCancellation()
     {
@@ -127,11 +157,13 @@ public sealed class KnowledgeServiceTests
 
     private sealed class Teacher : ILessonTeacher
     {
+        public LessonRequest? Request { get; private set; }
         public string Failure { get; init; } = "";
         public CancellationTokenSource? Cancellation { get; init; }
         public CancellationToken Token { get; private set; }
         public Task<LessonMaterial> GenerateAsync(LessonRequest request, CancellationToken token)
         {
+            Request = request;
             Token = token;
             if (Failure == "cancel") Cancellation!.Cancel();
             return Task.FromResult(new LessonMaterial("Theory", "Question"));

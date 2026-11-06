@@ -26,6 +26,17 @@ public interface ITeachingPlanner
 
 public static class AdaptiveTeaching
 {
+    public static PedagogicalStrategy StrategyFor(TeachingAction action) => action switch
+    {
+        TeachingAction.Hint => PedagogicalStrategy.Hint,
+        TeachingAction.Explain => PedagogicalStrategy.Explain,
+        TeachingAction.Simplify => PedagogicalStrategy.Simplify,
+        TeachingAction.Practice => PedagogicalStrategy.Practice,
+        TeachingAction.ReviewPrerequisite => PedagogicalStrategy.ReviewPrerequisite,
+        TeachingAction.Advance => PedagogicalStrategy.Advance,
+        _ => throw new InvalidOperationException($"Unsupported teaching action: {action}.")
+    };
+
     public static bool TryValidate(TeachingProposal proposal, CurriculumTopic current,
         IReadOnlyList<CurriculumTopic> topics, IReadOnlySet<string> completed, LearnerSkillState state,
         out TeachingAction action)

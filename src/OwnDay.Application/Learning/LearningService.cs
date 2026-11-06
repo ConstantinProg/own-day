@@ -199,8 +199,9 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
     private async Task<LearningResult> StartSkillLessonAsync(UserId user, Guid skillId, SkillLessonKind kind, CancellationToken token)
     {
         ValidateUser(user, token);
-        var skill = await knowledge.FindAsync(user, skillId, token);
-        if (skill is null) return new LearningResult.SkillNotFound();
+        var status = await knowledge.StatusAsync(user, skillId, token);
+        if (status is null) return new LearningResult.SkillNotFound();
+        var skill = status.Skill;
         var active = await store.FindActiveAsync(user, token);
         if (active is not null) return Session(active);
         if (kind == SkillLessonKind.Review)
@@ -210,13 +211,19 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
         }
         try
         {
+            TeachingContext? teaching = null;
+            if (kind == SkillLessonKind.Practice)
+            {
+                teaching = new(TeachingAction.Practice, "User selected practice of this existing skill.",
+                    status.State, []);
+            }
+            var strategy = teaching is null ? PedagogicalStrategy.Review : AdaptiveTeaching.StrategyFor(teaching.Action);
             var personalization = await knowledge.PersonalizationAsync(user, token);
             var material = await teacher.GenerateAsync(new LessonRequest(skill.Description, IsReview: kind == SkillLessonKind.Review,
-                Personalization: personalization.ForGeneration()), token);
+                Teaching: teaching, Personalization: personalization.ForGeneration()), token);
             token.ThrowIfCancellationRequested();
             var lesson = Lesson.Start(user, skill.Title, material.Theory, material.Question, material.Provenance, material.ExpectedAnswer);
-            lesson.SetTeaching(new(kind == SkillLessonKind.Review ? PedagogicalStrategy.Review : PedagogicalStrategy.Practice,
-                personalization.ExplicitPreferences));
+            lesson.SetTeaching(new(strategy, personalization.ExplicitPreferences));
             lesson.LinkToSkill(skill);
             if (kind == SkillLessonKind.Review) lesson.MarkAsReview();
             store.Add(lesson);

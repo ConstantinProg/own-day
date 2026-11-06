@@ -219,7 +219,7 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
                 Personalization: personalization.ForGeneration()), token);
             token.ThrowIfCancellationRequested();
             var lesson = Lesson.Start(user, topic.Title, material.Theory, material.Question, material.Provenance, material.ExpectedAnswer);
-            lesson.SetTeaching(new(teaching is null ? PedagogicalStrategy.Standard : Enum.Parse<PedagogicalStrategy>(teaching.Action.ToString()),
+            lesson.SetTeaching(new(teaching is null ? PedagogicalStrategy.Standard : AdaptiveTeaching.StrategyFor(teaching.Action),
                 personalization.ExplicitPreferences));
             token.ThrowIfCancellationRequested();
             if (status is not null) lesson.LinkToSkill(status.Skill);

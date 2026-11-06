@@ -87,6 +87,7 @@ public sealed class TelegramAdaptiveTeachingTests
     [InlineData("Advance")]
     [InlineData("Hint")]
     [InlineData("Explain")]
+    [InlineData("Simplify")]
     [InlineData("Practice")]
     public async Task Post_ExplicitAdaptation_PreservesCompletedPrerequisiteAndSkillIdentity(string action)
     {
@@ -109,6 +110,8 @@ public sealed class TelegramAdaptiveTeachingTests
         var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
         var basics = await db.Set<Lesson>().Where(l => l.TopicCode == "basics").ToListAsync();
         Assert.Single(basics.Select(l => l.SkillId).Distinct());
+        var adapted = await db.Set<Lesson>().SingleAsync(l => l.Status == LessonStatus.Finished);
+        Assert.Equal(action, adapted.Teaching!.Strategy.ToString());
         Assert.Equal(2, (await db.Set<LearningProgram>().Include(p => p.Routes).SingleAsync()).Routes.Count);
     }
 
