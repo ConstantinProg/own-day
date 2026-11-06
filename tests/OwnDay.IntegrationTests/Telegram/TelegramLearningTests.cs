@@ -12,6 +12,46 @@ namespace OwnDay.IntegrationTests.Telegram;
 
 public sealed class TelegramLearningTests
 {
+    [Theory]
+    [InlineData(true, "five")]
+    [InlineData(false, "four")]
+    public async Task Post_ConflictingAssessment_PersistsBothResultsWithoutCreditAndDeduplicates(bool aiCorrect, string answer)
+    {
+        using var factory = new OwnDayHostFactory();
+        var teacher = new Teacher { ExpectedAnswer = "four", AiCorrect = aiCorrect,
+            Provenance = new("fake model", "https://example.org/source", "v1", DateTimeOffset.UtcNow,
+                "Theory", MaterialSourceStatus.QuoteMatched) };
+        using var host = factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
+            services.Replace(ServiceDescriptor.Singleton<ILessonTeacher>(teacher))));
+        using var client = host.CreateClient();
+        await PostAsync(client, 1, 101, "/learn algebra");
+        await PostAsync(client, 2, 101, "/learn_pause");
+        await PostAsync(client, 3, 101, "/learn_resume");
+        await PostAsync(client, 4, 202, "/answer four");
+        await PostAsync(client, 5, 101, "/answer " + answer);
+        await PostAsync(client, 5, 101, "/answer " + answer);
+        using var scope = host.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
+        var lesson = Assert.Single(await db.Set<Lesson>().AsNoTracking().ToListAsync());
+        Assert.Equal(teacher.Provenance, lesson.Provenance);
+        Assert.False(lesson.IsCorrect);
+        Assert.Equal(aiCorrect, lesson.AiIsCorrect);
+        Assert.Equal(!aiCorrect, lesson.DeterministicIsCorrect);
+        var evidence = Assert.Single(await db.Set<LearningEvidence>().AsNoTracking().ToListAsync());
+        Assert.Equal(AnswerAssessmentStatus.Conflict, evidence.AssessmentStatus);
+        Assert.Equal(aiCorrect, evidence.AiAssessedCorrect);
+        Assert.Equal(!aiCorrect, evidence.DeterministicIsCorrect);
+        Assert.Equal(SkillMastery.Conflicting, LearnerSkillState.Evaluate([evidence]).Mastery);
+        Assert.Equal(0, Assert.Single(await db.Set<ReviewSchedule>().ToListAsync()).SuccessfulReviews);
+        Assert.Equal(1, teacher.Generated);
+        Assert.Equal(1, teacher.Assessed);
+        var messages = await db.TelegramOutboxMessages.AsNoTracking().ToListAsync();
+        Assert.Contains(messages, m => m.Text.Contains("Excerpt matched", StringComparison.Ordinal));
+        Assert.Contains(messages, m => m.Text.Contains("Conflict:", StringComparison.Ordinal) && m.Text.Contains("not credited", StringComparison.Ordinal));
+        Assert.All(messages.Where(m => m.ChatId == 202), m => Assert.DoesNotContain("example.org", m.Text));
+        Assert.DoesNotContain(messages, m => m.Text.Contains("reference: four", StringComparison.OrdinalIgnoreCase));
+    }
+
     [Fact]
     public async Task Post_DetourPauseResumeAndFinish_PreservesStepAndRejectsInvalidTransitions()
     {
@@ -154,18 +194,24 @@ public sealed class TelegramLearningTests
         public int Assessed { get; private set; }
         public bool Failure { get; init; }
         public bool Invalid { get; init; }
+        public string? ExpectedAnswer { get; init; }
+        public bool AiCorrect { get; init; } = true;
+        public LessonProvenance? Provenance { get; init; }
         public Task<LessonMaterial> GenerateAsync(LessonRequest request, CancellationToken token)
         {
             token.ThrowIfCancellationRequested();
             Generated++;
             if (Failure) throw new LessonProviderException();
-            return Task.FromResult(new LessonMaterial(Invalid ? "" : "Theory", "Two plus two?"));
+            return Task.FromResult(new LessonMaterial(Invalid ? "" : "Theory", "Two plus two?")
+            {
+                Provenance = Provenance, ExpectedAnswer = ExpectedAnswer
+            });
         }
         public Task<LessonAssessment> AssessAsync(Lesson lesson, string answer, CancellationToken token)
         {
             token.ThrowIfCancellationRequested();
             Assessed++;
-            return Task.FromResult(new LessonAssessment("Good", true));
+            return Task.FromResult(new LessonAssessment("Good", AiCorrect));
         }
     }
 }

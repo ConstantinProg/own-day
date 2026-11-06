@@ -15,7 +15,11 @@ public sealed record LessonRequest(string Topic, LessonProgramContext? Program =
     bool IsReview = false, SharedSkillContext? SharedSkill = null);
 public sealed record SharedSkillContext(string Description, LearnerSkillState State);
 
-public sealed record LessonMaterial(string Theory, string Question);
+public sealed record LessonMaterial(string Theory, string Question)
+{
+    public LessonProvenance? Provenance { get; init; }
+    public string? ExpectedAnswer { get; init; }
+}
 public sealed record LessonAssessment(string Feedback, bool IsCorrect)
 {
     public string Source { get; init; } = "LLM (unspecified model)";
@@ -44,13 +48,24 @@ public sealed class LessonProviderException(LessonProviderFailure reason = Lesso
 
 public abstract record LearningResult
 {
-    public sealed record Material(string Theory, string Question, string Topic) : LearningResult;
-    public sealed record Assessment(string Feedback) : LearningResult;
+    public sealed record Material(string Theory, string Question, string Topic) : LearningResult
+    {
+        public LessonProvenance? Provenance { get; init; }
+        public bool HasReferenceCheck { get; init; }
+    }
+    public sealed record Assessment(string Feedback) : LearningResult
+    {
+        public AnswerAssessmentStatus Status { get; init; }
+        public bool? DeterministicIsCorrect { get; init; }
+    }
     public sealed record InvalidTopic : LearningResult;
     public sealed record InvalidAnswer : LearningResult;
     public sealed record NoActiveLesson : LearningResult;
     public sealed record ProviderUnavailable : LearningResult;
-    public sealed record Session(string Topic, string Question, LessonStatus Status) : LearningResult;
+    public sealed record Session(string Topic, string Question, LessonStatus Status) : LearningResult
+    {
+        public LessonProvenance? Provenance { get; init; }
+    }
     public sealed record Explanation(string Text, string Topic, string Question) : LearningResult;
     public sealed record InvalidClarification : LearningResult;
     public sealed record InvalidTransition : LearningResult;
@@ -81,10 +96,10 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
         {
             var material = await teacher.GenerateAsync(new LessonRequest(topic), token);
             token.ThrowIfCancellationRequested();
-            var lesson = Lesson.Start(user, topic, material.Theory, material.Question);
+            var lesson = Lesson.Start(user, topic, material.Theory, material.Question, material.Provenance, material.ExpectedAnswer);
             await knowledge.AttachAsync(lesson, lesson.Topic, token);
             store.Add(lesson);
-            return new LearningResult.Material(lesson.Theory, lesson.Question, lesson.Topic);
+            return Material(lesson);
         }
         catch (Exception exception) when (exception is LessonProviderException or ArgumentException)
         {
@@ -130,7 +145,10 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
         // State/evidence failures must escape so the caller rolls back the entire update transaction.
         active.Complete(answer, result.Feedback, result.IsCorrect);
         await knowledge.RecordAnswerAsync(active, result.Source, token);
-        return new LearningResult.Assessment(result.Feedback);
+        return new LearningResult.Assessment(result.Feedback)
+        {
+            Status = active.AssessmentStatus, DeterministicIsCorrect = active.DeterministicIsCorrect
+        };
     }
 
     public async Task<LearningResult> PauseAsync(UserId user, CancellationToken token)
@@ -184,11 +202,11 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
         {
             var material = await teacher.GenerateAsync(new LessonRequest(skill.Description, IsReview: kind == SkillLessonKind.Review), token);
             token.ThrowIfCancellationRequested();
-            var lesson = Lesson.Start(user, skill.Title, material.Theory, material.Question);
+            var lesson = Lesson.Start(user, skill.Title, material.Theory, material.Question, material.Provenance, material.ExpectedAnswer);
             lesson.LinkToSkill(skill);
             if (kind == SkillLessonKind.Review) lesson.MarkAsReview();
             store.Add(lesson);
-            return new LearningResult.Material(lesson.Theory, lesson.Question, lesson.Topic);
+            return Material(lesson);
         }
         catch (Exception exception) when (exception is LessonProviderException or ArgumentException)
         {
@@ -241,7 +259,15 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
         }
     }
 
-    private static LearningResult.Session Session(Lesson lesson) => new(lesson.Topic, lesson.Question, lesson.Status);
+    internal static LearningResult.Material Material(Lesson lesson) => new(lesson.Theory, lesson.Question, lesson.Topic)
+    {
+        Provenance = lesson.Provenance, HasReferenceCheck = lesson.ExpectedAnswer is not null
+    };
+
+    private static LearningResult.Session Session(Lesson lesson) => new(lesson.Topic, lesson.Question, lesson.Status)
+    {
+        Provenance = lesson.Provenance
+    };
 
     private static void ValidateUser(UserId user, CancellationToken token)
     {

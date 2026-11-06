@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using OwnDay.Domain;
 using OwnDay.Domain.Learning;
@@ -33,6 +34,9 @@ internal static class KnowledgeModel
         });
         modelBuilder.Entity<Lesson>(entity =>
         {
+            entity.Property(l => l.ExpectedAnswer).HasMaxLength(500);
+            entity.Property(l => l.Provenance).HasConversion(value => SerializeProvenance(value!), value => DeserializeProvenance(value))
+                .HasColumnType("jsonb");
             entity.HasAlternateKey(l => new { l.Id, l.UserId });
             entity.HasOne<Skill>().WithMany().HasForeignKey(l => new { l.SkillId, l.UserId })
                 .HasPrincipalKey(s => new { s.Id, s.UserId }).OnDelete(DeleteBehavior.Restrict);
@@ -53,4 +57,7 @@ internal static class KnowledgeModel
                 .HasPrincipalKey(l => new { l.Id, l.UserId }).OnDelete(DeleteBehavior.Restrict);
         });
     }
+
+    private static string SerializeProvenance(LessonProvenance value) => JsonSerializer.Serialize(value);
+    private static LessonProvenance DeserializeProvenance(string json) => JsonSerializer.Deserialize<LessonProvenance>(json)!;
 }

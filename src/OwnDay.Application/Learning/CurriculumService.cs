@@ -207,14 +207,14 @@ public sealed class CurriculumService(ICurriculumStore store, ICurriculumPlanner
                 new LessonProgramContext(program.Discipline, program.Goal, program.Experience,
                     program.DiagnosticQuestion, program.DiagnosticAnswer), teaching, SharedSkill: shared), token);
             token.ThrowIfCancellationRequested();
-            var lesson = Lesson.Start(user, topic.Title, material.Theory, material.Question);
+            var lesson = Lesson.Start(user, topic.Title, material.Theory, material.Question, material.Provenance, material.ExpectedAnswer);
             token.ThrowIfCancellationRequested();
             if (status is not null) lesson.LinkToSkill(status.Skill);
             else await knowledge.AttachAsync(lesson, $"{topic.Title}\nDiscipline: {program.Discipline}\nLearning goal: {program.Goal}", token);
             if (revision is not null) program.ApplyAdaptation(revision);
             lesson.LinkToProgram(program, topic.Code);
             lessons.Add(lesson);
-            var result = new LearningResult.Material(lesson.Theory, lesson.Question, lesson.Topic);
+            var result = LearningService.Material(lesson);
             return revision is null ? new CurriculumResult.Lesson(result) : new CurriculumResult.Adapted(result, revision.Reason);
         }
         catch (Exception exception) when (exception is LessonProviderException or ArgumentException)

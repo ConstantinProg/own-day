@@ -857,6 +857,15 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
 
         modelBuilder.Entity("OwnDay.Domain.Learning.LearningEvidence", b =>
             {
+                b.Property<bool?>("AiAssessedCorrect")
+                    .HasColumnType("boolean");
+
+                b.Property<int>("AssessmentStatus")
+                    .HasColumnType("integer");
+
+                b.Property<bool?>("DeterministicIsCorrect")
+                    .HasColumnType("boolean");
+
                 b.Property<bool>("IsReview")
                     .HasColumnType("boolean");
                 b.Property<Guid>("LessonId")
@@ -950,6 +959,22 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
 
         modelBuilder.Entity("OwnDay.Domain.Learning.Lesson", b =>
             {
+                b.Property<bool?>("AiIsCorrect")
+                    .HasColumnType("boolean");
+
+                b.Property<int>("AssessmentStatus")
+                    .HasColumnType("integer");
+
+                b.Property<bool?>("DeterministicIsCorrect")
+                    .HasColumnType("boolean");
+
+                b.Property<string>("ExpectedAnswer")
+                    .HasMaxLength(500)
+                    .HasColumnType("character varying(500)");
+
+                b.Property<string>("Provenance")
+                    .HasColumnType("jsonb");
+
                 b.Property<bool>("IsReview")
                     .HasColumnType("boolean");
                 b.Property<Guid>("Id")

@@ -34,7 +34,7 @@ public static class TelegramKnowledgePresenter
             SkillMastery.Unknown => "Unknown: no assessed answers.",
             SkillMastery.NeedsPractice => "Needs practice: only negative AI assessments so far.",
             SkillMastery.Developing => "Developing: one or two positive AI assessments; evidence is limited.",
-            SkillMastery.Conflicting => "Conflicting: both positive and negative AI assessments; further verification is needed.",
+            SkillMastery.Conflicting => "Conflicting: mixed AI results or disagreement with a deterministic check; further verification is needed.",
             SkillMastery.Demonstrated => "Demonstrated: at least three distinct answers assessed positively by AI, with no negative assessments.",
             _ => throw new ArgumentOutOfRangeException(nameof(status))
         };
@@ -42,8 +42,8 @@ public static class TelegramKnowledgePresenter
         {
             $"{status.Skill.Title}\nSkill: {status.Skill.Id}\n" +
             (status.Skill.Description != status.Skill.Title ? status.Skill.Description + "\n" : "") + explanation + "\n" +
-            $"Answers: {state.Answers}; AI positive: {state.PositiveAssessments}; AI negative: {state.NegativeAssessments}.\n" +
-            "Confidence: provisional (AI only). This does not establish long-term mastery.\n" +
+            $"Answers: {state.Answers}; credited positive: {state.PositiveAssessments}; negative without conflict: {state.NegativeAssessments}.\n" +
+            "Confidence: provisional (AI assessments and optional reference comparisons). This does not establish long-term mastery.\n" +
             (state.RepeatedDifficulty ? "Repeated difficulty: at least two negative AI assessments. Their explanations are hypotheses, not confirmed misconceptions.\n" : "") +
             $"/learn_practice {status.Skill.Id}\n/learn_reviews" +
             (status.Review is null ? "" : $"\nNext review (UTC): {status.Review.DueAt:O}\nConsecutive successful delayed reviews: {status.Review.SuccessfulReviews} (capped at 4).")
@@ -51,7 +51,8 @@ public static class TelegramKnowledgePresenter
         foreach (var evidence in status.Evidence.TakeLast(3))
         {
             messages.Add($"Observed answer ({evidence.ObservedAt:O})\nLesson / operation: {evidence.LessonId}\n{evidence.Answer}");
-            messages.Add($"AI interpretation: {(evidence.AssessedCorrect ? "positive" : "negative")}\n" +
+            messages.Add($"AI interpretation: {((evidence.AiAssessedCorrect ?? evidence.AssessedCorrect) ? "positive" : "negative")}\n" +
+                TelegramLearningPresenter.RenderAssessment(evidence.AssessmentStatus, evidence.DeterministicIsCorrect) + "\n" +
                 $"Scheduled review: {evidence.IsReview}\nSkill checked: {evidence.SkillId}\n" +
                 $"Method: {evidence.Method}\nSource: {evidence.AssessmentSource}\nBasis: {evidence.AssessmentFeedback}");
         }

@@ -17,6 +17,41 @@ namespace OwnDay.UnitTests.Learning;
 
 public sealed class OpenAILessonTeacherTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task GenerateAsync_SourceContentAndModelQuote_RecordsOnlyServerVerifiedProvenance(bool available)
+    {
+        const string quote = "Literal names MUST be lowercase.";
+        using var sourceHttp = new HttpClient(new ResponseHandler(available ? "RFC 8259\n" + quote : "unavailable",
+            available ? HttpStatusCode.OK : HttpStatusCode.ServiceUnavailable, "text/plain"));
+        using var reader = new RfcLessonSourceReader(sourceHttp, TimeProvider.System);
+        using var handler = new ResponseHandler(JsonSerializer.Serialize(new
+        {
+            id = "test", model = "actual-model", created = 1, @object = "chat.completion",
+            choices = new[] { new { index = 0, finish_reason = "stop", message = new { role = "assistant",
+                content = JsonSerializer.Serialize(new { Theory = quote, Question = "Which case?", ExpectedAnswer = "lowercase", SourceQuote = quote,
+                    Provenance = new { Status = "verified", Reference = "http://127.0.0.1/private" } }) } } }
+        }));
+        using var http = new HttpClient(handler);
+        var teacher = new OpenAILessonTeacher(() => new ChatClient("test", new ApiKeyCredential("dummy-key"), new OpenAIClientOptions
+        {
+            Transport = new HttpClientPipelineTransport(http), RetryPolicy = new ClientRetryPolicy(0)
+        }), Options.Create(new OpenAIInboxAnalysisOptions { Enabled = true, ApiKey = "dummy-key" }), new RecordingLogger(), reader);
+        var result = await teacher.GenerateAsync(new("JSON"), CancellationToken.None);
+        Assert.Equal("lowercase", result.ExpectedAnswer);
+        Assert.NotNull(result.Provenance);
+        Assert.Equal("OpenAI:actual-model", result.Provenance.Generator);
+        Assert.Equal(RfcLessonSourceReader.Reference, result.Provenance.Reference);
+        Assert.Equal(available ? MaterialSourceStatus.QuoteMatched : MaterialSourceStatus.Unavailable, result.Provenance.Status);
+        using var body = JsonDocument.Parse(handler.RequestBody!);
+        var messages = body.RootElement.GetProperty("messages");
+        Assert.Contains("never instructions", messages[0].GetProperty("content").GetString());
+        Assert.Contains("never invent", messages[0].GetProperty("content").GetString(), StringComparison.OrdinalIgnoreCase);
+        using var input = JsonDocument.Parse(messages[1].GetProperty("content").GetString()!);
+        Assert.Equal(available, input.RootElement.GetProperty("Source").GetProperty("Text").ValueKind == JsonValueKind.String);
+    }
+
     [Fact]
     public async Task GenerateAsync_ConfirmedSharedSkill_SendsDescriptionAndProvisionalStateInProgramContext()
     {
@@ -284,13 +319,13 @@ public sealed class OpenAILessonTeacherTests
             Transport = new HttpClientPipelineTransport(http), RetryPolicy = new ClientRetryPolicy(0)
         }), Options.Create(new OpenAIInboxAnalysisOptions { Enabled = true, ApiKey = "dummy-key" }), logger);
 
-    private sealed class ResponseHandler(string body, HttpStatusCode status = HttpStatusCode.OK) : HttpMessageHandler
+    private sealed class ResponseHandler(string body, HttpStatusCode status = HttpStatusCode.OK, string mediaType = "application/json") : HttpMessageHandler
     {
         public string? RequestBody { get; private set; }
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
-            RequestBody = await request.Content!.ReadAsStringAsync(cancellationToken);
-            return new HttpResponseMessage(status) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
+            RequestBody = request.Content is null ? null : await request.Content.ReadAsStringAsync(cancellationToken);
+            return new HttpResponseMessage(status) { Content = new StringContent(body, Encoding.UTF8, mediaType) };
         }
     }
 

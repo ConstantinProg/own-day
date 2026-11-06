@@ -2,6 +2,7 @@ namespace OwnDay.Domain.Learning;
 
 public sealed class Lesson
 {
+    private static readonly IAnswerCheck _answerCheck = new NormalizedTextAnswerCheck();
     private readonly List<LessonInteraction> _interactions = [];
     private Lesson() { }
 
@@ -13,6 +14,11 @@ public sealed class Lesson
     public string? Answer { get; private set; }
     public string? Feedback { get; private set; }
     public bool? IsCorrect { get; private set; }
+    public bool? AiIsCorrect { get; private set; }
+    public bool? DeterministicIsCorrect { get; private set; }
+    public AnswerAssessmentStatus AssessmentStatus { get; private set; }
+    public string? ExpectedAnswer { get; private set; }
+    public LessonProvenance? Provenance { get; private set; }
     public LessonStatus Status { get; private set; }
     public Guid? ProgramId { get; private set; }
     public int? RouteVersion { get; private set; }
@@ -21,13 +27,17 @@ public sealed class Lesson
     public bool IsReview { get; private set; }
     public IReadOnlyCollection<LessonInteraction> Interactions => _interactions.AsReadOnly();
 
-    public static Lesson Start(UserId user, string topic, string theory, string question)
+    public static Lesson Start(UserId user, string topic, string theory, string question,
+        LessonProvenance? provenance = null, string? expectedAnswer = null)
     {
         if (!user.IsValid) throw new ArgumentException("Invalid user.", nameof(user));
         Validate(topic, 500);
         Validate(theory, 2500);
         Validate(question, 1000);
-        return new Lesson { Id = Guid.NewGuid(), UserId = user, Topic = topic, Theory = theory, Question = question };
+        provenance?.Validate();
+        if (expectedAnswer is not null) Validate(expectedAnswer, 500);
+        return new Lesson { Id = Guid.NewGuid(), UserId = user, Topic = topic, Theory = theory, Question = question,
+            Provenance = provenance, ExpectedAnswer = expectedAnswer };
     }
 
     public void Complete(string answer, string feedback, bool correct)
@@ -37,7 +47,11 @@ public sealed class Lesson
         Validate(feedback, 3000);
         Answer = answer;
         Feedback = feedback;
-        IsCorrect = correct;
+        AiIsCorrect = correct;
+        DeterministicIsCorrect = ExpectedAnswer is null ? null : _answerCheck.Check(answer, ExpectedAnswer);
+        AssessmentStatus = DeterministicIsCorrect is null ? AnswerAssessmentStatus.AiOnly
+            : DeterministicIsCorrect == correct ? AnswerAssessmentStatus.Agreement : AnswerAssessmentStatus.Conflict;
+        IsCorrect = correct && AssessmentStatus != AnswerAssessmentStatus.Conflict;
         Status = LessonStatus.Completed;
     }
 

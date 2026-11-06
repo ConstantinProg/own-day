@@ -40,7 +40,16 @@ public sealed class PostgresProgramsTests
             await using (var setup = new OwnDayDbContext(options))
             {
                 await setup.GetService<IMigrator>().MigrateAsync(previous);
-                setup.AddRange(source, skill, initial, evidence, ReviewSchedule.FromAnswer(evidence));
+                setup.AddRange(source, skill);
+                await setup.SaveChangesAsync();
+                // Seed historical columns explicitly; the current model includes newer verification metadata.
+                await setup.Database.ExecuteSqlInterpolatedAsync($"""
+                    INSERT INTO learning_lessons ("Id", "UserId", "Topic", "Theory", "Question", "Answer", "Feedback", "IsCorrect", "Status", "ProgramId", "RouteVersion", "TopicCode", "SkillId", "IsReview")
+                    VALUES ({initial.Id}, {source.UserId.Value}, {initial.Topic}, {initial.Theory}, {initial.Question}, {initial.Answer}, {initial.Feedback}, true, 2, {source.Id}, {initial.RouteVersion}, {initial.TopicCode}, {skill.Id}, false);
+                    INSERT INTO learning_evidence ("LessonId", "SkillId", "UserId", "ObservedAt", "Answer", "AssessmentFeedback", "AssessedCorrect", "AssessmentSource", "Method", "IsReview")
+                    VALUES ({initial.Id}, {skill.Id}, {source.UserId.Value}, {evidence.ObservedAt}, {evidence.Answer}, {evidence.AssessmentFeedback}, true, {evidence.AssessmentSource}, {evidence.Method}, false);
+                    """);
+                setup.Add(ReviewSchedule.FromAnswer(evidence));
                 await setup.SaveChangesAsync();
                 await setup.Database.MigrateAsync();
                 Assert.Equal(source.Id, (await setup.Set<LearningContext>().SingleAsync()).ProgramId);

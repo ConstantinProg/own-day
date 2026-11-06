@@ -35,7 +35,13 @@ public sealed class ReviewSchedule
         if (LastLessonId != Guid.Empty && evidence.ObservedAt < LastObservedAt)
             throw new ArgumentException("Evidence must not precede the last observation.", nameof(evidence));
 
-        if (!evidence.AssessedCorrect)
+        if (evidence.AssessmentStatus == AnswerAssessmentStatus.Conflict)
+        {
+            // Uncertainty cannot earn a longer interval or count as a failed answer.
+            var retryAt = evidence.ObservedAt.AddHours(1);
+            if (LastLessonId == Guid.Empty || DueAt > retryAt) DueAt = retryAt;
+        }
+        else if (!evidence.AssessedCorrect)
         {
             SuccessfulReviews = 0;
             DueAt = evidence.ObservedAt.AddHours(1);

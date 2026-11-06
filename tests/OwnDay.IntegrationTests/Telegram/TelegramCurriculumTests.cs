@@ -15,6 +15,29 @@ namespace OwnDay.IntegrationTests.Telegram;
 
 public sealed class TelegramCurriculumTests
 {
+    [Theory]
+    [InlineData("wrong", false)]
+    [InlineData("correct", true)]
+    public async Task Post_ReferenceCheck_AllowsOnlyAgreedPositiveAnswerToAdvanceRoute(string reference, bool advances)
+    {
+        using var factory = new OwnDayHostFactory();
+        var teacher = new Teacher { ExpectedAnswer = reference };
+        using var host = factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
+        {
+            services.Replace(ServiceDescriptor.Singleton<ICurriculumPlanner>(new Planner { NoQuestion = true }));
+            services.Replace(ServiceDescriptor.Singleton<ILessonTeacher>(teacher));
+        }));
+        using var client = host.CreateClient();
+        await TelegramReviewTests.Post(client, 1, 101, "/learn_program Learn mathematics | Beginner");
+        await TelegramReviewTests.Post(client, 2, 101, "/learn_next");
+        await TelegramReviewTests.Post(client, 3, 101, "/answer correct");
+        await TelegramReviewTests.Post(client, 4, 101, "/learn_next");
+        using var scope = host.Services.CreateScope();
+        var lessons = await scope.ServiceProvider.GetRequiredService<OwnDayDbContext>().Set<Lesson>().ToListAsync();
+        Assert.Equal(2, lessons.Count);
+        Assert.Equal(advances ? "advanced" : "basics", Assert.Single(lessons, l => l.Status == LessonStatus.AwaitingAnswer).TopicCode);
+    }
+
     [Fact]
     [Trait("Requires", "PostgreSQL via OWNDAY_TEST_POSTGRES_CONNECTION")]
     public async Task Post_ProgramAcrossHostRestarts_RestoresDiagnosisVersionsAndNextTopic()
@@ -401,6 +424,7 @@ public sealed class TelegramCurriculumTests
 
     internal sealed class Teacher : ILessonTeacher
     {
+        public string? ExpectedAnswer { get; init; }
         public CancellationTokenSource? CancelAfterGenerate { get; set; }
         public CancellationToken ReceivedToken { get; private set; }
         public int Generated { get; private set; }
@@ -412,7 +436,7 @@ public sealed class TelegramCurriculumTests
             Generated++;
             ReceivedToken = token;
             CancelAfterGenerate?.Cancel();
-            return Task.FromResult(new LessonMaterial("Theory", "Question"));
+            return Task.FromResult(new LessonMaterial("Theory", "Question") { ExpectedAnswer = ExpectedAnswer });
         }
         public Task<LessonAssessment> AssessAsync(Lesson lesson, string answer, CancellationToken token) =>
             Task.FromResult(new LessonAssessment("Feedback", answer == "correct"));

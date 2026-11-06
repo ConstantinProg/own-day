@@ -51,6 +51,9 @@ public static class TelegramServiceCollectionExtensions
         services.AddSingleton<TelegramUpdateRouter>();
 
         services.AddScoped<OwnDay.Application.Learning.ILessonStore, OwnDay.Infrastructure.Persistence.EfLessonStore>();
+        services.AddSingleton(provider => new OwnDay.Infrastructure.OpenAIAnalysis.RfcLessonSourceReader(
+            new HttpClient(new SocketsHttpHandler { AllowAutoRedirect = false, UseCookies = false }),
+            provider.GetRequiredService<TimeProvider>()));
         services.AddScoped<OwnDay.Application.Learning.ILessonTeacher, OwnDay.Infrastructure.OpenAIAnalysis.OpenAILessonTeacher>();
         services.AddScoped<OwnDay.Application.Learning.LearningService>();
         services.AddScoped<OwnDay.Application.Learning.IKnowledgeStore, OwnDay.Infrastructure.Persistence.EfKnowledgeStore>();

@@ -11,6 +11,9 @@ public sealed class LearningEvidence
     public string Answer { get; private set; } = "";
     public string AssessmentFeedback { get; private set; } = "";
     public bool AssessedCorrect { get; private set; }
+    public bool? AiAssessedCorrect { get; private set; }
+    public bool? DeterministicIsCorrect { get; private set; }
+    public AnswerAssessmentStatus AssessmentStatus { get; private set; }
     public string AssessmentSource { get; private set; } = "";
     public string Method { get; private set; } = "AI answer assessment";
     public bool IsReview { get; private set; }
@@ -26,7 +29,10 @@ public sealed class LearningEvidence
         {
             LessonId = lesson.Id, SkillId = lesson.SkillId.Value, UserId = lesson.UserId, ObservedAt = observedAt,
             Answer = lesson.Answer!, AssessmentFeedback = lesson.Feedback!, AssessedCorrect = lesson.IsCorrect!.Value,
-            AssessmentSource = source, IsReview = lesson.IsReview
+            AssessmentSource = source, IsReview = lesson.IsReview,
+            AiAssessedCorrect = lesson.AiIsCorrect ?? lesson.IsCorrect,
+            DeterministicIsCorrect = lesson.DeterministicIsCorrect, AssessmentStatus = lesson.AssessmentStatus,
+            Method = lesson.ExpectedAnswer is null ? "AI answer assessment" : "AI + NormalizedText/v1 (AI reference)"
         };
     }
 }
@@ -49,9 +55,10 @@ public sealed record LearnerSkillState(SkillMastery Mastery, int Answers, int Po
         var observations = evidence.DistinctBy(e => e.LessonId).ToArray();
         if (observations.Select(e => (e.UserId, e.SkillId)).Distinct().Count() > 1)
             throw new ArgumentException("Evidence must belong to one learner and skill.", nameof(evidence));
-        var positive = observations.Count(e => e.AssessedCorrect);
-        var negative = observations.Length - positive;
+        var positive = observations.Count(e => e.AssessedCorrect && e.AssessmentStatus != AnswerAssessmentStatus.Conflict);
+        var negative = observations.Count(e => !e.AssessedCorrect && e.AssessmentStatus != AnswerAssessmentStatus.Conflict);
         var mastery = observations.Length == 0 ? SkillMastery.Unknown
+            : observations.Any(e => e.AssessmentStatus == AnswerAssessmentStatus.Conflict) ? SkillMastery.Conflicting
             : negative > 0 && positive > 0 ? SkillMastery.Conflicting
             : negative > 0 ? SkillMastery.NeedsPractice
             : positive >= 3 ? SkillMastery.Demonstrated : SkillMastery.Developing;

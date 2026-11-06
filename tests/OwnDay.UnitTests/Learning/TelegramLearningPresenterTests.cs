@@ -7,6 +7,27 @@ namespace OwnDay.UnitTests.Learning;
 
 public sealed class TelegramLearningPresenterTests
 {
+    [Theory]
+    [InlineData(MaterialSourceStatus.None, "No authoritative source")]
+    [InlineData(MaterialSourceStatus.Unavailable, "Source unavailable")]
+    [InlineData(MaterialSourceStatus.Retrieved, "no matching excerpt")]
+    [InlineData(MaterialSourceStatus.QuoteMatched, "Only the excerpt")]
+    public void Render_ProvenanceAndReferenceCheck_ShowsVerificationLimitsWithinTelegramSize(MaterialSourceStatus status, string expected)
+    {
+        var source = new LessonProvenance(new string('g', 200), status == MaterialSourceStatus.None ? null : new string('r', 500),
+            status == MaterialSourceStatus.None ? null : new string('v', 100),
+            status is MaterialSourceStatus.Retrieved or MaterialSourceStatus.QuoteMatched ? DateTimeOffset.UnixEpoch : null,
+            status == MaterialSourceStatus.QuoteMatched ? new string('q', 500) : null, status);
+        source.Validate();
+        var messages = TelegramLearningPresenter.Render(new LearningResult.Material(new string('t', 2500), new string('q', 1000), new string('n', 500))
+        {
+            Provenance = source, HasReferenceCheck = true
+        });
+        Assert.Contains(messages, m => m.Contains(expected, StringComparison.Ordinal));
+        Assert.Contains(messages, m => m.Contains("reference was proposed by AI", StringComparison.Ordinal));
+        Assert.All(messages, m => Assert.InRange(m.Length, 1, 4096));
+    }
+
     [Fact]
     public void Render_ActiveSession_ShowsCurrentQuestionAndAnswerAction()
     {
