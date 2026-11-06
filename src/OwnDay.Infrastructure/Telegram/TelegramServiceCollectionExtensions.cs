@@ -53,6 +53,7 @@ public static class TelegramServiceCollectionExtensions
         services.AddScoped<TelegramKnowledgeCommandHandler>();
         services.AddScoped<OwnDay.Application.Learning.ICurriculumStore, OwnDay.Infrastructure.Persistence.EfCurriculumStore>();
         services.AddScoped<OwnDay.Application.Learning.ICurriculumPlanner, OwnDay.Infrastructure.OpenAIAnalysis.OpenAILessonTeacher>();
+        services.AddScoped<OwnDay.Application.Learning.ITeachingPlanner, OwnDay.Infrastructure.OpenAIAnalysis.OpenAILessonTeacher>();
         services.AddScoped<OwnDay.Application.Learning.CurriculumService>();
         services.AddScoped<TelegramCurriculumCommandHandler>();
         services.AddScoped<TelegramUpdateHandler>();

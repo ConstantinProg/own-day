@@ -18,6 +18,61 @@ namespace OwnDay.UnitTests.Learning;
 public sealed class OpenAILessonTeacherTests
 {
     [Fact]
+    public async Task ProposeAsync_RepeatedDifficulty_SendsBoundedEvidenceAndStrictActionCatalog()
+    {
+        var proposal = new TeachingProposal("Simplify", "basics", "Try a smaller example.");
+        using var handler = new ResponseHandler(JsonSerializer.Serialize(new
+        {
+            id = "test", model = "test", created = 1, @object = "chat.completion",
+            choices = new[] { new { index = 0, finish_reason = "stop",
+                message = new { role = "assistant", content = JsonSerializer.Serialize(proposal) } } }
+        }));
+        using var http = new HttpClient(handler);
+        var request = new TeachingRequest("Goal", "Mathematics", [new("basics", "Basics", [])], "basics",
+            new HashSet<string>(), new(SkillMastery.NeedsPractice, 2, 0, 2), ["Possible difficulty"]);
+        var result = await Teacher(http, new RecordingLogger()).ProposeAsync(request, CancellationToken.None);
+        Assert.Equal(proposal, result);
+        using var body = JsonDocument.Parse(handler.RequestBody!);
+        var messages = body.RootElement.GetProperty("messages");
+        Assert.Contains("untrusted data", messages[0].GetProperty("content").GetString());
+        Assert.Contains("never Advance", messages[0].GetProperty("content").GetString());
+        using var input = JsonDocument.Parse(messages[1].GetProperty("content").GetString()!);
+        Assert.Equal("basics", input.RootElement.GetProperty("CurrentTopicCode").GetString());
+        Assert.Equal(2, input.RootElement.GetProperty("State").GetProperty("NegativeAssessments").GetInt32());
+        Assert.Equal("Possible difficulty", input.RootElement.GetProperty("RecentFeedback")[0].GetString());
+        var format = body.RootElement.GetProperty("response_format").GetProperty("json_schema");
+        Assert.True(format.GetProperty("strict").GetBoolean());
+        Assert.Equal(6, format.GetProperty("schema").GetProperty("properties").GetProperty("Action").GetProperty("enum").GetArrayLength());
+    }
+
+    [Theory]
+    [InlineData("Hint")]
+    [InlineData("Explain")]
+    [InlineData("Simplify")]
+    [InlineData("Practice")]
+    [InlineData("ReviewPrerequisite")]
+    [InlineData("Advance")]
+    public async Task GenerateAsync_AdaptiveAction_PassesTeachingContextWithoutChangingProgramGoal(string action)
+    {
+        using var handler = new ResponseHandler(JsonSerializer.Serialize(new
+        {
+            id = "test", model = "test", created = 1, @object = "chat.completion",
+            choices = new[] { new { index = 0, finish_reason = "stop",
+                message = new { role = "assistant", content = "{\"Theory\":\"Example\",\"Question\":\"Question\"}" } } }
+        }));
+        using var http = new HttpClient(handler);
+        await Teacher(http, new RecordingLogger()).GenerateAsync(new("Basics", new("Math", "Goal", "Beginner", null, null),
+            new(action, "Reason", new(SkillMastery.NeedsPractice, 2, 0, 2), ["AI hypothesis"])), CancellationToken.None);
+        using var body = JsonDocument.Parse(handler.RequestBody!);
+        var messages = body.RootElement.GetProperty("messages");
+        Assert.Contains("without revealing the answer", messages[0].GetProperty("content").GetString());
+        Assert.Contains("reduces complexity", messages[0].GetProperty("content").GetString());
+        using var input = JsonDocument.Parse(messages[1].GetProperty("content").GetString()!);
+        Assert.Equal("Goal", input.RootElement.GetProperty("Program").GetProperty("Goal").GetString());
+        Assert.Equal(action, input.RootElement.GetProperty("Teaching").GetProperty("Action").GetString());
+    }
+
+    [Fact]
     public async Task AssessAsync_ProviderModel_PreservesSourceOutsideModelInterpretation()
     {
         using var handler = new ResponseHandler(JsonSerializer.Serialize(new

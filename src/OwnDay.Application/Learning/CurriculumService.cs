@@ -29,10 +29,12 @@ public abstract record CurriculumResult
     public sealed record InvalidTransition : CurriculumResult;
     public sealed record RouteCompleted : CurriculumResult;
     public sealed record ProviderUnavailable : CurriculumResult;
+    public sealed record Adapted(LearningResult Value, string Reason) : CurriculumResult;
 }
 
 public sealed class CurriculumService(ICurriculumStore store, ICurriculumPlanner planner,
-    ILessonStore lessons, ILessonTeacher teacher, StructuredItemService projects, KnowledgeService knowledge)
+    ILessonStore lessons, ILessonTeacher teacher, StructuredItemService projects, KnowledgeService knowledge,
+    ITeachingPlanner teachingPlanner)
 {
     public async Task<CurriculumResult> CreateAsync(UserId user, string goal, string experience, long? projectId, CancellationToken token)
     {
@@ -99,7 +101,9 @@ public sealed class CurriculumService(ICurriculumStore store, ICurriculumPlanner
         }
     }
 
-    public async Task<CurriculumResult> NextAsync(UserId user, CancellationToken token)
+    public Task<CurriculumResult> NextAsync(UserId user, CancellationToken token) => NextAsync(user, false, null, token);
+
+    public async Task<CurriculumResult> NextAsync(UserId user, bool adapt, string? focus, CancellationToken token)
     {
         ValidateUser(user, token);
         var program = await store.FindAsync(user, token);
@@ -109,18 +113,49 @@ public sealed class CurriculumService(ICurriculumStore store, ICurriculumPlanner
         if (active is not null) return new CurriculumResult.Lesson(new LearningResult.Session(active.Topic, active.Question, active.Status));
         var completed = await store.CompletedTopicsAsync(user, program.Id, program.CurrentRoute.Version, token);
         var topic = program.NextTopic(completed);
+        if (focus is not null)
+        {
+            topic = program.CurrentRoute.Topics.SingleOrDefault(t => t.Code == focus);
+            if (topic is null || !topic.Prerequisites.All(completed.Contains)) return new CurriculumResult.InvalidInput();
+        }
         if (topic is null) return new CurriculumResult.RouteCompleted();
         try
         {
+            var status = await knowledge.TopicStatusAsync(user, program.Id, program.CurrentRoute.Version, topic.Code, token);
+            var state = status?.State ?? LearnerSkillState.Evaluate([]);
+            TeachingContext? teaching = null;
+            CurriculumRoute? revision = null;
+            if (focus is not null)
+            {
+                revision = program.ProposeAdaptation(topic.Code, $"User selected topic {topic.Code}; goal and prerequisites preserved.");
+            }
+            else if (adapt || state.RepeatedDifficulty)
+            {
+                var feedback = status?.Evidence.TakeLast(3).Select(e => e.AssessmentFeedback[..Math.Min(e.AssessmentFeedback.Length, 500)]).ToArray() ?? [];
+                var proposal = await teachingPlanner.ProposeAsync(new(program.Goal, program.Discipline, program.CurrentRoute.Topics,
+                    topic.Code, completed, state, feedback), token);
+                token.ThrowIfCancellationRequested();
+                if (!AdaptiveTeaching.IsAllowed(proposal, topic, program.CurrentRoute.Topics, completed, state))
+                    return new CurriculumResult.ProviderUnavailable();
+                var reason = $"{proposal.Action}: {topic.Code} -> {proposal.TopicCode}. Evidence: {state.PositiveAssessments} positive, {state.NegativeAssessments} negative AI assessments. AI rationale: {proposal.Reason}";
+                revision = program.ProposeAdaptation(proposal.TopicCode, reason);
+                topic = program.CurrentRoute.Topics.Single(t => t.Code == proposal.TopicCode);
+                teaching = new(proposal.Action, reason, state, feedback);
+                status = await knowledge.TopicStatusAsync(user, program.Id, program.CurrentRoute.Version, topic.Code, token);
+            }
             var material = await teacher.GenerateAsync(new LessonRequest(topic.Title,
                 new LessonProgramContext(program.Discipline, program.Goal, program.Experience,
-                    program.DiagnosticQuestion, program.DiagnosticAnswer)), token);
+                    program.DiagnosticQuestion, program.DiagnosticAnswer), teaching), token);
             token.ThrowIfCancellationRequested();
             var lesson = Lesson.Start(user, topic.Title, material.Theory, material.Question);
+            token.ThrowIfCancellationRequested();
+            if (status is not null) lesson.LinkToSkill(status.Skill);
+            else await knowledge.AttachAsync(lesson, $"{topic.Title}\nDiscipline: {program.Discipline}\nLearning goal: {program.Goal}", token);
+            if (revision is not null) program.ApplyAdaptation(revision);
             lesson.LinkToProgram(program, topic.Code);
-            await knowledge.AttachAsync(lesson, $"{topic.Title}\nDiscipline: {program.Discipline}\nLearning goal: {program.Goal}", token);
             lessons.Add(lesson);
-            return new CurriculumResult.Lesson(new LearningResult.Material(lesson.Theory, lesson.Question, lesson.Topic));
+            var result = new LearningResult.Material(lesson.Theory, lesson.Question, lesson.Topic);
+            return revision is null ? new CurriculumResult.Lesson(result) : new CurriculumResult.Adapted(result, revision.Reason);
         }
         catch (Exception exception) when (exception is LessonProviderException or ArgumentException)
         {

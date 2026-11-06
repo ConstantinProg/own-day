@@ -9,6 +9,18 @@ namespace OwnDay.UnitTests.Learning;
 public sealed class TelegramCurriculumPresenterTests
 {
     [Fact]
+    public void Render_AdaptedLesson_ExplainsAdjustmentAndKeepsEveryMessageWithinTelegramLimit()
+    {
+        var result = new CurriculumResult.Adapted(new LearningResult.Material(new string('T', 2500), new string('Q', 1000),
+            new string('S', 100)), new string('R', 500));
+        var messages = TelegramCurriculumPresenter.Render(result);
+        Assert.Contains("Teaching adjustment", messages[0]);
+        Assert.Contains("/learn_route", messages[0]);
+        Assert.Contains("/answer", string.Join('\n', messages));
+        Assert.All(messages, m => Assert.InRange(m.Length, 1, 4096));
+    }
+
+    [Fact]
     public void Render_MaximumRouteWithDenseDependencies_KeepsEveryMessageWithinTelegramLimit()
     {
         var topics = Enumerable.Range(0, 12).Select(i =>

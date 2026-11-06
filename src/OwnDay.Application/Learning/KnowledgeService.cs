@@ -47,6 +47,13 @@ public sealed class KnowledgeService(IKnowledgeStore store, TimeProvider clock)
         return store.FindAsync(user, skillId, token);
     }
 
+    public async Task<SkillStatus?> TopicStatusAsync(UserId user, Guid programId, int version, string code, CancellationToken token)
+    {
+        Validate(user, token);
+        var skill = await store.FindTopicAsync(user, programId, version, code, token);
+        return skill is null ? null : await StatusAsync(user, skill.Id, token);
+    }
+
     public async Task<SkillPage> ListAsync(UserId user, CancellationToken token, int page = 1)
     {
         Validate(user, token);

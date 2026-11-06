@@ -10,9 +10,16 @@ public sealed class EfKnowledgeStore(OwnDayDbContext db) : IKnowledgeStore
     public Task<Skill?> FindAsync(UserId user, Guid skillId, CancellationToken token) =>
         db.Set<Skill>().SingleOrDefaultAsync(s => s.UserId == user && s.Id == skillId, token);
 
-    public Task<Skill?> FindTopicAsync(UserId user, Guid programId, int version, string topicCode, CancellationToken token) =>
-        db.Set<Skill>().FirstOrDefaultAsync(s => s.UserId == user && db.Set<Lesson>().Any(l =>
-            l.UserId == user && l.ProgramId == programId && l.RouteVersion == version && l.TopicCode == topicCode && l.SkillId == s.Id), token);
+    public async Task<Skill?> FindTopicAsync(UserId user, Guid programId, int version, string topicCode, CancellationToken token)
+    {
+        var program = await db.Set<LearningProgram>().Include(p => p.Routes)
+            .SingleOrDefaultAsync(p => p.UserId == user && p.Id == programId, token);
+        if (program is null) return null;
+        var versions = program.ProgressVersions(version);
+        return await db.Set<Skill>().FirstOrDefaultAsync(s => s.UserId == user && db.Set<Lesson>().Any(l =>
+            l.UserId == user && l.ProgramId == programId && l.RouteVersion != null && versions.Contains(l.RouteVersion.Value) &&
+            l.TopicCode == topicCode && l.SkillId == s.Id), token);
+    }
 
     public async Task<IReadOnlyList<Skill>> ListAsync(UserId user, int offset, int limit, CancellationToken token) =>
         await db.Set<Skill>().Where(s => s.UserId == user).OrderBy(s => s.Title).ThenBy(s => s.Id).Skip(offset).Take(limit).ToListAsync(token);

@@ -86,6 +86,34 @@ public sealed class LearningProgram
         return CurrentRoute.Topics.FirstOrDefault(t => !completed.Contains(t.Code) && t.Prerequisites.All(completed.Contains));
     }
 
+    public CurriculumRoute ProposeAdaptation(string topicCode, string reason)
+    {
+        if (DiagnosticPending) throw new InvalidOperationException("Finish diagnosis first.");
+        Validate(reason, CurriculumRoute.MaxReasonLength);
+        if (!CurrentRoute.Topics.Any(t => t.Code == topicCode)) throw new ArgumentException("Unknown topic.");
+        // Only priority changes: topic identities, dependencies and the user's goal stay intact.
+        var route = CurriculumRoute.Create(Id, CurrentRoute.Version + 1, reason,
+            CurrentRoute.Topics.OrderBy(t => t.Code == topicCode ? 0 : 1));
+        route.PreserveProgress(CurrentRoute.ProgressVersion ?? CurrentRoute.Version);
+        return route;
+    }
+
+    public void ApplyAdaptation(CurriculumRoute route)
+    {
+        if (route.ProgramId != Id || route.Version != CurrentRoute.Version + 1 ||
+            route.ProgressVersion != (CurrentRoute.ProgressVersion ?? CurrentRoute.Version))
+            throw new ArgumentException("Invalid adaptation revision.", nameof(route));
+        _routes.Add(route);
+    }
+
+    public int[] ProgressVersions(int version)
+    {
+        var route = _routes.Single(r => r.Version == version);
+        var root = route.ProgressVersion ?? route.Version;
+        return _routes.Where(r => r.Version <= version && (r.ProgressVersion ?? r.Version) == root)
+            .Select(r => r.Version).ToArray();
+    }
+
     internal static void Validate(string value, int maximum)
     {
         if (string.IsNullOrWhiteSpace(value) || value.Length > maximum) throw new ArgumentException("Invalid curriculum text.");
@@ -102,7 +130,10 @@ public sealed class CurriculumRoute
     public Guid ProgramId { get; private set; }
     public int Version { get; private set; }
     public string Reason { get; private set; } = "";
+    public int? ProgressVersion { get; private set; }
     public IReadOnlyList<CurriculumTopic> Topics { get; private set; } = [];
+
+    internal void PreserveProgress(int version) => ProgressVersion = version;
 
     internal static CurriculumRoute Create(Guid programId, int version, string reason, IEnumerable<CurriculumTopic> topics)
     {

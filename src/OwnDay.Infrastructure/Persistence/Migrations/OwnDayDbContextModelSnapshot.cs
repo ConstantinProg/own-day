@@ -860,6 +860,8 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
             {
                 b.Property<Guid>("Id")
                     .HasColumnType("uuid");
+                b.Property<int?>("ProgressVersion")
+                    .HasColumnType("integer");
                 b.Property<Guid>("ProgramId")
                     .HasColumnType("uuid");
                 b.Property<string>("Reason")

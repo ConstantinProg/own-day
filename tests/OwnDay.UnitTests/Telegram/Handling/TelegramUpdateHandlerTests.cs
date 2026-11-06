@@ -572,7 +572,7 @@ public sealed class TelegramUpdateHandlerTests
                 learning,
                 new TelegramCurriculumCommandHandler(new OwnDay.Application.Learning.CurriculumService(
                     new EfCurriculumStore(dbContext), teacher, new EfLessonStore(dbContext), teacher,
-                    new StructuredItemService(new EfStructuredItemStore(dbContext), timeProvider), knowledge)),
+                    new StructuredItemService(new EfStructuredItemStore(dbContext), timeProvider), knowledge, teacher)),
                 new TelegramKnowledgeCommandHandler(knowledge, learning));
 
             databaseCommands.Clear();
