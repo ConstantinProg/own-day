@@ -404,6 +404,10 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
                 .HasColumnType("text")
                 .HasColumnName("text");
 
+            b.Property<Guid?>("StudyInvitationId")
+                .HasColumnType("uuid")
+                .HasColumnName("study_invitation_id");
+
             b.HasKey("Id");
 
             b.HasIndex("Status", "NextAttemptAt");
@@ -1190,6 +1194,74 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
                     .HasPrincipalKey("Id", "UserId")
                     .OnDelete(DeleteBehavior.Restrict)
                     .IsRequired();
+            });
+
+        modelBuilder.Entity("OwnDay.Domain.Learning.StudySchedule", b =>
+            {
+                b.Property<long>("UserId")
+                    .HasColumnType("bigint");
+
+                b.Property<int>("EveryDays")
+                    .HasColumnType("integer");
+
+                b.Property<Guid?>("InvitationId")
+                    .HasColumnType("uuid");
+
+                b.Property<DateTimeOffset?>("LastInvitedAt")
+                    .HasColumnType("timestamp with time zone");
+
+                b.Property<DateTime>("NextAt")
+                    .HasColumnType("timestamp with time zone");
+
+                b.Property<bool>("Paused")
+                    .HasColumnType("boolean");
+
+                b.Property<Guid?>("ProgramId")
+                    .HasColumnType("uuid");
+
+                b.Property<Guid?>("SkillId")
+                    .HasColumnType("uuid");
+
+                b.Property<string>("TimeZoneId")
+                    .IsRequired()
+                    .HasMaxLength(100)
+                    .HasColumnType("character varying(100)");
+
+                b.Property<string>("Windows")
+                    .IsRequired()
+                    .HasColumnType("jsonb");
+
+                b.HasKey("UserId");
+
+                b.HasIndex("ProgramId", "UserId");
+
+                b.HasIndex("SkillId", "UserId");
+
+                b.HasIndex("Paused", "NextAt", "UserId");
+
+                b.ToTable("learning_study_schedules", null, t =>
+                    {
+                        t.HasCheckConstraint("CK_learning_study_frequency", "\"EveryDays\" BETWEEN 1 AND 30");
+
+                        t.HasCheckConstraint("CK_learning_study_invitation", "(\"InvitationId\" IS NULL AND \"ProgramId\" IS NULL AND \"SkillId\" IS NULL) OR (\"InvitationId\" IS NOT NULL AND ((\"ProgramId\" IS NOT NULL AND \"SkillId\" IS NULL) OR (\"ProgramId\" IS NULL AND \"SkillId\" IS NOT NULL)))");
+
+                        t.HasCheckConstraint("CK_learning_study_owner", "\"UserId\" > 0");
+                    });
+            });
+
+        modelBuilder.Entity("OwnDay.Domain.Learning.StudySchedule", b =>
+            {
+                b.HasOne("OwnDay.Domain.Learning.LearningProgram", null)
+                    .WithMany()
+                    .HasForeignKey("ProgramId", "UserId")
+                    .HasPrincipalKey("Id", "UserId")
+                    .OnDelete(DeleteBehavior.Restrict);
+
+                b.HasOne("OwnDay.Domain.Learning.Skill", null)
+                    .WithMany()
+                    .HasForeignKey("SkillId", "UserId")
+                    .HasPrincipalKey("Id", "UserId")
+                    .OnDelete(DeleteBehavior.Restrict);
             });
 
 #pragma warning restore 612, 618

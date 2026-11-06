@@ -18,6 +18,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
     private readonly OwnDay.Application.Learning.LearningService _learning;
     private readonly TelegramCurriculumCommandHandler _curriculum;
     private readonly TelegramKnowledgeCommandHandler _knowledge;
+    private readonly TelegramStudyCommandHandler _study;
     private readonly TelegramStatisticsCommandHandler _statistics;
     private readonly TelegramActionCommandHandler _actionCommandHandler;
     private readonly TelegramStructuredCommandHandler _structuredCommandHandler;
@@ -44,6 +45,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         OwnDay.Application.Learning.LearningService learning,
         TelegramCurriculumCommandHandler curriculum,
         TelegramKnowledgeCommandHandler knowledge,
+        TelegramStudyCommandHandler study,
         ITelegramCallbackResponder? callbackResponder = null)
     {
         ArgumentNullException.ThrowIfNull(router);
@@ -59,6 +61,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         _learning = learning;
         _curriculum = curriculum;
         _knowledge = knowledge;
+        _study = study;
         _statistics = statistics;
         _router = router;
         _actionCommandHandler = actionCommandHandler;
@@ -182,6 +185,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
             }
             replies = command.Name switch
             {
+                _ when _study.Handles(command.Name) => await _study.HandleAsync(command, cancellationToken),
                 _ when _curriculum.Handles(command.Name) => await _curriculum.HandleAsync(command, cancellationToken),
                 _ when _knowledge.Handles(command.Name) => await _knowledge.HandleAsync(command, cancellationToken),
                 "learn" => TelegramLearningPresenter.Render(await _learning.StartAsync(command.UserId, command.Arguments, cancellationToken)),

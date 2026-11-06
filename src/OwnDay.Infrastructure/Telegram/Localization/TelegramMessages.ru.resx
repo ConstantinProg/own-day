@@ -287,6 +287,9 @@
 /learn_route; /learn_next; /learn_adapt; /learn_focus &lt;код темы&gt;
 /learn_skills [страница]; /learn_status &lt;id&gt;; /learn_practice &lt;id&gt;
 /learn_reviews [страница]; /learn_review &lt;id&gt;; /learn_review_later &lt;id&gt;; /learn_review_skip &lt;id&gt;
+/learn_schedule [часовой пояс | каждые 1-30 дней | HH:mm-HH:mm[,HH:mm-HH:mm]]
+/learn_notify_pause; /learn_notify_resume
+/learn_invite_start &lt;id приглашения&gt;; /learn_invite_later &lt;id приглашения&gt;; /learn_invite_skip &lt;id приглашения&gt;
 /start; /help
 Совместимость: /inbox &lt;запись&gt; = /process; /inbox_result = /result; /inbox_undo = /undo.</value></data>
   <data name="selection.canceled" xml:space="preserve"><value>Выбор отменён. Ваши записи сохранены.</value></data>

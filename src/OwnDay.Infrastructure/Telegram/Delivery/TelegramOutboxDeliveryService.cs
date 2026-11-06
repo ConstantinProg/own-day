@@ -1,7 +1,10 @@
 using Microsoft.EntityFrameworkCore;
+using OwnDay.Application.Learning;
 using OwnDay.Application.Inbox.Observability;
 using Microsoft.Extensions.Logging;
 using OwnDay.Infrastructure.Persistence;
+using OwnDay.Domain;
+using OwnDay.Domain.Learning;
 using Telegram.Bot.Exceptions;
 
 namespace OwnDay.Infrastructure.Telegram.Delivery;
@@ -54,6 +57,43 @@ public sealed class TelegramOutboxDeliveryService
             if (blockedChats.Contains(message.ChatId))
             {
                 continue;
+            }
+
+            await using var invitationTransaction = message.StudyInvitationId is not null
+                ? await _dbContext.Database.BeginTransactionAsync(cancellationToken) : null;
+            if (message.StudyInvitationId is { } invitation)
+            {
+                if (_dbContext.Database.IsNpgsql())
+                    await _dbContext.Database.ExecuteSqlInterpolatedAsync(
+                        $"SELECT pg_advisory_xact_lock({message.ChatId})", cancellationToken);
+                await _dbContext.Entry(message).ReloadAsync(cancellationToken);
+                if (message.Status != OutboxMessageStatus.Pending)
+                {
+                    await invitationTransaction!.CommitAsync(cancellationToken);
+                    continue;
+                }
+                if (message.NextAttemptAt > _timeProvider.GetUtcNow().UtcDateTime)
+                {
+                    blockedChats.Add(message.ChatId);
+                    await invitationTransaction!.CommitAsync(cancellationToken);
+                    continue;
+                }
+                var user = new UserId(message.ChatId);
+                var schedule = await _dbContext.Set<StudySchedule>().AsNoTracking().SingleOrDefaultAsync(
+                    s => s.UserId == user, cancellationToken);
+                var active = await _dbContext.Set<Lesson>().AnyAsync(l => l.UserId == user &&
+                    (l.Status == LessonStatus.AwaitingAnswer || l.Status == LessonStatus.Paused), cancellationToken);
+                var review = schedule?.SkillId is { } skillId
+                    ? await _dbContext.Set<ReviewSchedule>().AsNoTracking().SingleOrDefaultAsync(
+                        r => r.UserId == user && r.SkillId == skillId, cancellationToken) : null;
+                if (!StudyService.CanDeliver(schedule, invitation, _timeProvider.GetUtcNow(), active, review))
+                {
+                    message.Status = OutboxMessageStatus.Failed;
+                    message.LastError = "StudyInvitationSuppressed";
+                    await _dbContext.SaveChangesAsync(cancellationToken);
+                    await invitationTransaction!.CommitAsync(cancellationToken);
+                    continue;
+                }
             }
 
             try
@@ -109,6 +149,7 @@ public sealed class TelegramOutboxDeliveryService
 
             // Persist each attempt before a later send can be cancelled.
             await _dbContext.SaveChangesAsync(cancellationToken);
+            if (invitationTransaction is not null) await invitationTransaction.CommitAsync(cancellationToken);
         }
 
         // A full batch may have more ready messages behind it.

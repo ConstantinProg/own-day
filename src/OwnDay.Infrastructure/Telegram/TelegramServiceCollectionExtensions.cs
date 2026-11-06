@@ -20,6 +20,11 @@ public static class TelegramServiceCollectionExtensions
         services.TryAddSingleton<TimeProvider>(TimeProvider.System);
         services.AddScoped<TelegramOutboxDeliveryService>();
         services.AddHostedService<TelegramOutboxWorker>();
+        services.AddScoped<StudyInvitationDispatcher>();
+        services.AddHostedService<StudyInvitationWorker>();
+        services.AddScoped<OwnDay.Application.Learning.IStudyScheduleStore, OwnDay.Infrastructure.Persistence.EfStudyScheduleStore>();
+        services.AddScoped<OwnDay.Application.Learning.StudyService>();
+        services.AddScoped<TelegramStudyCommandHandler>();
         services.AddScoped<TelegramOutboxCleanupService>();
         services.AddHostedService<TelegramOutboxCleanupWorker>();
 

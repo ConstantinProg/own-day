@@ -545,6 +545,9 @@ public sealed class TelegramUpdateHandlerTests
                 NullLogger<OwnDay.Infrastructure.OpenAIAnalysis.OpenAILessonTeacher>.Instance);
             var knowledge = new OwnDay.Application.Learning.KnowledgeService(new EfKnowledgeStore(dbContext), timeProvider);
             var learning = new OwnDay.Application.Learning.LearningService(new EfLessonStore(dbContext), teacher, knowledge);
+            var curriculum = new OwnDay.Application.Learning.CurriculumService(new EfCurriculumStore(dbContext), teacher,
+                new EfLessonStore(dbContext), teacher,
+                new StructuredItemService(new EfStructuredItemStore(dbContext), timeProvider), knowledge, teacher);
             var handler = new TelegramUpdateHandler(
                 router,
                 new TelegramActionCommandHandler(new ActionService(new EfActionStore(dbContext), timeProvider)),
@@ -570,10 +573,11 @@ public sealed class TelegramUpdateHandlerTests
                 cleaner,
                 NullLogger<TelegramUpdateHandler>.Instance,
                 learning,
-                new TelegramCurriculumCommandHandler(new OwnDay.Application.Learning.CurriculumService(
-                    new EfCurriculumStore(dbContext), teacher, new EfLessonStore(dbContext), teacher,
-                    new StructuredItemService(new EfStructuredItemStore(dbContext), timeProvider), knowledge, teacher)),
-                new TelegramKnowledgeCommandHandler(knowledge, learning));
+                new TelegramCurriculumCommandHandler(curriculum),
+                new TelegramKnowledgeCommandHandler(knowledge, learning),
+                new TelegramStudyCommandHandler(new OwnDay.Application.Learning.StudyService(
+                    new EfStudyScheduleStore(dbContext), new EfLessonStore(dbContext), new EfCurriculumStore(dbContext),
+                    new EfKnowledgeStore(dbContext), learning, curriculum, timeProvider)));
 
             databaseCommands.Clear();
             return new HandlerFixture(connection, dbContext, handler, cleaner, databaseCommands);

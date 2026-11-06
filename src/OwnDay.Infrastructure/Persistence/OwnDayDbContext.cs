@@ -42,6 +42,7 @@ public sealed class OwnDayDbContext(DbContextOptions<OwnDayDbContext> options)
     {
         CurriculumModel.Configure(modelBuilder);
         KnowledgeModel.Configure(modelBuilder);
+        StudyModel.Configure(modelBuilder);
         modelBuilder.Entity<OwnDay.Domain.Learning.Lesson>(entity =>
         {
             entity.ToTable("learning_lessons");
@@ -273,6 +274,7 @@ public sealed class OwnDayDbContext(DbContextOptions<OwnDayDbContext> options)
             entity.Property(message => message.ChatId).HasColumnName("chat_id");
             entity.Property(message => message.Text).HasColumnName("text");
             entity.Property(message => message.ReplyMarkupJson).HasColumnName("reply_markup_json");
+            entity.Property(message => message.StudyInvitationId).HasColumnName("study_invitation_id");
             entity.Property(message => message.Status).HasColumnName("status");
             entity.Property(message => message.AttemptCount).HasColumnName("attempt_count");
             entity.Property(message => message.NextAttemptAt).HasColumnName("next_attempt_at");
