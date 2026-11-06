@@ -91,9 +91,17 @@ public sealed class LearningProgram
         if (DiagnosticPending) throw new InvalidOperationException("Finish diagnosis first.");
         Validate(reason, CurriculumRoute.MaxReasonLength);
         if (!CurrentRoute.Topics.Any(t => t.Code == topicCode)) throw new ArgumentException("Unknown topic.");
-        // Only priority changes: topic identities, dependencies and the user's goal stay intact.
+        // Prioritize the whole prerequisite chain so topological ordering retains the selected topic's priority.
+        var priority = new HashSet<string>(StringComparer.Ordinal);
+        var pending = new Stack<string>([topicCode]);
+        while (pending.TryPop(out var code))
+        {
+            if (!priority.Add(code)) continue;
+            foreach (var prerequisite in CurrentRoute.Topics.Single(t => t.Code == code).Prerequisites)
+                pending.Push(prerequisite);
+        }
         var route = CurriculumRoute.Create(Id, CurrentRoute.Version + 1, reason,
-            CurrentRoute.Topics.OrderBy(t => t.Code == topicCode ? 0 : 1));
+            CurrentRoute.Topics.OrderBy(t => priority.Contains(t.Code) ? 0 : 1));
         route.PreserveProgress(CurrentRoute.ProgressVersion ?? CurrentRoute.Version);
         return route;
     }

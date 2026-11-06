@@ -1,11 +1,23 @@
+using System.Text.Json.Serialization;
 using OwnDay.Domain.Learning;
 
 namespace OwnDay.Application.Learning;
 
+[JsonConverter(typeof(JsonStringEnumConverter<TeachingAction>))]
+public enum TeachingAction
+{
+    Hint,
+    Explain,
+    Simplify,
+    Practice,
+    ReviewPrerequisite,
+    Advance
+}
+
 public sealed record TeachingProposal(string Action, string TopicCode, string Reason);
 public sealed record TeachingRequest(string Goal, string Discipline, IReadOnlyList<CurriculumTopic> Topics,
     string CurrentTopicCode, IReadOnlySet<string> Completed, LearnerSkillState State, string[] RecentFeedback);
-public sealed record TeachingContext(string Action, string Reason, LearnerSkillState State, string[] RecentFeedback);
+public sealed record TeachingContext(TeachingAction Action, string Reason, LearnerSkillState State, string[] RecentFeedback);
 
 public interface ITeachingPlanner
 {
@@ -14,13 +26,15 @@ public interface ITeachingPlanner
 
 public static class AdaptiveTeaching
 {
-    public static bool IsAllowed(TeachingProposal proposal, CurriculumTopic current,
-        IReadOnlyList<CurriculumTopic> topics, IReadOnlySet<string> completed, LearnerSkillState state)
+    public static bool TryValidate(TeachingProposal proposal, CurriculumTopic current,
+        IReadOnlyList<CurriculumTopic> topics, IReadOnlySet<string> completed, LearnerSkillState state,
+        out TeachingAction action)
     {
+        if (!Enum.TryParse(proposal.Action, out action) || !Enum.IsDefined(action) || proposal.Action != action.ToString()) return false;
         if (string.IsNullOrWhiteSpace(proposal.Reason) || proposal.Reason.Length > 250) return false;
         var target = topics.SingleOrDefault(t => t.Code == proposal.TopicCode);
         if (target is null || !target.Prerequisites.All(completed.Contains)) return false;
-        if (proposal.Action == "ReviewPrerequisite")
+        if (action == TeachingAction.ReviewPrerequisite)
         {
             var pending = new Stack<string>(current.Prerequisites);
             var prerequisites = new HashSet<string>(StringComparer.Ordinal);
@@ -32,10 +46,10 @@ public static class AdaptiveTeaching
             return prerequisites.Contains(target.Code);
         }
         if (target.Code != current.Code) return false;
-        return proposal.Action switch
+        return action switch
         {
-            "Hint" or "Explain" or "Simplify" or "Practice" => true,
-            "Advance" => !state.RepeatedDifficulty && state.Mastery is not (SkillMastery.NeedsPractice or SkillMastery.Conflicting),
+            TeachingAction.Hint or TeachingAction.Explain or TeachingAction.Simplify or TeachingAction.Practice => true,
+            TeachingAction.Advance => !state.RepeatedDifficulty && state.Mastery is not (SkillMastery.NeedsPractice or SkillMastery.Conflicting),
             _ => false
         };
     }

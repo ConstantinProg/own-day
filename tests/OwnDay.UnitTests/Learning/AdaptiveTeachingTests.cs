@@ -10,14 +10,40 @@ public sealed class AdaptiveTeachingTests
     private static readonly CurriculumTopic[] _topics = [new("a", "Basics", []), new("b", "Advanced", ["a"]), new("c", "Other", [])];
 
     [Theory]
+    [InlineData("Delete")]
+    [InlineData("0")]
+    [InlineData("99")]
+    [InlineData("hint")]
+    [InlineData(" Hint ")]
+    public void TryValidate_InvalidAction_RejectsProposal(string action)
+    {
+        Assert.False(AdaptiveTeaching.TryValidate(new(action, "a", "Reason"), _topics[0], _topics,
+            new HashSet<string>(), new(SkillMastery.Unknown, 0, 0, 0), out _));
+    }
+
+    [Fact]
+    public void ApplyAdaptation_TransitivePrerequisites_PreservesPriorityOverIndependentTopic()
+    {
+        var program = LearningProgram.Create(new UserId(1), "Goal", "Experience", null, "Discipline",
+            [new("z", "Root", []), new("c", "Other", []), new("a", "Intermediate", ["z"]), new("b", "Selected", ["a"])], null);
+
+        program.ApplyAdaptation(program.ProposeAdaptation("b", "User selected b."));
+
+        Assert.Equal("z", program.NextTopic(new HashSet<string>())!.Code);
+        Assert.Equal("a", program.NextTopic(new HashSet<string> { "z" })!.Code);
+        Assert.Equal("b", program.NextTopic(new HashSet<string> { "z", "a" })!.Code);
+        Assert.Equal("c", program.NextTopic(new HashSet<string> { "z", "a", "b" })!.Code);
+    }
+
+    [Theory]
     [InlineData("Hint")]
     [InlineData("Explain")]
     [InlineData("Simplify")]
     [InlineData("Practice")]
-    public void IsAllowed_RepeatedDifficulty_AcceptsBoundedCorrection(string action)
+    public void TryValidate_RepeatedDifficulty_AcceptsBoundedCorrection(string action)
     {
-        Assert.True(AdaptiveTeaching.IsAllowed(new(action, "b", "Two negative assessments suggest another example."), _topics[1], _topics,
-            new HashSet<string> { "a" }, new(SkillMastery.NeedsPractice, 2, 0, 2)));
+        Assert.True(AdaptiveTeaching.TryValidate(new(action, "b", "Two negative assessments suggest another example."), _topics[1], _topics,
+            new HashSet<string> { "a" }, new(SkillMastery.NeedsPractice, 2, 0, 2), out _));
     }
 
     [Theory]
@@ -28,27 +54,27 @@ public sealed class AdaptiveTeachingTests
     [InlineData("ReviewPrerequisite", "a", true)]
     [InlineData("ReviewPrerequisite", "c", false)]
     [InlineData("ReviewPrerequisite", "b", false)]
-    public void IsAllowed_ProposalAgainstEvidenceAndGraph_ValidatesTargetAndAction(string action, string code, bool allowed)
+    public void TryValidate_ProposalAgainstEvidenceAndGraph_ValidatesTargetAndAction(string action, string code, bool allowed)
     {
-        Assert.Equal(allowed, AdaptiveTeaching.IsAllowed(new(action, code, "Reason"), _topics[1], _topics,
-            new HashSet<string> { "a" }, new(SkillMastery.Conflicting, 3, 1, 2)));
+        Assert.Equal(allowed, AdaptiveTeaching.TryValidate(new(action, code, "Reason"), _topics[1], _topics,
+            new HashSet<string> { "a" }, new(SkillMastery.Conflicting, 3, 1, 2), out _));
     }
 
     [Fact]
-    public void IsAllowed_UnknownPrerequisiteOrInvalidReason_RejectsProposal()
+    public void TryValidate_UnknownPrerequisiteOrInvalidReason_RejectsProposal()
     {
-        Assert.False(AdaptiveTeaching.IsAllowed(new("Advance", "b", "Reason"), _topics[1], _topics,
-            new HashSet<string>(), new(SkillMastery.Unknown, 0, 0, 0)));
+        Assert.False(AdaptiveTeaching.TryValidate(new("Advance", "b", "Reason"), _topics[1], _topics,
+            new HashSet<string>(), new(SkillMastery.Unknown, 0, 0, 0), out _));
         foreach (var reason in new[] { "", " ", new string('x', 251) })
-            Assert.False(AdaptiveTeaching.IsAllowed(new("Practice", "a", reason), _topics[0], _topics,
-                new HashSet<string>(), new(SkillMastery.Unknown, 0, 0, 0)));
+            Assert.False(AdaptiveTeaching.TryValidate(new("Practice", "a", reason), _topics[0], _topics,
+                new HashSet<string>(), new(SkillMastery.Unknown, 0, 0, 0), out _));
     }
 
     [Fact]
-    public void IsAllowed_ReadyNextTopic_AllowsAdvanceWithoutClaimingMastery()
+    public void TryValidate_ReadyNextTopic_AllowsAdvanceWithoutClaimingMastery()
     {
-        Assert.True(AdaptiveTeaching.IsAllowed(new("Advance", "b", "Prerequisite question answered."), _topics[1], _topics,
-            new HashSet<string> { "a" }, new(SkillMastery.Unknown, 0, 0, 0)));
+        Assert.True(AdaptiveTeaching.TryValidate(new("Advance", "b", "Prerequisite question answered."), _topics[1], _topics,
+            new HashSet<string> { "a" }, new(SkillMastery.Unknown, 0, 0, 0), out _));
     }
 
     [Fact]

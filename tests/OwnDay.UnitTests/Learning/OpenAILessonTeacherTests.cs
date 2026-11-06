@@ -62,7 +62,7 @@ public sealed class OpenAILessonTeacherTests
         }));
         using var http = new HttpClient(handler);
         await Teacher(http, new RecordingLogger()).GenerateAsync(new("Basics", new("Math", "Goal", "Beginner", null, null),
-            new(action, "Reason", new(SkillMastery.NeedsPractice, 2, 0, 2), ["AI hypothesis"])), CancellationToken.None);
+            new(Enum.Parse<TeachingAction>(action), "Reason", new(SkillMastery.NeedsPractice, 2, 0, 2), ["AI hypothesis"])), CancellationToken.None);
         using var body = JsonDocument.Parse(handler.RequestBody!);
         var messages = body.RootElement.GetProperty("messages");
         Assert.Contains("without revealing the answer", messages[0].GetProperty("content").GetString());

@@ -11,6 +11,35 @@ namespace OwnDay.IntegrationTests.Telegram;
 public sealed class TelegramAdaptiveTeachingTests
 {
     [Fact]
+    public async Task Post_FocusedTopicWithTransitivePrerequisites_RetriesBeforeIndependentTopic()
+    {
+        using var factory = new OwnDayHostFactory();
+        var planner = new Planner
+        {
+            Topics = [new("z", "Root", []), new("c", "Other", []), new("a", "Intermediate", ["z"]), new("b", "Selected", ["a"])]
+        };
+        var teacher = new Teacher();
+        using var host = factory.WithWebHostBuilder(builder => builder.ConfigureServices(services => Configure(services, planner, teacher)));
+        using var client = host.CreateClient();
+        await Post(client, 1, "/learn_program algebra | Beginner");
+        await Post(client, 2, "/learn_next");
+        await Post(client, 3, "/answer correct");
+        await Post(client, 4, "/learn_focus a");
+        await Post(client, 5, "/answer correct");
+        await Post(client, 6, "/learn_focus c");
+        await Post(client, 7, "/learn_finish");
+        await Post(client, 8, "/learn_focus b");
+        await Post(client, 9, "/answer wrong");
+        await Post(client, 10, "/learn_next");
+
+        Assert.Equal("Selected", teacher.Requests[^1].Topic);
+        Assert.Empty(planner.Requests);
+        await Post(client, 11, "/answer correct");
+        await Post(client, 12, "/learn_next");
+        Assert.Equal("Other", teacher.Requests[^1].Topic);
+    }
+
+    [Fact]
     public async Task Post_RepeatedErrors_CorrectsThenAdvancesWithSameSkillAndAtomicReplies()
     {
         using var factory = new OwnDayHostFactory();
@@ -29,7 +58,7 @@ public sealed class TelegramAdaptiveTeachingTests
         Assert.True(request.State.RepeatedDifficulty);
         Assert.Equal(2, request.State.NegativeAssessments);
         Assert.Equal(2, request.RecentFeedback.Length);
-        Assert.Equal("Simplify", teacher.Requests[^1].Teaching!.Action);
+        Assert.Equal(TeachingAction.Simplify, teacher.Requests[^1].Teaching!.Action);
         await Post(client, 7, "/answer correct");
         await Post(client, 8, "/learn_next");
         Assert.Equal("Advanced", teacher.Requests[^1].Topic);
@@ -71,7 +100,7 @@ public sealed class TelegramAdaptiveTeachingTests
         await Post(client, 3, "/answer correct");
         await Post(client, 4, "/learn_adapt");
         await Post(client, 4, "/learn_adapt");
-        Assert.Equal(action, teacher.Requests[^1].Teaching!.Action);
+        Assert.Equal(Enum.Parse<TeachingAction>(action), teacher.Requests[^1].Teaching!.Action);
         Assert.Equal(action == "ReviewPrerequisite" ? "Basics" : "Advanced", teacher.Requests[^1].Topic);
         await Post(client, 5, "/learn_finish");
         await Post(client, 6, "/learn_next");
@@ -130,7 +159,7 @@ public sealed class TelegramAdaptiveTeachingTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task NextAsync_CancelledAfterProvider_PreservesTrackedStateAndPropagatesToken(bool duringGeneration)
+    public async Task AdaptAsync_CancelledAfterProvider_PreservesTrackedStateAndPropagatesToken(bool duringGeneration)
     {
         using var factory = new OwnDayHostFactory();
         var planner = new Planner();
@@ -143,7 +172,7 @@ public sealed class TelegramAdaptiveTeachingTests
         else planner.Cancellation = cancellation;
         using var scope = host.Services.CreateScope();
         var service = scope.ServiceProvider.GetRequiredService<CurriculumService>();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.NextAsync(new(101), true, null, cancellation.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.AdaptAsync(new(101), cancellation.Token));
         Assert.Equal(cancellation.Token, duringGeneration ? teacher.Token : planner.Token);
         var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
         Assert.DoesNotContain(db.ChangeTracker.Entries(), e => e.State is EntityState.Added or EntityState.Modified);
@@ -191,13 +220,14 @@ public sealed class TelegramAdaptiveTeachingTests
 
     internal sealed class Planner : ICurriculumPlanner, ITeachingPlanner
     {
+        public CurriculumTopic[] Topics { get; init; } = [new("basics", "Basics", []), new("advanced", "Advanced", ["basics"]), new("other", "Other", [])];
         public TeachingProposal Proposal { get; set; } = new("Simplify", "basics", "Repeated negative AI assessments suggest a smaller concrete example.");
         public List<TeachingRequest> Requests { get; } = [];
         public bool Failure { get; set; }
         public CancellationTokenSource? Cancellation { get; set; }
         public CancellationToken Token { get; private set; }
         public Task<CurriculumProposal> PlanAsync(CurriculumRequest request, CancellationToken token) => Task.FromResult(
-            new CurriculumProposal("Mathematics", [new("basics", "Basics", []), new("advanced", "Advanced", ["basics"]), new("other", "Other", [])], null));
+            new CurriculumProposal("Mathematics", Topics, null));
         public Task<TeachingProposal> ProposeAsync(TeachingRequest request, CancellationToken token)
         {
             token.ThrowIfCancellationRequested();

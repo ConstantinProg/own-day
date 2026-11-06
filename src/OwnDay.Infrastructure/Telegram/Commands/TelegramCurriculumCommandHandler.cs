@@ -31,14 +31,17 @@ public sealed class TelegramCurriculumCommandHandler(CurriculumService service)
             var code = command.Arguments.Trim();
             if (code.Length is < 1 or > OwnDay.Domain.Learning.CurriculumTopic.MaxCodeLength)
                 return TelegramCurriculumPresenter.Render(new CurriculumResult.InvalidInput());
-            result = await service.NextAsync(command.UserId, false, code, token);
+            result = await service.FocusAsync(command.UserId, code, token);
         }
         else
         {
             if (!string.IsNullOrWhiteSpace(command.Arguments)) return TelegramCurriculumPresenter.Render(new CurriculumResult.InvalidInput());
-            result = command.Name is "learn_next" or "learn_adapt"
-                ? await service.NextAsync(command.UserId, command.Name == "learn_adapt", null, token)
-                : await service.ShowAsync(command.UserId, token);
+            result = command.Name switch
+            {
+                "learn_next" => await service.NextAsync(command.UserId, token),
+                "learn_adapt" => await service.AdaptAsync(command.UserId, token),
+                _ => await service.ShowAsync(command.UserId, token)
+            };
         }
         return TelegramCurriculumPresenter.Render(result);
     }
