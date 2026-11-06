@@ -13,6 +13,7 @@ public sealed class LearningEvidence
     public bool AssessedCorrect { get; private set; }
     public string AssessmentSource { get; private set; } = "";
     public string Method { get; private set; } = "AI answer assessment";
+    public bool IsReview { get; private set; }
 
     public static LearningEvidence FromAnswer(Lesson lesson, DateTimeOffset observedAt, string source)
     {
@@ -25,7 +26,7 @@ public sealed class LearningEvidence
         {
             LessonId = lesson.Id, SkillId = lesson.SkillId.Value, UserId = lesson.UserId, ObservedAt = observedAt,
             Answer = lesson.Answer!, AssessmentFeedback = lesson.Feedback!, AssessedCorrect = lesson.IsCorrect!.Value,
-            AssessmentSource = source
+            AssessmentSource = source, IsReview = lesson.IsReview
         };
     }
 }

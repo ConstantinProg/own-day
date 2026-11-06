@@ -6,21 +6,29 @@ namespace OwnDay.Infrastructure.Telegram.Commands;
 
 public sealed class TelegramKnowledgeCommandHandler(KnowledgeService knowledge, LearningService learning)
 {
-    public bool Handles(string name) => name is "learn_skills" or "learn_status" or "learn_practice";
+    public bool Handles(string name) => name is "learn_skills" or "learn_status" or "learn_practice" or
+        "learn_reviews" or "learn_review" or "learn_review_later" or "learn_review_skip";
 
     public async Task<IReadOnlyList<string>> HandleAsync(ProcessIncomingCommand command, CancellationToken token)
     {
-        if (command.Name == "learn_skills")
+        if (command.Name is "learn_skills" or "learn_reviews")
         {
             var page = 1;
             if (!string.IsNullOrWhiteSpace(command.Arguments) &&
                 (!int.TryParse(command.Arguments.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out page) ||
                  page is < 1 or > KnowledgeService.MaxPageNumber))
-                return ["Use /learn_skills [page] with a positive page number."];
+                return [$"Use /{command.Name} [page] with a positive page number."];
+            if (command.Name == "learn_reviews")
+                return TelegramKnowledgePresenter.Reviews(await knowledge.ReviewsAsync(command.UserId, token, page));
             return TelegramKnowledgePresenter.List(await knowledge.ListAsync(command.UserId, token, page));
         }
         if (!Guid.TryParse(command.Arguments.Trim(), out var id) || id == Guid.Empty)
-            return ["Use /learn_skills [page], /learn_status <skill id>, or /learn_practice <skill id>."];
+            return [$"Use /{command.Name} <skill id>. /learn_skills or /learn_reviews"];
+        if (command.Name == "learn_review")
+            return TelegramLearningPresenter.Render(await learning.ReviewAsync(command.UserId, id, token));
+        if (command.Name is "learn_review_later" or "learn_review_skip")
+            return TelegramLearningPresenter.Render(await learning.DeferReviewAsync(command.UserId, id,
+                command.Name == "learn_review_skip", token));
         if (command.Name == "learn_practice")
             return TelegramLearningPresenter.Render(await learning.PracticeAsync(command.UserId, id, token));
         var status = await knowledge.StatusAsync(command.UserId, id, token);

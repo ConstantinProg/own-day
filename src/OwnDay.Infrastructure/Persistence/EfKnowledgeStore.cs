@@ -32,4 +32,19 @@ public sealed class EfKnowledgeStore(OwnDayDbContext db) : IKnowledgeStore
 
     public void Add(Skill skill) => db.Set<Skill>().Add(skill);
     public void Add(LearningEvidence evidence) => db.Set<LearningEvidence>().Add(evidence);
+    public void Add(ReviewSchedule schedule) => db.Set<ReviewSchedule>().Add(schedule);
+
+    public Task<ReviewSchedule?> ReviewAsync(UserId user, Guid skillId, CancellationToken token) =>
+        db.Set<ReviewSchedule>().SingleOrDefaultAsync(r => r.UserId == user && r.SkillId == skillId, token);
+
+    public async Task<IReadOnlyList<ReviewItem>> DueReviewsAsync(UserId user, DateTimeOffset now, int offset, int limit,
+        CancellationToken token)
+    {
+        return await (from review in db.Set<ReviewSchedule>()
+                      join skill in db.Set<Skill>() on new { review.SkillId, review.UserId }
+                          equals new { SkillId = skill.Id, skill.UserId }
+                      where review.UserId == user && review.DueAt <= now
+                      orderby review.DueAt, review.SkillId
+                      select new ReviewItem(skill, review)).Skip(offset).Take(limit).ToListAsync(token);
+    }
 }

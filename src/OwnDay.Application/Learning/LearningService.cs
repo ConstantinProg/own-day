@@ -11,7 +11,8 @@ public interface ILessonStore
 
 public sealed record LessonProgramContext(string Discipline, string Goal, string Experience,
     string? DiagnosticQuestion, string? DiagnosticAnswer);
-public sealed record LessonRequest(string Topic, LessonProgramContext? Program = null, TeachingContext? Teaching = null);
+public sealed record LessonRequest(string Topic, LessonProgramContext? Program = null, TeachingContext? Teaching = null,
+    bool IsReview = false);
 
 public sealed record LessonMaterial(string Theory, string Question);
 public sealed record LessonAssessment(string Feedback, bool IsCorrect)
@@ -54,6 +55,8 @@ public abstract record LearningResult
     public sealed record InvalidTransition : LearningResult;
     public sealed record Finished : LearningResult;
     public sealed record SkillNotFound : LearningResult;
+    public sealed record ReviewNotDue : LearningResult;
+    public sealed record ReviewDeferred(DateTimeOffset DueAt) : LearningResult;
 }
 
 public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, KnowledgeService knowledge)
@@ -107,22 +110,28 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
             return new LearningResult.InvalidTransition();
         }
 
+        LessonAssessment result;
+        ReviewSchedule? schedule;
         try
         {
-            var result = await teacher.AssessAsync(active, answer, token);
+            result = await teacher.AssessAsync(active, answer, token);
             token.ThrowIfCancellationRequested();
             if (string.IsNullOrWhiteSpace(result.Feedback) || result.Feedback.Length > 3000 ||
                 string.IsNullOrWhiteSpace(result.Source) || result.Source.Length > 200)
                 return new LearningResult.ProviderUnavailable();
             await knowledge.AttachAsync(active, active.Topic, token);
-            active.Complete(answer, result.Feedback, result.IsCorrect);
-            knowledge.RecordAnswer(active, result.Source);
-            return new LearningResult.Assessment(result.Feedback);
+            schedule = await knowledge.ReviewAsync(user, active.SkillId!.Value, token);
+            token.ThrowIfCancellationRequested();
         }
         catch (Exception exception) when (exception is LessonProviderException or ArgumentException)
         {
             return new LearningResult.ProviderUnavailable();
         }
+
+        // State/evidence failures must escape so the caller rolls back the entire update transaction.
+        active.Complete(answer, result.Feedback, result.IsCorrect);
+        knowledge.RecordAnswer(active, result.Source, schedule);
+        return new LearningResult.Assessment(result.Feedback);
     }
 
     public async Task<LearningResult> PauseAsync(UserId user, CancellationToken token)
@@ -135,19 +144,44 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
         return Session(lesson);
     }
 
-    public async Task<LearningResult> PracticeAsync(UserId user, Guid skillId, CancellationToken token)
+    public Task<LearningResult> PracticeAsync(UserId user, Guid skillId, CancellationToken token) =>
+        PracticeAsync(user, skillId, false, token);
+
+    public Task<LearningResult> ReviewAsync(UserId user, Guid skillId, CancellationToken token) =>
+        PracticeAsync(user, skillId, true, token);
+
+    public async Task<LearningResult> DeferReviewAsync(UserId user, Guid skillId, bool skip, CancellationToken token)
+    {
+        ValidateUser(user, token);
+        var schedule = await knowledge.ReviewAsync(user, skillId, token);
+        if (schedule is null) return new LearningResult.SkillNotFound();
+        var active = await store.FindActiveAsync(user, token);
+        token.ThrowIfCancellationRequested();
+        if (active?.SkillId == skillId) return new LearningResult.InvalidTransition();
+        if (!knowledge.IsDue(schedule)) return new LearningResult.ReviewNotDue();
+        knowledge.Defer(schedule, skip);
+        return new LearningResult.ReviewDeferred(schedule.DueAt);
+    }
+
+    private async Task<LearningResult> PracticeAsync(UserId user, Guid skillId, bool review, CancellationToken token)
     {
         ValidateUser(user, token);
         var skill = await knowledge.FindAsync(user, skillId, token);
         if (skill is null) return new LearningResult.SkillNotFound();
         var active = await store.FindActiveAsync(user, token);
         if (active is not null) return Session(active);
+        if (review)
+        {
+            var schedule = await knowledge.ReviewAsync(user, skillId, token);
+            if (schedule is null || !knowledge.IsDue(schedule)) return new LearningResult.ReviewNotDue();
+        }
         try
         {
-            var material = await teacher.GenerateAsync(new LessonRequest(skill.Description), token);
+            var material = await teacher.GenerateAsync(new LessonRequest(skill.Description, IsReview: review), token);
             token.ThrowIfCancellationRequested();
             var lesson = Lesson.Start(user, skill.Title, material.Theory, material.Question);
             lesson.LinkToSkill(skill);
+            if (review) lesson.MarkAsReview();
             store.Add(lesson);
             return new LearningResult.Material(lesson.Theory, lesson.Question, lesson.Topic);
         }

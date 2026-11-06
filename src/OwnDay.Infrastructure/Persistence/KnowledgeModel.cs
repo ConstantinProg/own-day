@@ -8,6 +8,18 @@ internal static class KnowledgeModel
 {
     internal static void Configure(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<ReviewSchedule>(entity =>
+        {
+            entity.ToTable("learning_reviews");
+            entity.HasKey(r => r.SkillId);
+            entity.Property(r => r.SkillId).ValueGeneratedNever();
+            entity.Property(r => r.UserId).HasConversion(id => id.Value, value => new UserId(value));
+            entity.Property(r => r.DueAt).HasConversion(value => value.UtcDateTime,
+                value => new DateTimeOffset(DateTime.SpecifyKind(value, DateTimeKind.Utc)));
+            entity.HasIndex(r => new { r.UserId, r.DueAt, r.SkillId });
+            entity.HasOne<Skill>().WithMany().HasForeignKey(r => new { r.SkillId, r.UserId })
+                .HasPrincipalKey(s => new { s.Id, s.UserId }).OnDelete(DeleteBehavior.Restrict);
+        });
         modelBuilder.Entity<Skill>(entity =>
         {
             entity.ToTable("learning_skills");

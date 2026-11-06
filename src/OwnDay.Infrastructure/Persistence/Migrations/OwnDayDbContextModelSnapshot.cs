@@ -803,6 +803,35 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
                     .OnDelete(DeleteBehavior.Cascade)
                     .IsRequired();
             });
+        modelBuilder.Entity("OwnDay.Domain.Learning.ReviewSchedule", b =>
+            {
+                b.Property<Guid>("SkillId")
+                    .HasColumnType("uuid");
+
+                b.Property<DateTime>("DueAt")
+                    .HasColumnType("timestamp with time zone");
+
+                b.Property<Guid>("LastLessonId")
+                    .HasColumnType("uuid");
+
+                b.Property<DateTimeOffset>("LastObservedAt")
+                    .HasColumnType("timestamp with time zone");
+
+                b.Property<int>("SuccessfulReviews")
+                    .HasColumnType("integer");
+
+                b.Property<long>("UserId")
+                    .HasColumnType("bigint");
+
+                b.HasKey("SkillId");
+
+                b.HasIndex("SkillId", "UserId");
+
+                b.HasIndex("UserId", "DueAt", "SkillId");
+
+                b.ToTable("learning_reviews", (string)null);
+            });
+
         modelBuilder.Entity("OwnDay.Domain.Learning.Skill", b =>
             {
                 b.Property<Guid>("Id")
@@ -824,6 +853,8 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
 
         modelBuilder.Entity("OwnDay.Domain.Learning.LearningEvidence", b =>
             {
+                b.Property<bool>("IsReview")
+                    .HasColumnType("boolean");
                 b.Property<Guid>("LessonId")
                     .HasColumnType("uuid");
                 b.Property<string>("Answer")
@@ -916,6 +947,8 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
 
         modelBuilder.Entity("OwnDay.Domain.Learning.Lesson", b =>
             {
+                b.Property<bool>("IsReview")
+                    .HasColumnType("boolean");
                 b.Property<Guid>("Id")
                     .HasColumnType("uuid");
                 b.Property<string>("Answer")
@@ -1048,6 +1081,16 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
                     .HasPrincipalKey("Id", "UserId")
                     .OnDelete(DeleteBehavior.Restrict)
                     .IsRequired();
+                b.HasOne("OwnDay.Domain.Learning.Skill", null)
+                    .WithMany()
+                    .HasForeignKey("SkillId", "UserId")
+                    .HasPrincipalKey("Id", "UserId")
+                    .OnDelete(DeleteBehavior.Restrict)
+                    .IsRequired();
+            });
+
+        modelBuilder.Entity("OwnDay.Domain.Learning.ReviewSchedule", b =>
+            {
                 b.HasOne("OwnDay.Domain.Learning.Skill", null)
                     .WithMany()
                     .HasForeignKey("SkillId", "UserId")

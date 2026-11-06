@@ -21,6 +21,8 @@ public static class TelegramLearningPresenter
         LearningResult.InvalidTransition => ["This action is unavailable in the current lesson state. Use /learn_resume or /learn_finish."],
         LearningResult.Finished => ["Lesson finished without an assessment. /learn <topic>"],
         LearningResult.SkillNotFound => ["Skill not found. /learn_skills"],
+        LearningResult.ReviewNotDue => ["This skill has no review due yet. /learn_reviews or /learn_status <skill id>"],
+        LearningResult.ReviewDeferred deferred => [$"Review rescheduled to {deferred.DueAt:O} (UTC). No assessment or penalty. /learn_reviews"],
         _ => throw new ArgumentOutOfRangeException(nameof(result))
     };
 

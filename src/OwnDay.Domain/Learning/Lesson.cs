@@ -18,6 +18,7 @@ public sealed class Lesson
     public int? RouteVersion { get; private set; }
     public string? TopicCode { get; private set; }
     public Guid? SkillId { get; private set; }
+    public bool IsReview { get; private set; }
     public IReadOnlyCollection<LessonInteraction> Interactions => _interactions.AsReadOnly();
 
     public static Lesson Start(UserId user, string topic, string theory, string question)
@@ -43,7 +44,7 @@ public sealed class Lesson
     public void LinkToProgram(LearningProgram program, string topicCode)
     {
         RequireAwaitingAnswer();
-        if (ProgramId is not null || program.UserId != UserId || program.DiagnosticPending ||
+        if (IsReview || ProgramId is not null || program.UserId != UserId || program.DiagnosticPending ||
             !program.CurrentRoute.Topics.Any(t => t.Code == topicCode))
             throw new ArgumentException("Invalid program topic.");
         ProgramId = program.Id;
@@ -69,6 +70,14 @@ public sealed class Lesson
     {
         if (Status != LessonStatus.Paused) throw new InvalidOperationException("Lesson is not paused.");
         Status = LessonStatus.AwaitingAnswer;
+    }
+
+    public void MarkAsReview()
+    {
+        RequireAwaitingAnswer();
+        if (SkillId is null || ProgramId is not null || IsReview)
+            throw new InvalidOperationException("A review requires a linked skill outside route progression.");
+        IsReview = true;
     }
 
     public void Finish()

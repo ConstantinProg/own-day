@@ -9,6 +9,22 @@ namespace OwnDay.UnitTests.Learning;
 public sealed class TelegramKnowledgePresenterTests
 {
     [Fact]
+    public void Reviews_MaximumTitles_SplitsMessagesAndPreservesAllCommandsAndPageNavigation()
+    {
+        var items = Enumerable.Range(0, KnowledgeService.PageSize).Select(i =>
+        {
+            var skill = Skill.Create(new UserId(1), i + new string('t', 498));
+            return new ReviewItem(skill, ReviewSchedule.FromAnswer(LearnerSkillStateTests.Answer(skill, true)));
+        }).ToArray();
+        var messages = TelegramKnowledgePresenter.Reviews(new(items, 2, true));
+        Assert.All(messages, m => Assert.InRange(m.Length, 1, 4096));
+        var text = string.Join("\n", messages);
+        Assert.All(items, item => Assert.Contains($"/learn_review {item.Skill.Id}", text));
+        Assert.Contains("Previous: /learn_reviews 1", text);
+        Assert.Contains("Next: /learn_reviews 3", text);
+    }
+
+    [Fact]
     public void List_MaximumTitles_CombinesSkillsWithinTelegramLimitAndShowsNavigation()
     {
         var skills = Enumerable.Range(0, KnowledgeService.PageSize)

@@ -18,6 +18,27 @@ namespace OwnDay.UnitTests.Learning;
 public sealed class OpenAILessonTeacherTests
 {
     [Fact]
+    public async Task GenerateAsync_ScheduledReview_RequestsNewApplicationWithoutRevealingAnswer()
+    {
+        using var handler = new ResponseHandler(JsonSerializer.Serialize(new
+        {
+            id = "test", model = "test", created = 1, @object = "chat.completion",
+            choices = new[] { new { index = 0, finish_reason = "stop",
+                message = new { role = "assistant", content = "{\"Theory\":\"Context\",\"Question\":\"New application\"}" } } }
+        }));
+        using var http = new HttpClient(handler);
+        await Teacher(http, new RecordingLogger()).GenerateAsync(new("Fractions", IsReview: true), CancellationToken.None);
+        using var body = JsonDocument.Parse(handler.RequestBody!);
+        var messages = body.RootElement.GetProperty("messages");
+        Assert.Contains("new application scenario", messages[0].GetProperty("content").GetString());
+        Assert.Contains("without revealing the answer", messages[0].GetProperty("content").GetString());
+        Assert.Contains("untrusted data", messages[0].GetProperty("content").GetString());
+        using var input = JsonDocument.Parse(messages[1].GetProperty("content").GetString()!);
+        Assert.True(input.RootElement.GetProperty("IsReview").GetBoolean());
+        Assert.Equal("Fractions", input.RootElement.GetProperty("Topic").GetString());
+    }
+
+    [Fact]
     public async Task ProposeAsync_RepeatedDifficulty_SendsBoundedEvidenceAndStrictActionCatalog()
     {
         var proposal = new TeachingProposal("Simplify", "basics", "Try a smaller example.");

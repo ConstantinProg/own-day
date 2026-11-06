@@ -284,6 +284,7 @@ Enter the text (up to 200 characters), or a period to keep it.
 /learn_project &lt;id&gt; | &lt;experience&gt;; /learn_diagnose &lt;answer|skip&gt;
 /learn_route; /learn_next; /learn_adapt; /learn_focus &lt;topic code&gt;
 /learn_skills [page]; /learn_status &lt;id&gt;; /learn_practice &lt;id&gt;
+/learn_reviews [page]; /learn_review &lt;id&gt;; /learn_review_later &lt;id&gt;; /learn_review_skip &lt;id&gt;
 /start; /help
 Compatibility: /inbox &lt;entry&gt; = /process; /inbox_result = /result; /inbox_undo = /undo.</value></data>
   <data name="selection.canceled" xml:space="preserve"><value>Selection canceled. Your entries are saved.</value></data>

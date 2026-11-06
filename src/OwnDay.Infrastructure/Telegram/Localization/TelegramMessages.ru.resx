@@ -284,6 +284,7 @@
 /learn_project &lt;id&gt; | &lt;опыт&gt;; /learn_diagnose &lt;ответ|skip&gt;
 /learn_route; /learn_next; /learn_adapt; /learn_focus &lt;код темы&gt;
 /learn_skills [страница]; /learn_status &lt;id&gt;; /learn_practice &lt;id&gt;
+/learn_reviews [страница]; /learn_review &lt;id&gt;; /learn_review_later &lt;id&gt;; /learn_review_skip &lt;id&gt;
 /start; /help
 Совместимость: /inbox &lt;запись&gt; = /process; /inbox_result = /result; /inbox_undo = /undo.</value></data>
   <data name="selection.canceled" xml:space="preserve"><value>Выбор отменён. Ваши записи сохранены.</value></data>
