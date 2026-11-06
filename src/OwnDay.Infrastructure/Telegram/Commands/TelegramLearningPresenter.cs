@@ -31,14 +31,14 @@ public static class TelegramLearningPresenter
     {
         var messages = new List<string> { material.Topic + "\n\n" + material.Theory, material.Question + "\n\n" + Actions };
         if (material.Provenance is not null) messages.Add(RenderProvenance(material.Provenance));
-        if (material.HasReferenceCheck) messages.Add("Answer check: NormalizedText/v1; case and whitespace are ignored. The reference was proposed by AI and may be inaccurate.");
+        if (material.HasReferenceCheck) messages.Add($"Answer check: {NormalizedTextAnswerCheck.MethodName}; case and whitespace are ignored. The reference was proposed by AI and may be inaccurate.");
         return messages;
     }
 
     public static string RenderAssessment(AnswerAssessmentStatus status, bool? deterministic) => status switch
     {
-        AnswerAssessmentStatus.Conflict => $"Conflict: AI and NormalizedText/v1 disagree (reference match: {deterministic}). Uncertain; not credited. Additional practice is required.",
-        AnswerAssessmentStatus.Agreement => $"AI and NormalizedText/v1 agree (reference match: {deterministic}). The AI reference is not independently verified.",
+        AnswerAssessmentStatus.Conflict => $"Conflict: AI and {NormalizedTextAnswerCheck.MethodName} disagree (reference match: {deterministic}). Uncertain; not credited. Additional practice is required.",
+        AnswerAssessmentStatus.Agreement => $"AI and {NormalizedTextAnswerCheck.MethodName} agree (reference match: {deterministic}). The AI reference is not independently verified.",
         _ => "AI only; no deterministic check. Uncertain."
     };
 

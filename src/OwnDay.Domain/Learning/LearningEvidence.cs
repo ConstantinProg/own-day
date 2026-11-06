@@ -32,7 +32,7 @@ public sealed class LearningEvidence
             AssessmentSource = source, IsReview = lesson.IsReview,
             AiAssessedCorrect = lesson.AiIsCorrect ?? lesson.IsCorrect,
             DeterministicIsCorrect = lesson.DeterministicIsCorrect, AssessmentStatus = lesson.AssessmentStatus,
-            Method = lesson.ExpectedAnswer is null ? "AI answer assessment" : "AI + NormalizedText/v1 (AI reference)"
+            Method = lesson.ExpectedAnswer is null ? "AI answer assessment" : $"AI + {NormalizedTextAnswerCheck.MethodName} (AI reference)"
         };
     }
 }
