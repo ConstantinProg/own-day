@@ -95,6 +95,9 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
+          # Use runner networking for RUN steps to avoid the builder's DNS failure.
+          network: host
+          allow: network.host
           push: true
           tags: |
             ${{ steps.image.outputs.name }}:${{ steps.image.outputs.tag }}
