@@ -214,3 +214,19 @@ No production deployment, live provider or bot test ran. Rehearse the outbox bac
 on production-size data before deployment. Public ingress remains disabled. Drain
 accepted test/cohort work with a compatible reader before rollback; retain schema
 and markers. Post-commit review follows before advancing to ingress cutover.
+
+Post-commit review of `34b134d..f11e13d` completed on 2026-11-12. No actionable
+P0/P1/P2/P3 findings were confirmed. Reviewed attempt admission/reconciliation,
+unknown invocation recovery, checkpoint/apply fencing, bounded retry semantics,
+outbox backfill and database ordering against the recovery tests.
+
+Architecture assessment: dependency direction and existing Domain authority remain
+intact; detached provider scopes hold no tracked Domain state or application
+transaction. Late completion changes technical attempt metadata only.
+
+Fresh validation: single-node restore and Release build passed with zero warnings
+and errors; 47 PostgreSQL provider/review/worker tests passed on the isolated
+PostgreSQL 18 at port 55440. The previous full-suite results above are historical,
+not rerun results. Validation gaps: production-size backfill rehearsal, real bot,
+provider and deployment topology remain unverified. S1.4 is complete locally;
+the production cutover gate remains closed. Next implementation is S1.5.
