@@ -282,3 +282,12 @@ Cleanup validation: final Release build passed with zero warnings/errors; all 23
 Learning/Curriculum/Study/review/personalization integration regressions passed.
 Re-review of shared dispatch found no remaining actionable findings. S1.5 local
 implementation is complete; the external rollout gates above remain open.
+
+During S2's full regression, a readiness defect from S1.5 was found and recorded
+in [defects](defects.md): the queue health check queried an unsupported SQLite
+provider, including while disabled. Both new capability tests failed with a missing
+queue-table error before the fix. Check provider capability first; retain pending
+queue monitoring for disabled PostgreSQL workers. Release build and all seven
+focused health/HTTP/backlog tests passed after the fix. Review of the narrow guard
+found no further actionable findings; the earlier intermittent readiness 503 is
+reported as an observation, not a proven production PostgreSQL failure.

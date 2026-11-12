@@ -14,6 +14,9 @@ public sealed class LearningQueueHealthCheck(IServiceScopeFactory scopes, IOptio
     {
         await using var scope = scopes.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
+        if (!db.Database.IsNpgsql())
+            return options.Value.Enabled ? HealthCheckResult.Unhealthy("Learning processing requires PostgreSQL.")
+                : HealthCheckResult.Healthy("Learning processing is disabled on this provider.");
         var pending = db.Set<LearningRequest>().Where(request => request.Status != LearningRequestStatus.Completed);
         var count = await pending.LongCountAsync(cancellationToken);
         if (!options.Value.Enabled)
