@@ -15,7 +15,7 @@ internal static class DialogueModel
             entity.HasKey(context => context.UserId);
             entity.Property(context => context.UserId).HasConversion(id => id.Value, value => new UserId(value)).ValueGeneratedNever().HasColumnName("user_id");
             entity.Property(context => context.Revision).IsConcurrencyToken().HasColumnName("revision");
-            entity.Property(context => context.SchemaVersion).HasDefaultValue(1).HasColumnName("schema_version");
+            entity.Property(context => context.SchemaVersion).HasDefaultValue(DialogueContext.CurrentSchemaVersion).HasColumnName("schema_version");
             entity.Property(context => context.Phase).HasColumnName("phase");
             entity.Property(context => context.ExpectedResponse).HasColumnName("expected_response");
             entity.Property(context => context.PromptId).HasColumnName("prompt_id");
@@ -27,6 +27,9 @@ internal static class DialogueModel
             entity.Property(context => context.InterruptedSourceOrder).HasColumnName("interrupted_source_order");
             entity.Property(context => context.ResponseAfterSourceOrder).HasColumnName("response_after_source_order");
             entity.Property(context => context.DeferredGoalRequestId).HasColumnName("deferred_goal_request_id");
+            entity.Property(context => context.Consultation).HasConversion(
+                value => JsonSerializer.Serialize(value, JsonSerializerOptions.Web),
+                value => JsonSerializer.Deserialize<ConsultationDraft>(value, JsonSerializerOptions.Web)).HasColumnType("jsonb").HasColumnName("consultation");
             entity.Property(context => context.PendingClarification).HasConversion(
                 value => JsonSerializer.Serialize(value, JsonSerializerOptions.Web),
                 value => JsonSerializer.Deserialize<DialogueClarification>(value, JsonSerializerOptions.Web)).HasColumnType("jsonb").HasColumnName("pending_clarification");

@@ -42,7 +42,7 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
                     if (request.AttemptCount > maxAttempts) return new(null, "attempts_exhausted");
                     if (request.PayloadKind == "learning_text" && request.PayloadVersion == 1 ||
                         request.PayloadKind == "learning_command" && request.PayloadVersion == 3)
-                        return await ExecuteDialogueAsync(services, db, request, session, handler, cancellationToken);
+                        return await ExecuteDialogueAsync(services, db, request, session, handler, options.Value.ConsultationEnabled, cancellationToken);
                     if (request.PayloadKind != "learning_command" || request.PayloadVersion is not (1 or 2)) return new(null, "unsupported_payload");
                     LearningCommandInput? input;
                     try { input = JsonSerializer.Deserialize<LearningCommandInput>(request.NormalizedInput, JsonSerializerOptions.Web); }
@@ -116,15 +116,19 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
         var lessons = services.GetRequiredService<ILessonStore>();
         var programs = services.GetRequiredService<ICurriculumStore>();
         var learning = new LearningService(lessons, session, knowledge);
-        var curriculum = new CurriculumService(programs, session, lessons, session,
-            services.GetRequiredService<StructuredItemService>(), knowledge, session, services.GetRequiredService<IActionStore>());
+        var curriculum = CreateCurriculum(services, session);
         var study = new StudyService(services.GetRequiredService<IStudyScheduleStore>(), lessons, programs,
             services.GetRequiredService<IKnowledgeStore>(), learning, curriculum, services.GetRequiredService<TimeProvider>());
         return new(learning, new(curriculum), new(knowledge, learning), new(study));
     }
 
+    private static CurriculumService CreateCurriculum(IServiceProvider services, LearningProviderSession session) =>
+        new(services.GetRequiredService<ICurriculumStore>(), session, services.GetRequiredService<ILessonStore>(), session,
+            services.GetRequiredService<StructuredItemService>(), services.GetRequiredService<KnowledgeService>(), session,
+            services.GetRequiredService<IActionStore>());
+
     private static async Task<LearningRequestExecution> ExecuteDialogueAsync(IServiceProvider services, OwnDayDbContext db,
-        LearningRequest request, LearningProviderSession session, TelegramLearningCommandHandler handler, CancellationToken token)
+        LearningRequest request, LearningProviderSession session, TelegramLearningCommandHandler handler, bool consultationEnabled, CancellationToken token)
     {
         LearningCommandInput? command = null;
         LearningTextInput? text = null;
@@ -147,9 +151,28 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
             command?.Arguments ?? text!.Text, command?.LessonId ?? text?.LessonId, command?.PromptId ?? text?.PromptId,
             new DateTimeOffset(request.ReceivedAt), now, lesson is null ? null : db.Entry(lesson).Property<uint>("TargetVersion").OriginalValue,
             request.SourceMessageId ?? request.SourceUpdateId);
-        var decision = await new LearningDialogueService(store, session).DecideAsync(turn, lesson, program, pedagogicalStamp, token);
+        var decision = await new LearningDialogueService(store, session, consultationEnabled || text?.ConsultationAllowed == true)
+            .DecideAsync(turn, lesson, program, pedagogicalStamp, token);
         var introduce = db.Entry(decision.Context).State == EntityState.Added;
         var audit = decision.Audit is null ? null : JsonSerializer.Serialize(decision.Audit, JsonSerializerOptions.Web);
+        if (decision.Creation is { } creation)
+        {
+            var result = await CreateCurriculum(services, session).CreateAsync(request.UserId, creation.Goal, creation.Experience, null, token);
+            session.EnsureComplete();
+            DialogueReply reply;
+            if (result is CurriculumResult.Program created)
+            {
+                decision.Context.CompleteConsultation(created.Value, now, turn.SourceOrder);
+                reply = new(DialogueReplyKind.FirstProgramReady, [created.Value.Goal, decision.Context.Consultation!.PracticalUse!]);
+            }
+            else
+            {
+                decision.Context.RestoreConsultation(now, turn.SourceOrder);
+                reply = new(DialogueReplyKind.ConsultationRetry);
+            }
+            return new(null, result is CurriculumResult.Program ? "first_program_created" : "consultation_creation_failed")
+                { Replies = Introduce(introduce, TelegramDialoguePresenter.Render(reply)) };
+        }
         if (decision.Execute is not { } operation)
         {
             session.EnsureComplete();
@@ -198,7 +221,7 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
         var lesson = await services.GetRequiredService<ILessonStore>().FindActiveAsync(request.UserId, token);
         var context = await store.FindAsync(request.UserId, token);
         if (context is null) store.Add(DialogueContext.Create(request.UserId, lesson, now));
-        else if (context.SchemaVersion == DialogueContext.CurrentSchemaVersion &&
+        else if (context.SchemaVersion == DialogueContext.CurrentSchemaVersion && context.Consultation is not { Version: not 1 } &&
             (context.InterruptedAt is null || request.ReceivedAt >= context.InterruptedAt.Value.UtcDateTime))
             context.Synchronize(lesson, now, request.SourceMessageId ?? request.SourceUpdateId);
     }

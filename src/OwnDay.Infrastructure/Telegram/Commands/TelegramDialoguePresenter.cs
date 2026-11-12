@@ -6,8 +6,19 @@ public static class TelegramDialoguePresenter
 {
     public const string Introduction = "Для учебного диалога пишите обычным текстом, для заметок в Inbox — /capture <текст>. Учебные команды тоже доступны.";
 
-    public static IReadOnlyList<string> Help(bool introduce)
+    public static IReadOnlyList<string> Help(bool introduce, bool consultation = false, OwnDay.Domain.Dialogue.DialogueContext? context = null,
+        Guid? selectedProgramId = null)
     {
+        if (consultation && context?.TargetLessonId is null &&
+            (selectedProgramId is null || selectedProgramId == context?.Consultation?.CreatedProgramId))
+        {
+            var prompt = context?.Consultation is { CreatedProgramId: not null } completed
+                ? Render(new(DialogueReplyKind.FirstProgramReady, [completed.OriginalGoal, completed.PracticalUse!]))
+                : Render(new(context?.Consultation is null ? DialogueReplyKind.AskGoal :
+                    context.Consultation.PracticalUse is null ? DialogueReplyKind.AskPracticalUse :
+                    context.Consultation.Experience is null ? DialogueReplyKind.AskExperience : DialogueReplyKind.ConsultationRetry));
+            return introduce ? [Introduction, .. prompt] : prompt;
+        }
         const string help = "Для текущего упражнения напишите «Продолжим», затем ответьте или задайте вопрос обычным текстом. " +
             "Завершение упражнения и смена программы требуют отдельного кода подтверждения. " +
             "Новая программа: /learn_request <цель> | <опыт>. Все команды: /help commands.";
@@ -49,6 +60,14 @@ public static class TelegramDialoguePresenter
             DialogueReplyKind.ChooseAnswerOrQuestion => "Это ваш ответ на упражнение или вопрос по нему? Напишите «ответ» или «вопрос». До выбора ничего не оценивается; при выборе ответа будет оценён исходный текст.",
             DialogueReplyKind.ChooseQuestionOrGoal => "Это вопрос в рамках текущего урока или желание сменить учебную цель? Напишите «вопрос» или «цель». Учебное состояние пока не изменено.",
             DialogueReplyKind.ChoosePauseOrResume => "Уточните одно действие: «пауза» или «продолжить». Учебное состояние пока не изменено.",
+            DialogueReplyKind.AskGoal => "Я помогу вам учиться и применять знания. Например, читать рабочие письма или писать короткие сообщения. Чему вы хотите научиться? Напишите «Хочу…» и свою цель.",
+            DialogueReplyKind.AskPracticalUse => "Для чего эти знания нужны прежде всего? Например, рабочие письма, статьи или повседневная переписка. Исходную цель сохраним.",
+            DialogueReplyKind.AskExperience => "Какой у вас опыт? Например, понимаете отдельные слова, уже читаете короткие тексты или начинаете с нуля.",
+            DialogueReplyKind.ConsultationRetry => "Цель, применение и опыт сохранены. Программу пока не удалось создать. Напишите «повторить», чтобы попробовать ещё раз, или «Продолжим», чтобы вернуться позже.",
+            DialogueReplyKind.ConsultationUnavailable => "Первая программа уже создана. Для возврата к ней напишите «Продолжим». Текущая цель сохранена.",
+            DialogueReplyKind.ConsultationPaused => "Консультация приостановлена, цель и ответы сохранены. Напишите «Продолжим», когда будете готовы.",
+            DialogueReplyKind.FirstProgramReady => "Цель сохранена: «" + values[0] + "». Применение: «" + values[1] + "». " +
+                "Предлагаю два-три коротких задания, чтобы выбрать сложность. Можно пропустить.",
             _ => "Учебный диалог временно недоступен. Попробуйте позже."
         }];
     }

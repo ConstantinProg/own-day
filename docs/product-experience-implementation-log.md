@@ -408,3 +408,40 @@ Implementation `e563978` reviewed against `bcecc38`: no confirmed remaining
 P0/P1/P2/P3 findings; the full branch review includes the new dialogue scope and
 Clean Code assessment. S3 is complete locally with the external gates retained.
 Next: S4 consultation and practical first goal.
+
+## S4 — first goal and practical context
+
+The initial direct-goal acceptance test failed before implementation: the existing
+exercise-only dialogue did not ask about practical use. Added a bounded version-1
+consultation draft inside dialogue schema 2, two deterministic context questions,
+and typed first-program creation through the existing CurriculumService with no
+Project link. Original goal is not rewritten; use and experience remain explicit
+self-report. No full route approval or second planning engine was introduced.
+
+The draft survives restart, Start/help, explicit capture, pause/cancel and flag
+rollback. Incoming detail must address the published prompt and follow its source
+order. Accepted inputs retain consultation capability independently of the live
+producer flag, including the first request before a context exists. Failure retains
+details and requires explicit retry; resume alone never retries a paid operation.
+Existing selected programs and active Lessons cannot be replaced by consultation.
+
+Schema migration preserves known exercise contexts and pending confirmations,
+increments only the supported schema version and retains unknown versions. Drafts
+block destructive downgrade. [The first-goal guide](features/learning/first-goal.md)
+documents this behavior and the separate diagnostic capability/release gates.
+
+Incremental validation: clean Release build; six integration and 28 unit/model
+checks passed. Added populated schema-1 confirmation upgrade and pre-worker flag
+rollback/premature-detail coverage. Final restore/Release/full regression is running;
+results and post-commit review follow before advancing. No live call/deployment ran.
+
+Full regression: 638 integration and 754 unit tests passed, one live smoke skipped;
+restore and Release build passed with zero warnings/errors. A final focused build/run
+includes the two additional schema-safety cases, the terminal-handler unknown-draft
+guard and the final user-facing wording. No additional full run is claimed for
+those narrow follow-ups; their focused results follow.
+
+Final focused validation passed: Release build without warnings/errors, ten
+integration and 28 unit/model checks passed. Both downgrade rejection and unknown
+draft version guards preserve data; populated schema upgrade preserves consent.
+`git diff --check` passed. Local acceptance is ready for commit and review.

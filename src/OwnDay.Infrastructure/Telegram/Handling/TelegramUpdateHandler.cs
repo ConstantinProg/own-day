@@ -152,7 +152,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         var sender = update.CallbackQuery?.From ?? update.Message!.From!;
         var locale = await _languageFlow.ResolveLocaleAsync(user, sender.LanguageCode, cancellationToken);
         var dialogue = await _dbContext.Set<DialogueContext>().SingleOrDefaultAsync(context => context.UserId == user, cancellationToken);
-        if (dialogue is not null && dialogue.SchemaVersion != DialogueContext.CurrentSchemaVersion)
+        if (dialogue is not null && (dialogue.SchemaVersion != DialogueContext.CurrentSchemaVersion || dialogue.Consultation is { Version: not 1 }))
             throw new InvalidOperationException("A compatible dialogue reader is required before accepting updates for this owner.");
         var dialogueMode = _processing.DialogueEnabled || dialogue is not null ||
             await _dbContext.Set<LearningRequest>().AnyAsync(request => request.UserId == user &&
@@ -181,7 +181,8 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
                 var databaseNow = await EnsureLearningAcceptanceAsync(cancellationToken);
                 var lessonId = await CurrentLessonIdAsync(user, cancellationToken);
                 await AddReceiptAsync(update, user, chatId, new LearningTextInput(ordinary.Value, lessonId,
-                    dialogue?.PromptId, dialogue?.Revision), "learning_text", 1, databaseNow, ready: true, cancellationToken);
+                    dialogue?.PromptId, dialogue?.Revision, _processing.ConsultationEnabled || dialogue?.Consultation is not null),
+                    "learning_text", 1, databaseNow, ready: true, cancellationToken);
                 await CommitReceiptAsync(databaseNow);
                 return;
             }
@@ -201,6 +202,10 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
             var dispatch = (TelegramUpdateRouteResult.Dispatch)route;
             chatId = dispatch.ChatId;
             var command = dispatch.Command;
+            Guid? selectedProgramForHelp = null;
+            if (dialogueMode && command.Name is "start" or "help" && (_processing.ConsultationEnabled || dialogue?.Consultation is not null))
+                selectedProgramForHelp = await _dbContext.Set<LearningContext>().Where(context => context.UserId == user)
+                    .Select(context => (Guid?)context.ProgramId).SingleOrDefaultAsync(cancellationToken);
             var dialogueCancel = dialogueMode && command.Name == "cancel" &&
                 !await _dbContext.TelegramUserLanguages.AnyAsync(row => row.UserId == user.Value && row.SelectionExpiresAt > now, cancellationToken) &&
                 !await _dbContext.TelegramInboxDrafts.AnyAsync(row => row.UserId == user.Value && row.ExpiresAt > now, cancellationToken);
@@ -255,7 +260,8 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
             replies = command.Name switch
             {
                 _ when _learningCommands.Handles(command.Name) => await _learningCommands.HandleAsync(command, cancellationToken),
-                "start" or "help" when dialogueMode && command.Arguments.Trim() != "commands" => TelegramDialoguePresenter.Help(!introduceDialogue),
+                "start" or "help" when dialogueMode && command.Arguments.Trim() != "commands" =>
+                    TelegramDialoguePresenter.Help(false, _processing.ConsultationEnabled || dialogue?.Consultation is not null, dialogue, selectedProgramForHelp),
                 "stats" => await _statistics.HandleAsync(command.UserId, command.Arguments, locale, cancellationToken),
                 "settings" => [TelegramTexts.Get(locale, "settings.menu")],
                 "language" => await _languageFlow.SelectAsync(command.UserId, command.Arguments.Trim(), locale, cancellationToken),

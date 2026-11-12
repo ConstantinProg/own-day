@@ -24,9 +24,9 @@ public sealed record DialogueConfirmation(Guid ProposalId, string Code, Guid Ori
 
 // Conversation expectations only. Lesson and LearningProgram remain authoritative
 // for pedagogical state; there are no jobs, provider results or transport types here.
-public sealed class DialogueContext
+public sealed partial class DialogueContext
 {
-    public const int CurrentSchemaVersion = 1;
+    public const int CurrentSchemaVersion = 2;
     private DialogueContext() { }
     public UserId UserId { get; private set; }
     public int SchemaVersion { get; private set; } = CurrentSchemaVersion;
@@ -44,6 +44,7 @@ public sealed class DialogueContext
     public Guid? DeferredGoalRequestId { get; private set; }
     public DialogueClarification? PendingClarification { get; private set; }
     public DialogueConfirmation? PendingConfirmation { get; private set; }
+    public ConsultationDraft? Consultation { get; private set; }
 
     public static DialogueContext Create(UserId user, Lesson? lesson, DateTimeOffset now)
     {

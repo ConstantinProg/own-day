@@ -23,7 +23,7 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
         {
             b.Property<long>("UserId").ValueGeneratedNever().HasColumnType("bigint").HasColumnName("user_id");
             b.Property<long>("Revision").IsConcurrencyToken().HasColumnType("bigint").HasColumnName("revision");
-            b.Property<int>("SchemaVersion").ValueGeneratedOnAdd().HasDefaultValue(1).HasColumnType("integer").HasColumnName("schema_version");
+            b.Property<int>("SchemaVersion").ValueGeneratedOnAdd().HasDefaultValue(2).HasColumnType("integer").HasColumnName("schema_version");
             b.Property<int>("Phase").HasColumnType("integer").HasColumnName("phase");
             b.Property<int>("ExpectedResponse").HasColumnType("integer").HasColumnName("expected_response");
             b.Property<Guid>("PromptId").HasColumnType("uuid").HasColumnName("prompt_id");
@@ -37,6 +37,7 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
             b.Property<Guid?>("DeferredGoalRequestId").HasColumnType("uuid").HasColumnName("deferred_goal_request_id");
             b.Property<string>("PendingClarification").HasColumnType("jsonb").HasColumnName("pending_clarification");
             b.Property<string>("PendingConfirmation").HasColumnType("jsonb").HasColumnName("pending_confirmation");
+            b.Property<string>("Consultation").HasColumnType("jsonb").HasColumnName("consultation");
             b.Property<uint>("TargetVersion").IsConcurrencyToken().ValueGeneratedOnAddOrUpdate().HasColumnType("xid").HasColumnName("xmin");
             b.HasKey("UserId");
             b.ToTable("dialogue_contexts", null, table => table.HasCheckConstraint("CK_dialogue_contexts_identity", "user_id > 0 AND revision > 0 AND schema_version > 0"));

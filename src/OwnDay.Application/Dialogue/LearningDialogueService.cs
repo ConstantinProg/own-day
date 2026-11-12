@@ -6,7 +6,7 @@ using System.Text.Json;
 
 namespace OwnDay.Application.Dialogue;
 
-public sealed class LearningDialogueService(IDialogueStore store, ILearningIntentResolver resolver)
+public sealed class LearningDialogueService(IDialogueStore store, ILearningIntentResolver resolver, bool consultationEnabled = false)
 {
     public async Task<DialogueDecision> DecideAsync(DialogueTurn turn, Lesson? lesson, DialogueProgramSnapshot? program,
         string stamp, CancellationToken token)
@@ -20,6 +20,7 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
         }
         if (context.SchemaVersion != DialogueContext.CurrentSchemaVersion)
             return Reply(context, DialogueReplyKind.Unavailable);
+        if (context.Consultation is { Version: not 1 }) return Reply(context, DialogueReplyKind.Unavailable);
         if (context.InterruptedAt is { } interrupted && turn.ReceivedAt < interrupted ||
             context.InterruptedSourceOrder > 0 && turn.SourceOrder <= context.InterruptedSourceOrder)
             return Reply(context, DialogueReplyKind.Interrupted);
@@ -38,6 +39,18 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
 
         var normalized = Normalize(turn.Text);
         var command = turn.Command;
+        if (lesson is null && program is null && context.Consultation is { CreatedProgramId: null } &&
+            command is DialogueOperationKind.Cancel or DialogueOperationKind.Pause or DialogueOperationKind.Resume)
+            return FirstGoalConsultation.Decide(context, turn with { Command = null, Text = command == DialogueOperationKind.Resume ? "resume" : "pause" });
+        if (lesson is null && program is not null && command is null &&
+            (context.Phase == DialoguePhase.DiagnosticOffer || normalized is "продолжим" or "продолжить" or "resume") &&
+            context.Consultation?.CreatedProgramId == program.Id)
+        {
+            if (context.Phase != DialoguePhase.DiagnosticOffer) context.RestoreDiagnosticOffer(program.Id, turn.Now, turn.SourceOrder);
+            return new(context, null, "", new(DialogueReplyKind.FirstProgramReady, [program.Goal, context.Consultation.PracticalUse!]));
+        }
+        if (lesson is null && program is null && command is null && (consultationEnabled || context.Consultation is not null))
+            return FirstGoalConsultation.Decide(context, turn);
         if (command == DialogueOperationKind.Cancel || command is null &&
             (normalized is "отмена" or "cancel" || normalized == "нет" && context.PendingConfirmation is not null))
         {

@@ -28,6 +28,8 @@ public static class TelegramServiceCollectionExtensions
                 "Durable Learning ingress requires the installed worker to be enabled.")
             .Validate(settings => !settings.DialogueEnabled || settings.DurableIngressEnabled && settings.Enabled,
                 "Learning dialogue requires durable ingress and the compatible worker.")
+            .Validate(settings => !settings.ConsultationEnabled || settings.DialogueEnabled,
+                "First-goal consultation requires learning dialogue.")
             .Validate(settings => settings.MaxQueueAgeSeconds is >= 30 and <= 86400,
                 "Learning queue age must be between 30 seconds and one day.")
             .ValidateOnStart();

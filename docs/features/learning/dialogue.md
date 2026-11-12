@@ -12,7 +12,8 @@ the producer flag does not turn enrolled users' pending learning text into Inbox
 one bounded pending clarification or confirmation. It does not replace Lesson,
 LearningContext or LearningProgram. Legacy users acquire it lazily from the actual
 active/paused Lesson without invented programs or publication timestamps. Schema 1
-is explicit; an unsupported schema is rejected before accepting another update.
+was the exercise-only contract; [schema 2](first-goal.md) adds an optional first-goal
+draft. An unsupported schema is rejected before accepting another update.
 
 Natural text uses durable `learning_text` v1. Enrolled command input uses
 `learning_command` v3, including the addressed Lesson and prompt; old command v1/v2
@@ -52,7 +53,7 @@ Resume of an already active question produces a recap. Existing Domain prerequis
 still govern Next, program selection and creation.
 
 Deploy schema and a compatible reader before enabling a limited cohort. Roll back
-only to a reader/writer preserving v3/text inputs, pending states and schema 1;
+only to a reader/writer preserving v3/text inputs, pending states and the deployed schema;
 the migration refuses destructive downgrade over dialogue state/history. Stop or
 pause acceptance when the worker cannot drain. This is not an instruction to enable
 production: test-bot, single-deliverer, backfill and budget gates remain applicable.
@@ -61,5 +62,5 @@ The versioned [offline fixtures](../../../evaluation/learning/golden-v1.json) an
 PostgreSQL Host tests cover routing, restart, stale consent, source ordering, atomic
 failure and no Inbox side effects. Fake proposals establish safety behavior, not
 real classifier quality. Held-out provider evaluation and Telegram Desktop/NVDA
-remain external release gates. First-goal consultation and multi-item diagnostic
-are separate capabilities and are not supplied by this exercise dialogue.
+remain external release gates. First-goal consultation is separately described in
+the [first-goal guide](first-goal.md); multi-item diagnostic is a subsequent capability.
