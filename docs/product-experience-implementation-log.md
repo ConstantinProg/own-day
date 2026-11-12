@@ -65,3 +65,18 @@ Validation:
 Deployment remains schema-first with the worker/public ingress disabled. No mixed
 synchronous/queued writers for one production owner are permitted. Drain accepted
 cohort/test requests with a compatible worker before code rollback; never drop data.
+
+Implementation: `141d56e` (parent `f86d3ed`). All ten final worker checks passed,
+including preservation of the populated synchronous request; the test's initial raw
+SQL JSON formatting error was corrected by parameterizing the JSON value.
+
+Post-commit review of `f86d3ed..141d56e` found no actionable P0/P1/P2/P3 defects.
+Architecture assessment: Application chooses the supported use case, Infrastructure
+owns PostgreSQL claiming, transactional fencing, presentation and delivery intents;
+the hosted adapter owns scoped lifetime and shutdown. No provider calls can run in
+this lane. Reviewed row-lock skipping, head backoff, reclaim/apply races, final expiry
+check, rollback, duplicate apply and cancellation against the PostgreSQL tests.
+
+Validation gaps remain explicit: this is an isolated no-provider lane, not the S1.3
+provider protocol or S1.5 public cutover. Production replicas/webhook settings, real
+Telegram delivery and live provider behavior remain unverified. S1.2 is complete.
