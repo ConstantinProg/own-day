@@ -142,3 +142,30 @@ Final focused verification after preserving invitation selection for non-materia
 successes and strengthening assertions about actual Domain effects: 42 integration
 tests passed (all provider cases and Study regressions). Final Release build passed
 with zero warnings/errors; `git diff --check` passed. Post-commit review follows.
+
+Post-commit review of `f881c7b..5295961`:
+
+- **P1 (Important), confirmed:**
+  [SaveStepAsync](../src/OwnDay.Infrastructure/Persistence/EfLearningRequestStore.cs)
+  renewed and checked ownership before writes, but a delayed checkpoint write could
+  commit after the renewed lease expired. The expiry-during-write test returned true
+  before the fix. Added a final database-clock/token/attempt check and atomic rollback.
+- **P2 (Important), confirmed:**
+  [FindActiveAsync](../src/OwnDay.Infrastructure/Persistence/EfLessonStore.cs)
+  newly loaded every explanation to build target stamps. A long-running lesson
+  could make even Pause/Resume and preparation unbounded. The large-history test
+  loaded 25 rows before the fix. Load the latest ten immutable interactions; verify
+  that appending another interaction still preserves all 26 persisted rows.
+- **Architecture assessment:** dependency direction and Domain authority preserved;
+  no provider or source I/O is available inside prepared apply. DTOs cross the
+  provider boundary, while fresh scoped use cases own all mutations. Reviewed
+  conditional planning, invitation selection, stamp identity and atomic effects.
+- **Validation gaps:** public early-ack remains off. Full physical-attempt crash,
+  cancellation-ignoring adapters and cost admission are subsequent explicit gates,
+  not claimed as completed by this provider split. Live checks are deferred by user.
+
+Both new review regressions were run before production fixes and failed for the
+reported reasons. The follow-up Release build passes with zero warnings/errors.
+Follow-up validation: 63 focused integration tests (provider matrix, worker, Learning
+and Study) and all 722 unit tests passed; diff checks passed. Re-review of the final
+fence and bounded history found no remaining P0/P1 or actionable P2. S1.3 is complete.

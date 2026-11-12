@@ -30,7 +30,7 @@ using Xunit;
 namespace OwnDay.IntegrationTests.Telegram;
 
 [Trait("Requires", "PostgreSQL via OWNDAY_TEST_POSTGRES_CONNECTION")]
-public sealed class PostgresLearningProviderTests : IAsyncLifetime
+public sealed partial class PostgresLearningProviderTests : IAsyncLifetime
 {
     private readonly string _schema = "ownday_test_" + Guid.NewGuid().ToString("N");
     private readonly UserId _user = new(101);

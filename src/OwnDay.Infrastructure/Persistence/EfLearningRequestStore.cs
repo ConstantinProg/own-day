@@ -104,6 +104,19 @@ public sealed class EfLearningRequestStore(OwnDayDbContext db) : ILearningReques
             existing.Failure = step.Failure;
         }
         await db.SaveChangesAsync(token);
+        // Saving/checkpoint I/O may outlive the renewed lease. Fence the final
+        // decision just as apply does, while still holding the request row lock.
+        var stillOwned = await db.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE learning_requests SET lease_token = lease_token
+            WHERE id = {lease.RequestId} AND user_id = {lease.UserId.Value} AND status = 2
+                AND lease_token = {lease.Token} AND attempt_count = {lease.Attempt} AND lease_until > clock_timestamp()
+            """, token);
+        if (stillOwned == 0)
+        {
+            await transaction.RollbackAsync(token);
+            db.ChangeTracker.Clear();
+            return false;
+        }
         await transaction.CommitAsync(token);
         return true;
     }

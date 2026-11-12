@@ -8,7 +8,7 @@ namespace OwnDay.Infrastructure.Persistence;
 public sealed class EfLessonStore(OwnDayDbContext db) : ILessonStore
 {
     public Task<Lesson?> FindActiveAsync(UserId user, CancellationToken token) =>
-        db.Set<Lesson>().Include(l => l.Interactions).SingleOrDefaultAsync(l => l.UserId == user &&
+        db.Set<Lesson>().Include(l => l.Interactions.OrderByDescending(i => i.Id).Take(10)).SingleOrDefaultAsync(l => l.UserId == user &&
             (l.Status == LessonStatus.AwaitingAnswer || l.Status == LessonStatus.Paused), token);
 
     public void Add(Lesson lesson) => db.Set<Lesson>().Add(lesson);
