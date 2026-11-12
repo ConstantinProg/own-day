@@ -71,3 +71,31 @@ Validation: full regression of 613 integration and 730 unit tests passed, one li
 smoke skipped. After final source/local-admission guards and added cap scenarios,
 28 focused integration and 35 unit checks passed with a clean Release build.
 EF model/snapshot equality passed. No paid API call or production deployment ran.
+
+## Current-exercise dialogue review
+
+Reviewed `e563978` against parent `bcecc38`, extending the branch review through
+the current implementation. No confirmed actionable P0/P1/P2/P3 findings remain.
+
+Checked lazy owner/schema bootstrap, immutable pending values, question/source-order
+binding, original-input resolution, bounded enum-only proposals, code consent with
+expiry/parameters/target versions, atomic audit/reply publication and rollback.
+Confirmed that expected-answer keys are absent from classifier input and that
+reconciliation still accounts for stale classifier output. Explicit editor switches
+invalidate pending dialogue while retaining accepted input; enrollment survives a
+disabled producer flag and first-call in-flight processing. Old payload readers
+remain available; rollout still requires compatible producers/consumers and drain.
+
+Domain owns conversation invariants without Telegram/EF dependencies. Application
+owns policy and returns typed decisions; the adapter renders copy and invokes the
+same learning use cases as commands. No generic executor/framework or new subsystem
+was introduced. The added context is separate from pedagogical LearningContext.
+The small fixed operation mappings are transport dispatch, not duplicate use-case
+rules. Clean Code review found no justified broad refactor within this scope.
+
+Validation: clean restore/Release build, 632 integration and 754 unit tests passed;
+one live smoke skipped. Migration from populated legacy state, model equality,
+restart, stale consent, delayed messages and apply-commit rollback are covered.
+Real classifier quality, Telegram Desktop/NVDA and production topology/backfill
+remain unverified release gates. First-goal consultation and diagnostic acceptance
+are not claimed by this review.
