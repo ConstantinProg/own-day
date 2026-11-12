@@ -75,3 +75,28 @@ lane. Do not enable mixed synchronous/queued writers for one production user. De
 the additive schema before the disabled worker; do not roll schema back or delete
 accepted work. If a test/cohort has accepted work, drain it with a compatible consumer
 before reverting code. No public early-ack or provider operation is enabled here.
+
+## Provider preparation lane
+
+The background consumer also supports the existing provider commands via the
+[provider inventory](provider-path-inventory.md). `AddLearningProviderSteps` creates
+concrete versioned inputs, fingerprints, original target stamps and saved outcomes,
+uniquely keyed by request and ordinal. It does not backfill historical results.
+PostgreSQL xmin is mapped in Infrastructure for the addressed Learning/project/task
+rows; system columns already exist, so user data is not rewritten. Raw locked
+Project/Action readers explicitly project xmin for compatibility with this mapping.
+
+Preparation runs the same Application use case until the next external boundary,
+then rolls back and disposes its scope. A fenced transaction persists that step
+before any network call. Provider/source I/O uses an independent scope and a linked
+finite timeout (`ProviderTimeoutSeconds`, default 15, range 1–120). The worker awaits
+the actual adapter task; it does not release its slot by abandoning a running task.
+New scopes revalidate inputs and targets while consuming saved results. A changed
+branch or row stamp yields `stale_target`, with no use-case effects; the user gets
+an explicit instruction to inspect the current lesson or repeat the command.
+Only the final complete invocation commits effects/replies/completion.
+
+Lease renewal uses the current token, attempt and database-clock expiry. Public
+ingress remains synchronous and the hosted lane remains disabled by default.
+Unknown physical-attempt recovery/retries are the next gate before public cutover;
+this lane alone does not claim complete crash or cost accounting guarantees.

@@ -1,8 +1,8 @@
 # Learning provider paths
 
-Investigation for S1.3, after `141d56e`. This is an implementation inventory, not a
-claim that prepare/provider/apply is implemented. Public entry points still execute
-these services inside the legacy Telegram transaction; the new lane rejects them.
+Inventory for S1.3, based on `141d56e`. The disabled background lane now invokes
+these same use cases through concrete, durable provider steps. Public entry points
+still execute inside the legacy Telegram transaction until the separate cutover.
 
 | Entry | Existing use case | External steps | Required prepare/apply guards |
 |---|---|---|---|
@@ -46,7 +46,27 @@ catalogue remains fixed; do not add user/model URLs.
 - Legacy ILessonTeacher implementations exist in the supplied untracked acceptance
   test. Preserve that file and compatibility when introducing snapshot contracts.
 
-## Planned verification matrix
+## Processing boundaries
+
+The runner invokes the existing use case up to the next provider boundary inside
+the fenced transaction. A concrete provider session captures immutable input and
+unwinds preparation; the transaction rolls back and the entire scope is disposed.
+It persists the step under a fresh lease fence before opening a separate provider
+scope. No tracked Domain objects cross that boundary. Assess/Explain use immutable
+LessonSnapshot contracts; the shipped adapter supports both legacy and snapshot
+entry points. An older adapter without snapshot support fails safely in this lane.
+
+The next fresh scope repeats the same use case and its current guards using saved
+results. Input fingerprints and addressed original-row stamps must match before
+each result is consumed. PostgreSQL xmin stamps catch change-and-restore races;
+no additional user-data columns or backfill are needed. Newly proposed objects
+are excluded from stamps. Changed branches cannot silently discard saved steps.
+Only a complete invocation commits effects, operation marker, replies and completion.
+This is limited to the five existing provider operations and at most two calls per
+command; it is not a general workflow engine. Source retrieval runs entirely inside
+the detached generator phase. Invitation selection waits until material succeeds.
+
+## Verification matrix
 
 Each external branch needs a blocked fake with a committed prepared input; a second
 scope must acquire the same user's advisory lock and a short database operation while
@@ -55,6 +75,8 @@ Domain state. A competing target change must reject stale apply. Run the same te
 for the conditional two-call branch and for source retrieval failure, plus existing
 owner/paused/prerequisite/evidence/review/project/transfer/invitation regressions.
 
-S1.3 is not complete until every row above uses the new protocol and passes these
-checks through the real worker. No provider support or public early-ack is enabled
-by this inventory.
+`PostgresLearningProviderTests` exercises every row through HTTP and the real hosted
+worker, plus target changes, planner/generator separation and source retrieval failure.
+Completion and the exact checks performed are recorded in the implementation log.
+Crash/unknown-attempt policy and public early-ack remain separate gates; neither is
+enabled by this inventory.

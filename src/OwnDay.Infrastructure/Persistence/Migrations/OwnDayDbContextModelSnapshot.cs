@@ -1484,6 +1484,38 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
                     .IsRequired();
             });
 
+        modelBuilder.Entity("OwnDay.Application.Learning.Requests.LearningProviderStep", b =>
+            {
+                b.Property<Guid>("RequestId").HasColumnType("uuid").HasColumnName("request_id");
+                b.Property<int>("Ordinal").HasColumnType("integer").HasColumnName("ordinal");
+                b.Property<string>("Kind").IsRequired().HasMaxLength(20).HasColumnType("character varying(20)").HasColumnName("kind");
+                b.Property<int>("Version").HasColumnType("integer").HasColumnName("version");
+                b.Property<string>("Input").IsRequired().HasColumnType("text").HasColumnName("input");
+                b.Property<string>("Fingerprint").IsRequired().HasMaxLength(64).HasColumnType("character varying(64)").HasColumnName("fingerprint");
+                b.Property<string>("TargetStamp").IsRequired().HasMaxLength(64).HasColumnType("character varying(64)").HasColumnName("target_stamp");
+                b.Property<string>("Targets").IsRequired().HasColumnType("text").HasColumnName("targets");
+                b.Property<string>("Result").HasColumnType("text").HasColumnName("result");
+                b.Property<int?>("Failure").HasColumnType("integer").HasColumnName("failure");
+                b.HasKey("RequestId", "Ordinal");
+                b.ToTable("learning_provider_steps", (string)null);
+                b.HasOne("OwnDay.Application.Learning.Requests.LearningRequest", null).WithMany()
+                    .HasForeignKey("RequestId").OnDelete(DeleteBehavior.Restrict).IsRequired();
+            });
+
+        foreach (var target in new[]
+        {
+            "OwnDay.Domain.Learning.CurriculumRoute", "OwnDay.Domain.Learning.LearningContext",
+            "OwnDay.Domain.Learning.LearningEvidence", "OwnDay.Domain.Learning.LearningPreference",
+            "OwnDay.Domain.Learning.LearningProgram", "OwnDay.Domain.Learning.Lesson",
+            "OwnDay.Domain.Learning.LessonInteraction", "OwnDay.Domain.Learning.ProgramSkillLink",
+            "OwnDay.Domain.Learning.ReviewSchedule", "OwnDay.Domain.Learning.Skill",
+            "OwnDay.Domain.Learning.StudySchedule", "OwnDay.Domain.Projects.Project", "OwnDay.Domain.Actions.Action"
+        })
+        {
+            modelBuilder.Entity(target, b => b.Property<uint>("TargetVersion").IsConcurrencyToken()
+                .ValueGeneratedOnAddOrUpdate().HasColumnType("xid").HasColumnName("xmin"));
+        }
+
 #pragma warning restore 612, 618
     }
 }

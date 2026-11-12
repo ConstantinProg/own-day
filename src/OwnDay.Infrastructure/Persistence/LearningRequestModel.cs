@@ -50,5 +50,21 @@ internal static class LearningRequestModel
             entity.Property(operation => operation.AppliedAt).HasColumnName("applied_at");
             entity.HasOne<LearningRequest>().WithMany().HasForeignKey(operation => operation.RequestId).OnDelete(DeleteBehavior.Restrict);
         });
+        modelBuilder.Entity<LearningProviderStep>(entity =>
+        {
+            entity.ToTable("learning_provider_steps");
+            entity.HasKey(step => new { step.RequestId, step.Ordinal });
+            entity.Property(step => step.RequestId).HasColumnName("request_id");
+            entity.Property(step => step.Ordinal).HasColumnName("ordinal");
+            entity.Property(step => step.Kind).HasMaxLength(20).HasColumnName("kind");
+            entity.Property(step => step.Version).HasColumnName("version");
+            entity.Property(step => step.Input).HasColumnName("input");
+            entity.Property(step => step.Fingerprint).HasMaxLength(64).HasColumnName("fingerprint");
+            entity.Property(step => step.TargetStamp).HasMaxLength(64).HasColumnName("target_stamp");
+            entity.Property(step => step.Targets).HasColumnName("targets");
+            entity.Property(step => step.Result).HasColumnName("result");
+            entity.Property(step => step.Failure).HasColumnName("failure");
+            entity.HasOne<LearningRequest>().WithMany().HasForeignKey(step => step.RequestId).OnDelete(DeleteBehavior.Restrict);
+        });
     }
 }

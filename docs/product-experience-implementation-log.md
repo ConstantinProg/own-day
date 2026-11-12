@@ -94,3 +94,51 @@ The legacy long provider transaction is still present, and public early-ack rema
 disabled. Later external acceptance also requires a test bot, approved finite live
 budget, manual Telegram Desktop/NVDA verification and the plan's content/retention
 decisions; none of those checks were performed or claimed as passed.
+
+## S1.3 — prepare/provider/apply implementation
+
+The previous investigation entry is historical. The disabled consumer now supports
+every provider path in the inventory using the existing Application use cases,
+immutable inputs and detached provider scopes. Preparations roll back provisional
+state; final execution rechecks fingerprints and addressed PostgreSQL xmin stamps
+in a fresh scope. Checkpoints persist explicit target keys/versions as well as the
+stamp. Version 1 jointly identifies the current input/descriptor/prompt/schema
+contract; changing that contract requires a compatible versioned reader.
+
+The protocol is concrete and bounded (five provider kinds, at most planner plus
+generator). It does not copy the services into a separate engine. Invitation start
+selects its target program after successful material, preserving the old selection
+and unresolved invitation on provider failure. Source reading is outside the DB
+transaction, including the unavailable-source fallback.
+
+Validation on a separate local PostgreSQL 18 (`ownday-product-tests`, port 55440,
+test credentials, pooling disabled):
+
+- Restore succeeds with `dotnet restore OwnDay.slnx --disable-parallel -m:1`.
+  Default multi-node restore exited 1 without an MSBuild error; single-node restore
+  completed normally. The initial test-first build likewise did not produce a
+  completed red-test result; no red-test result is claimed.
+- Release build succeeds with zero warnings/errors. The model/snapshot equality
+  test passes. New schema is additive; legacy migration/restart tests run in the
+  complete regression suite.
+- Complete regression after the checkpoint/target schema: 549 integration tests
+  passed, one opt-in live smoke skipped; 722 unit tests passed.
+- The HTTP/hosted matrix blocks every inventory provider branch, including both
+  Adapt phases, while a second connection acquires the same user lock. The adapter
+  verifies no transaction, tracked entities or open DB connection. Target changes
+  and pause/restore reject stale results. Source failure uses the real RFC reader
+  and OpenAI adapter with fake HTTP, without real network/provider calls.
+- An initial full run exposed missing xmin projections in raw Project/Action
+  readers. Fixed all three affected queries; the repeated full regression passed.
+  The failing run was stopped after diagnosis and is not counted as passed.
+
+Public ingress is unchanged and the consumer remains disabled by default. Physical
+attempt identity, unknown-result recovery and full crash/retry guarantees are S1.4;
+public cutover is S1.5. No production deployment or live bot/provider test ran.
+The user explicitly deferred test-bot smoke and live-budget agreement during this
+session; those remain external checks and are not reported as passed.
+
+Final focused verification after preserving invitation selection for non-material
+successes and strengthening assertions about actual Domain effects: 42 integration
+tests passed (all provider cases and Study regressions). Final Release build passed
+with zero warnings/errors; `git diff --check` passed. Post-commit review follows.

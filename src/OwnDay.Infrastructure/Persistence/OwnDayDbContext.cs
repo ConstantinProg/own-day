@@ -9,6 +9,7 @@ using OwnDay.Domain.References;
 using OwnDay.Domain.SomedayMaybes;
 using OwnDay.Domain.WaitingFors;
 using OwnDay.Domain;
+using OwnDay.Domain.Learning;
 using Action = OwnDay.Domain.Actions.Action;
 
 namespace OwnDay.Infrastructure.Persistence;
@@ -294,5 +295,21 @@ public sealed class OwnDayDbContext(DbContextOptions<OwnDayDbContext> options)
             entity.HasIndex(message => new { message.Status, message.NextAttemptAt });
             entity.HasIndex(message => new { message.Status, message.SentAt });
         });
+
+        if (Database.IsNpgsql())
+        {
+            // PostgreSQL supplies xmin on every table; no user-data columns/backfill
+            // are required. Keep stamps in the adapter and catch change-and-restore
+            // races as well as ordinary stale snapshots.
+            foreach (var target in new[]
+            {
+                typeof(Lesson), typeof(LessonInteraction), typeof(LearningProgram), typeof(CurriculumRoute),
+                typeof(LearningContext), typeof(Skill), typeof(LearningEvidence), typeof(ProgramSkillLink),
+                typeof(ReviewSchedule), typeof(LearningPreference), typeof(StudySchedule), typeof(Project), typeof(Action)
+            })
+            {
+                modelBuilder.Entity(target).Property<uint>("TargetVersion").IsRowVersion();
+            }
+        }
     }
 }

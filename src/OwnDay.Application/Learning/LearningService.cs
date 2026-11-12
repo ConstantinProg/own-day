@@ -34,6 +34,12 @@ public interface ILessonTeacher
     Task<LessonMaterial> GenerateAsync(LessonRequest request, CancellationToken token);
     Task<LessonAssessment> AssessAsync(Lesson lesson, string answer, CancellationToken token);
     Task<LessonExplanation> ExplainAsync(Lesson lesson, string request, LessonInteractionKind kind, CancellationToken token);
+    // Legacy implementations remain source-compatible. Background execution requires
+    // these immutable contracts and safely rejects an adapter that does not support them.
+    Task<LessonAssessment> AssessAsync(Requests.LessonSnapshot lesson, string answer, CancellationToken token) =>
+        throw new LessonProviderException();
+    Task<LessonExplanation> ExplainAsync(Requests.LessonSnapshot lesson, string request, LessonInteractionKind kind, CancellationToken token) =>
+        throw new LessonProviderException();
 }
 
 public enum LessonProviderFailure

@@ -95,21 +95,31 @@ public sealed class StudyService(IStudyScheduleStore store, ILessonStore lessons
         var now = clock.GetUtcNow();
         if (schedule is null || !schedule.IsCurrent(invitation, now)) return null;
         CurriculumResult result;
+        Guid? selectedProgramId = null;
         if (await lessons.FindActiveAsync(user, token) is not null)
             result = new CurriculumResult.Lesson(await learning.ResumeAsync(user, token));
         else if (schedule.SkillId is { } skill)
             result = new CurriculumResult.Lesson(await learning.ReviewAsync(user, skill, token));
         else
         {
-            var selected = await curriculum.SelectAsync(user, schedule.ProgramId!.Value, token);
-            if (selected is not CurriculumResult.Program) return selected;
-            result = await curriculum.NextAsync(user, token);
+            // Do not change the selected program until the material has succeeded.
+            // Preparation and provider failure must leave the previous selection intact.
+            result = await curriculum.NextAsync(user, schedule.ProgramId!.Value, token);
+            if (result is CurriculumResult.ProgramNotFound) return result;
+            selectedProgramId = schedule.ProgramId;
         }
         token.ThrowIfCancellationRequested();
         // Provider failures leave the same invitation available for an explicit retry.
         if (result is not (CurriculumResult.ProviderUnavailable or
             CurriculumResult.Lesson { Value: LearningResult.ProviderUnavailable }))
+        {
+            if (selectedProgramId is { } programId)
+            {
+                var program = await programs.FindAsync(user, programId, token);
+                if (program is not null) await programs.SelectAsync(program, token);
+            }
             schedule.Resolve(invitation, false, now);
+        }
         return result;
     }
 

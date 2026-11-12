@@ -78,7 +78,7 @@ public sealed class EfInboxAutomaticProcessingStore(OwnDayDbContext db) : IInbox
         }
         var query = db.Database.IsNpgsql()
             ? db.Projects.FromSqlInterpolated($"""
-                SELECT * FROM projects WHERE id = ANY({ids}) AND user_id = {item.UserId.Value}
+                SELECT *, xmin FROM projects WHERE id = ANY({ids}) AND user_id = {item.UserId.Value}
                     AND status = {(int)ProjectStatus.Active} ORDER BY id FOR SHARE
                 """)
             : db.Projects.Where(p => ids.Contains(p.Id) && p.UserId == item.UserId && p.Status == ProjectStatus.Active);
@@ -186,8 +186,8 @@ public sealed class EfInboxAutomaticProcessingStore(OwnDayDbContext db) : IInbox
     {
         FormattableString sql = table switch
         {
-            "actions" => $"SELECT * FROM actions WHERE id = {id} AND user_id = {owner.Value} FOR UPDATE",
-            "projects" => $"SELECT * FROM projects WHERE id = {id} AND user_id = {owner.Value} FOR UPDATE",
+            "actions" => $"SELECT *, xmin FROM actions WHERE id = {id} AND user_id = {owner.Value} FOR UPDATE",
+            "projects" => $"SELECT *, xmin FROM projects WHERE id = {id} AND user_id = {owner.Value} FOR UPDATE",
             "someday_maybes" => $"SELECT * FROM someday_maybes WHERE id = {id} AND user_id = {owner.Value} FOR UPDATE",
             "references" => $"SELECT * FROM \"references\" WHERE id = {id} AND user_id = {owner.Value} FOR UPDATE",
             "waiting_fors" => $"SELECT * FROM waiting_fors WHERE id = {id} AND user_id = {owner.Value} FOR UPDATE",

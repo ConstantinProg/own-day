@@ -158,6 +158,14 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
 
     public Task<CurriculumResult> NextAsync(UserId user, CancellationToken token) => StartLessonAsync(user, LessonSelection.Next, null, token);
 
+    internal async Task<CurriculumResult> NextAsync(UserId user, Guid programId, CancellationToken token)
+    {
+        ValidateUser(user, token);
+        var program = await store.FindAsync(user, programId, token);
+        return program is null ? new CurriculumResult.ProgramNotFound()
+            : await StartLessonAsync(user, LessonSelection.Next, null, token, program);
+    }
+
     public Task<CurriculumResult> AdaptAsync(UserId user, CancellationToken token) => StartLessonAsync(user, LessonSelection.Adapt, null, token);
 
     public Task<CurriculumResult> FocusAsync(UserId user, string topicCode, CancellationToken token) => StartLessonAsync(user, LessonSelection.Focus, topicCode, token);
@@ -169,10 +177,11 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
         Focus
     }
 
-    private async Task<CurriculumResult> StartLessonAsync(UserId user, LessonSelection selection, string? focus, CancellationToken token)
+    private async Task<CurriculumResult> StartLessonAsync(UserId user, LessonSelection selection, string? focus, CancellationToken token,
+        LearningProgram? target = null)
     {
         ValidateUser(user, token);
-        var program = await store.FindAsync(user, token);
+        var program = target ?? await store.FindAsync(user, token);
         if (program is null) return new CurriculumResult.NoProgram();
         if (program.DiagnosticPending) return new CurriculumResult.Program(program);
         var active = await lessons.FindActiveAsync(user, token);

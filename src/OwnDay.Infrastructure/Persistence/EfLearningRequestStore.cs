@@ -51,9 +51,9 @@ public sealed class EfLearningRequestStore(OwnDayDbContext db) : ILearningReques
             throw new InvalidOperationException("An unfinished request already has an applied operation.");
 
         var execution = await execute(request, token);
-        var replies = execution.Result is null
+        var replies = execution.Replies ?? (execution.Result is null
             ? new[] { "The learning request could not be processed. Retry the original command; no answer was assessed." }
-            : TelegramLearningPresenter.Render(execution.Result);
+            : TelegramLearningPresenter.Render(execution.Result));
         var now = await db.Database.SqlQuery<DateTime>($"SELECT clock_timestamp() AS \"Value\"").SingleAsync(token);
         for (var ordinal = 0; ordinal < replies.Count; ordinal++)
         {
@@ -78,6 +78,32 @@ public sealed class EfLearningRequestStore(OwnDayDbContext db) : ILearningReques
             db.ChangeTracker.Clear();
             return false;
         }
+        await transaction.CommitAsync(token);
+        return true;
+    }
+
+    public async Task<bool> SaveStepAsync(LearningRequestLease lease, LearningProviderStep step,
+        TimeSpan renewal, CancellationToken token)
+    {
+        await using var transaction = await db.Database.BeginTransactionAsync(token);
+        await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock({lease.UserId.Value})", token);
+        var fenced = await db.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE learning_requests SET lease_until = clock_timestamp() + {renewal}
+            WHERE id = {lease.RequestId} AND user_id = {lease.UserId.Value} AND status = 2
+                AND lease_token = {lease.Token} AND attempt_count = {lease.Attempt} AND lease_until > clock_timestamp()
+            """, token);
+        if (fenced == 0) return false;
+        step.RequestId = lease.RequestId;
+        var existing = await db.Set<LearningProviderStep>().SingleOrDefaultAsync(s => s.RequestId == lease.RequestId && s.Ordinal == step.Ordinal, token);
+        if (existing is null) db.Add(step);
+        else
+        {
+            if (existing.Kind != step.Kind || existing.Version != step.Version || existing.Fingerprint != step.Fingerprint || existing.TargetStamp != step.TargetStamp)
+                throw new StaleLearningPreparationException();
+            existing.Result = step.Result;
+            existing.Failure = step.Failure;
+        }
+        await db.SaveChangesAsync(token);
         await transaction.CommitAsync(token);
         return true;
     }
