@@ -100,3 +100,42 @@ Lease renewal uses the current token, attempt and database-clock expiry. Public
 ingress remains synchronous and the hosted lane remains disabled by default.
 Unknown physical-attempt recovery/retries are the next gate before public cutover;
 this lane alone does not claim complete crash or cost accounting guarantees.
+
+## Physical attempts and recovery
+
+`AddLearningProviderAttempts` adds technical invocation identities linked to the
+concrete request/step. Admission commits before calling an adapter. Reclaim cannot
+start a replacement while an older invocation remains unresolved. A request with
+unknown outcome ends with an explicit, durable explanation and no pedagogical
+effect; the original input remains available. A late result can update its own
+attempt metadata, but cannot write a stale checkpoint or Domain state.
+
+`MaxProviderAttempts` defaults to two and is restricted to 1–3 per durable step.
+Only known transport/rate-limit failures retry, with a short bounded delay. Invalid
+response, unavailable configuration and permanent HTTP errors terminate without
+automatically growing the prompt/output budget. SDK retries remain disabled.
+Each real retry has a distinct ID; crash after response and before durable result
+can still incur another physical call. This is not a financial ledger or a claim
+of exactly-once provider billing; shared cost admission belongs to S2.
+
+Logical deadline cancellation stops waiting even if an adapter ignores its token.
+The physical task retains its scope and concurrency slot until it actually ends.
+While an unresponsive task remains, that Host refuses new provider admission;
+no-provider operations still work. Durable unfinished attempts protect reclaim
+after restart. Invocation reconciliation has an explicit independent five-second
+cleanup token and can update only technical metadata. Failed reconciliation leaves
+an honest unknown record, rather than inventing success or zero consumption.
+
+The same migration assigns existing outbox rows a delivery order preserving the
+previous `(created_at, id)` ordering, and introduces a PostgreSQL sequence. New
+reply ordinals receive sequence values before EF batches INSERTs. Delivery and
+backoff use that persisted order, independent of Host clocks and random GUIDs.
+Sequence gaps after rollback are valid. Private-chat/user transaction locks and
+one active deliverer remain the deployment contract; scale-out delivery claiming
+is not supplied by these changes.
+
+Deploy the additive schema before a compatible consumer. Drain any isolated
+accepted cohort with a compatible reader before rollback; retain checkpoint,
+attempt, dedup and effect markers. Public ingress is still disabled. Rehearse the
+outbox backfill on production-size data before deploying; no production migration,
+live bot call or live provider evaluation is claimed by local tests.

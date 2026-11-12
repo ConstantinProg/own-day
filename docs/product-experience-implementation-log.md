@@ -169,3 +169,48 @@ reported reasons. The follow-up Release build passes with zero warnings/errors.
 Follow-up validation: 63 focused integration tests (provider matrix, worker, Learning
 and Study) and all 722 unit tests passed; diff checks passed. Re-review of the final
 fence and bounded history found no remaining P0/P1 or actionable P2. S1.3 is complete.
+
+## S1.4 — physical attempts, failure recovery and delivery ordering
+
+The consumer commits a technical attempt ID before each physical invocation.
+Unfinished attempts prevent replacement on reclaim; late outcomes can reconcile
+only invocation metadata. Logical deadlines finish with an explicit unknown-outcome
+reply while an unresponsive task retains its scope/physical slot. The Host stops
+provider admission until the task really completes. Reconciliation uses a separate,
+bounded five-second technical cleanup token. No tracked Domain state is retained.
+
+Known transient failures have at most `MaxProviderAttempts` (default 2, range 1–3)
+physical calls per step. Auth/configuration, schema/refusal and other permanent
+failures do not retry. SDK retries stay disabled. The generator's retries do not
+repeat a saved teaching-plan result. This prepares identity for the shared ledger;
+it is not an additional Learning cost ledger and makes no billing guarantee.
+
+The additive migration creates invocation metadata/constraints, step constraints
+and an active-head index. It backfills outbox order using the old `(created_at,id)`
+policy, then supplies a database sequence for new messages. Reply order is allocated
+before EF batches INSERTs and used for delivery/backoff. Rollback gaps are valid.
+One active deliverer and private-chat/user lock ordering remain required.
+
+Validation on isolated PostgreSQL 18:
+
+- Both initial reclaim/ignored-cancellation tests failed before production changes.
+- The clock-regression delivery test failed with reversed messages before the fix.
+- Crash tests cover attempt admission commit failure, result commit failure (a new
+  paid attempt is allowed), and apply commit failure (saved result reused on restart).
+  Existing tests cover receipt/claim, stale ownership, duplicate apply and HTTP token
+  independence. Each attempt has a unique durable ID before invocation.
+- Known transient retries create distinct IDs; invalid response/permanent HTTP error
+  do not retry. Unknown invocation closes admission until physical completion, with
+  no late Domain effects. Populated legacy outbox upgrade preserves existing order
+  and allocates later sequence values after a new context is created.
+- A crash-test expectation of one message was corrected: the existing lesson presenter
+  creates two intents (material and question). The test now verifies exactly ordinals
+  0 and 1 for one request, rather than changing product behavior to match the test.
+- Restore and Release build passed, zero warnings/errors; model/snapshot matches.
+- Full regression: 562 integration tests passed, one opt-in live smoke skipped;
+  728 unit tests passed. `git diff --check` passed.
+
+No production deployment, live provider or bot test ran. Rehearse the outbox backfill
+on production-size data before deployment. Public ingress remains disabled. Drain
+accepted test/cohort work with a compatible reader before rollback; retain schema
+and markers. Post-commit review follows before advancing to ingress cutover.

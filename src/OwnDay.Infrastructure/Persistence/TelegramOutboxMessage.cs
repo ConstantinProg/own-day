@@ -5,6 +5,7 @@ public sealed class TelegramOutboxMessage
     public Guid Id { get; init; }
 
     public long ChatId { get; init; }
+    public long DeliveryOrder { get; set; }
 
     public string Text { get; init; } = string.Empty;
     public string? ReplyMarkupJson { get; init; }

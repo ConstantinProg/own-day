@@ -332,15 +332,21 @@ public sealed class OpenAILessonTeacherTests
         Assert.DoesNotContain(logger.Messages, m => m.Contains("private topic", StringComparison.Ordinal) || m.Contains("not-json", StringComparison.Ordinal));
     }
 
-    [Fact]
-    public async Task GenerateAsync_HttpFailure_LogsStatusWithoutResponseBody()
+    [Theory]
+    [InlineData(HttpStatusCode.Unauthorized, LessonProviderFailure.PermanentHttpError)]
+    [InlineData(HttpStatusCode.Forbidden, LessonProviderFailure.PermanentHttpError)]
+    [InlineData(HttpStatusCode.BadRequest, LessonProviderFailure.PermanentHttpError)]
+    [InlineData(HttpStatusCode.RequestTimeout, LessonProviderFailure.HttpError)]
+    [InlineData(HttpStatusCode.TooManyRequests, LessonProviderFailure.HttpError)]
+    [InlineData(HttpStatusCode.ServiceUnavailable, LessonProviderFailure.HttpError)]
+    public async Task GenerateAsync_HttpFailure_ClassifiesRetryEligibilityAndLogsStatusWithoutResponseBody(HttpStatusCode status, LessonProviderFailure reason)
     {
-        using var handler = new ResponseHandler("private provider error", HttpStatusCode.Unauthorized);
+        using var handler = new ResponseHandler("private provider error", status);
         using var http = new HttpClient(handler);
         var logger = new RecordingLogger();
         var error = await Assert.ThrowsAsync<LessonProviderException>(() => Teacher(http, logger).GenerateAsync(new LessonRequest("topic"), CancellationToken.None));
-        Assert.Equal(LessonProviderFailure.HttpError, error.Reason);
-        Assert.Contains(logger.Messages, m => m.Contains("401", StringComparison.Ordinal));
+        Assert.Equal(reason, error.Reason);
+        Assert.Contains(logger.Messages, m => m.Contains(((int)status).ToString(System.Globalization.CultureInfo.InvariantCulture), StringComparison.Ordinal));
         Assert.DoesNotContain(logger.Messages, m => m.Contains("private provider error", StringComparison.Ordinal));
     }
 

@@ -42,16 +42,19 @@ public sealed class TelegramOutboxDeliveryService
     public async Task<BatchProcessingResult> DeliverBatchAsync(CancellationToken cancellationToken)
     {
         var now = _timeProvider.GetUtcNow().UtcDateTime;
-        var messages = await _dbContext.TelegramOutboxMessages
+        var persistedOrder = _dbContext.Database.IsNpgsql();
+        var query = _dbContext.TelegramOutboxMessages
             .Where(message => message.Status == OutboxMessageStatus.Pending &&
                               message.NextAttemptAt <= now &&
                               !_dbContext.TelegramOutboxMessages.Any(pending =>
                                   pending.ChatId == message.ChatId && pending.Status == OutboxMessageStatus.Pending &&
                                   pending.NextAttemptAt > now &&
-                                  (pending.CreatedAt < message.CreatedAt ||
-                                   pending.CreatedAt == message.CreatedAt && pending.Id.CompareTo(message.Id) < 0)))
-            .OrderBy(message => message.CreatedAt)
-            .ThenBy(message => message.Id)
+                                  (persistedOrder ? pending.DeliveryOrder < message.DeliveryOrder :
+                                      pending.CreatedAt < message.CreatedAt ||
+                                      pending.CreatedAt == message.CreatedAt && pending.Id.CompareTo(message.Id) < 0)));
+        var ordered = persistedOrder ? query.OrderBy(message => message.DeliveryOrder)
+            : query.OrderBy(message => message.CreatedAt).ThenBy(message => message.Id);
+        var messages = await ordered
             .Take(BatchSize)
             .ToListAsync(cancellationToken);
 

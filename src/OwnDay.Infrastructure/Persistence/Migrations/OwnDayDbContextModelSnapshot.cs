@@ -1516,6 +1516,41 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
                 .ValueGeneratedOnAddOrUpdate().HasColumnType("xid").HasColumnName("xmin"));
         }
 
+        modelBuilder.Entity("OwnDay.Application.Learning.Requests.LearningProviderAttempt", b =>
+            {
+                b.Property<Guid>("Id").HasColumnType("uuid").HasColumnName("id");
+                b.Property<Guid>("RequestId").HasColumnType("uuid").HasColumnName("request_id");
+                b.Property<int>("Ordinal").HasColumnType("integer").HasColumnName("ordinal");
+                b.Property<int>("Number").HasColumnType("integer").HasColumnName("number");
+                b.Property<Guid>("LeaseToken").HasColumnType("uuid").HasColumnName("lease_token");
+                b.Property<DateTime>("StartedAt").HasColumnType("timestamp with time zone").HasColumnName("started_at");
+                b.Property<DateTime?>("FinishedAt").HasColumnType("timestamp with time zone").HasColumnName("finished_at");
+                b.Property<string>("Outcome").HasMaxLength(50).HasColumnType("character varying(50)").HasColumnName("outcome");
+                b.HasKey("Id");
+                b.HasIndex("RequestId", "Ordinal", "Number").IsUnique();
+                b.ToTable("learning_provider_attempts", null, t => t.HasCheckConstraint("CK_learning_provider_attempts_state",
+                    "number BETWEEN 1 AND 3 AND ((finished_at IS NULL AND outcome IS NULL) OR (finished_at IS NOT NULL AND outcome IS NOT NULL))"));
+                b.HasOne("OwnDay.Application.Learning.Requests.LearningProviderStep", null).WithMany()
+                    .HasForeignKey("RequestId", "Ordinal").OnDelete(DeleteBehavior.Restrict).IsRequired();
+            });
+
+        modelBuilder.HasSequence<long>("telegram_outbox_delivery_order_seq");
+        modelBuilder.Entity("OwnDay.Infrastructure.Persistence.TelegramOutboxMessage", b =>
+            {
+                b.Property<long>("DeliveryOrder").ValueGeneratedOnAdd().HasColumnType("bigint").HasColumnName("delivery_order")
+                    .HasDefaultValueSql("nextval('telegram_outbox_delivery_order_seq')");
+                b.HasIndex("DeliveryOrder").IsUnique();
+            });
+
+        modelBuilder.Entity("OwnDay.Application.Learning.Requests.LearningRequest", b =>
+            b.HasIndex("ReceivedAt", "UserId", "Sequence").HasDatabaseName("IX_learning_requests_active_head").HasFilter("status IN (1, 2)"));
+        modelBuilder.Entity("OwnDay.Application.Learning.Requests.LearningProviderStep", b =>
+            b.ToTable("learning_provider_steps", null, t =>
+            {
+                t.HasCheckConstraint("CK_learning_provider_steps_identity", "ordinal BETWEEN 0 AND 1 AND version > 0");
+                t.HasCheckConstraint("CK_learning_provider_steps_result", "result IS NULL OR failure IS NULL");
+            }));
+
 #pragma warning restore 612, 618
     }
 }

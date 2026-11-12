@@ -47,7 +47,8 @@ public enum LessonProviderFailure
     Unavailable,
     HttpError,
     InvalidResponse,
-    Timeout
+    Timeout,
+    PermanentHttpError
 }
 
 public sealed class LessonProviderException(LessonProviderFailure reason = LessonProviderFailure.Unavailable) : Exception

@@ -8,6 +8,7 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -332,18 +333,24 @@ public sealed partial class PostgresLearningProviderTests : IAsyncLifetime
 
     private OwnDayDbContext Open() => new(new DbContextOptionsBuilder<OwnDayDbContext>().UseNpgsql(_connection).Options);
 
-    private WebApplicationFactory<Program> Host(Probe probe, bool worker, bool source = false) => new OwnDayHostFactory().WithWebHostBuilder(builder =>
+    private WebApplicationFactory<Program> Host(Probe probe, bool worker, bool source = false,
+        Action<LearningRequestProcessingOptions>? configure = null, IInterceptor? interceptor = null) => new OwnDayHostFactory().WithWebHostBuilder(builder =>
         builder.ConfigureServices(services =>
         {
             services.RemoveAll<DbContextOptions<OwnDayDbContext>>();
             services.RemoveAll<IDbContextOptionsConfiguration<OwnDayDbContext>>();
-            services.AddDbContext<OwnDayDbContext>(options => options.UseNpgsql(_connection));
+            services.AddDbContext<OwnDayDbContext>(options =>
+            {
+                options.UseNpgsql(_connection);
+                if (interceptor is not null) options.AddInterceptors(interceptor);
+            });
             services.Replace(ServiceDescriptor.Singleton<TimeProvider>(new Clock()));
             services.Replace(ServiceDescriptor.Scoped<ILessonTeacher>(provider => new Provider(probe, provider.GetRequiredService<OwnDayDbContext>(), source)));
             services.Replace(ServiceDescriptor.Scoped<ICurriculumPlanner>(provider => new Provider(probe, provider.GetRequiredService<OwnDayDbContext>())));
             services.Replace(ServiceDescriptor.Scoped<ITeachingPlanner>(provider => new Provider(probe, provider.GetRequiredService<OwnDayDbContext>())));
             services.Replace(ServiceDescriptor.Scoped<ITelegramUpdateHandler, TestIngress>());
             services.Configure<LearningRequestProcessingOptions>(options => { options.Enabled = worker; options.PollMilliseconds = 20; });
+            if (configure is not null) services.Configure(configure);
             if (worker) services.AddHostedService<LearningRequestWorker>();
         }));
 
@@ -352,6 +359,10 @@ public sealed partial class PostgresLearningProviderTests : IAsyncLifetime
     {
         public string BlockedKind { get; } = blockedKind;
         public string? FailureKind { get; init; }
+        public int FailureCount { get; init; } = int.MaxValue;
+        public LessonProviderFailure FailureReason { get; init; } = LessonProviderFailure.HttpError;
+        public System.Collections.Concurrent.ConcurrentDictionary<string, int> KindCalls { get; } = new();
+        public bool IgnoreCancellation { get; init; }
         public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public int Calls;
@@ -365,12 +376,14 @@ public sealed partial class PostgresLearningProviderTests : IAsyncLifetime
             Assert.Empty(db.ChangeTracker.Entries());
             Assert.Equal(ConnectionState.Closed, db.Database.GetDbConnection().State);
             Interlocked.Increment(ref probe.Calls);
+            var kindCall = probe.KindCalls.AddOrUpdate(kind, 1, (_, count) => count + 1);
             if (kind == probe.BlockedKind)
             {
                 probe.Started.TrySetResult();
-                await probe.Release.Task.WaitAsync(token);
+                if (probe.IgnoreCancellation) await probe.Release.Task;
+                else await probe.Release.Task.WaitAsync(token);
             }
-            if (kind == probe.FailureKind) throw new LessonProviderException(LessonProviderFailure.HttpError);
+            if (kind == probe.FailureKind && kindCall <= probe.FailureCount) throw new LessonProviderException(probe.FailureReason);
         }
         public async Task<LessonMaterial> GenerateAsync(LessonRequest request, CancellationToken token)
         {

@@ -22,12 +22,14 @@ public static class TelegramServiceCollectionExtensions
             .BindConfiguration("Learning:Processing")
             .Validate(settings => settings.Parallelism is >= 1 and <= 8 && settings.PollMilliseconds is >= 20 and <= 60000 &&
                 settings.LeaseSeconds is >= 1 and <= 300 && settings.MaxAttempts is >= 1 and <= 5 &&
-                settings.ProviderTimeoutSeconds is >= 1 and <= 120,
+                settings.ProviderTimeoutSeconds is >= 1 and <= 120 && settings.MaxProviderAttempts is >= 1 and <= 3,
                 "Learning processing requires finite concurrency, poll, lease and attempt limits.")
             .ValidateOnStart();
         services.AddScoped<OwnDay.Infrastructure.Persistence.EfLearningRequestStore>();
         services.AddScoped<OwnDay.Application.Learning.Requests.ILearningRequestStore>(provider => provider.GetRequiredService<OwnDay.Infrastructure.Persistence.EfLearningRequestStore>());
         services.AddScoped<OwnDay.Application.Learning.Requests.ILearningRequestRunner, OwnDay.Infrastructure.Learning.LearningRequestRunner>();
+        services.AddSingleton<OwnDay.Infrastructure.Learning.LearningProviderCallGate>();
+        services.AddSingleton<OwnDay.Infrastructure.Learning.LearningProviderExecutor>();
         services.AddScoped<OwnDay.Application.Learning.Requests.LearningRequestProcessor>();
         services.AddHostedService<OwnDay.Infrastructure.Learning.LearningRequestWorker>();
         services.AddScoped<TelegramOutboxDeliveryService>();

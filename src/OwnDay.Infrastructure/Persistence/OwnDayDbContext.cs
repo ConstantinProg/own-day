@@ -39,8 +39,30 @@ public sealed class OwnDayDbContext(DbContextOptions<OwnDayDbContext> options)
     public DbSet<TelegramOutboxMessage> TelegramOutboxMessages =>
         Set<TelegramOutboxMessage>();
 
+    public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) =>
+        SaveChangesAsync(true, cancellationToken);
+
+    public override async Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
+    {
+        if (Database.IsNpgsql())
+        {
+            // Allocate in reply order before EF orders/batches INSERTs by entity key.
+            // The caller's user transaction lock serializes writers for the chat;
+            // the database sequence makes ordering independent of Host clocks/Guids.
+            var replies = ChangeTracker.Entries<TelegramOutboxMessage>()
+                .Where(entry => entry.State == EntityState.Added && entry.Entity.DeliveryOrder == 0)
+                .Select(entry => entry.Entity).OrderBy(message => message.CreatedAt)
+                .ThenBy(message => message.ReplyOrdinal).ThenBy(message => message.Id).ToArray();
+            foreach (var reply in replies)
+                reply.DeliveryOrder = await Database.SqlQuery<long>($"SELECT nextval('telegram_outbox_delivery_order_seq') AS \"Value\"")
+                    .SingleAsync(cancellationToken);
+        }
+        return await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+    }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        if (Database.IsNpgsql()) modelBuilder.HasSequence<long>("telegram_outbox_delivery_order_seq");
         CurriculumModel.Configure(modelBuilder);
         KnowledgeModel.Configure(modelBuilder);
         StudyModel.Configure(modelBuilder);
@@ -274,6 +296,10 @@ public sealed class OwnDayDbContext(DbContextOptions<OwnDayDbContext> options)
             entity.HasKey(message => message.Id);
             entity.Property(message => message.Id).HasColumnName("id");
             entity.Property(message => message.ChatId).HasColumnName("chat_id");
+            var deliveryOrder = entity.Property(message => message.DeliveryOrder).HasColumnName("delivery_order");
+            if (Database.IsNpgsql()) deliveryOrder.HasDefaultValueSql("nextval('telegram_outbox_delivery_order_seq')");
+            else deliveryOrder.HasDefaultValue(0L);
+            entity.HasIndex(message => message.DeliveryOrder).IsUnique(Database.IsNpgsql());
             entity.Property(message => message.Text).HasColumnName("text");
             entity.Property(message => message.ReplyMarkupJson).HasColumnName("reply_markup_json");
             entity.Property(message => message.StudyInvitationId).HasColumnName("study_invitation_id");

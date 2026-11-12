@@ -40,6 +40,8 @@ internal static class LearningRequestModel
             entity.Property(request => request.LeaseUntil).HasColumnName("lease_until");
             entity.HasIndex(request => request.SourceKey).IsUnique();
             entity.HasIndex(request => new { request.UserId, request.Sequence }).IsUnique();
+            entity.HasIndex(request => new { request.ReceivedAt, request.UserId, request.Sequence })
+                .HasFilter("status IN (1, 2)").HasDatabaseName("IX_learning_requests_active_head");
         });
         modelBuilder.Entity<LearningAppliedOperation>(entity =>
         {
@@ -52,7 +54,11 @@ internal static class LearningRequestModel
         });
         modelBuilder.Entity<LearningProviderStep>(entity =>
         {
-            entity.ToTable("learning_provider_steps");
+            entity.ToTable("learning_provider_steps", table =>
+            {
+                table.HasCheckConstraint("CK_learning_provider_steps_identity", "ordinal BETWEEN 0 AND 1 AND version > 0");
+                table.HasCheckConstraint("CK_learning_provider_steps_result", "result IS NULL OR failure IS NULL");
+            });
             entity.HasKey(step => new { step.RequestId, step.Ordinal });
             entity.Property(step => step.RequestId).HasColumnName("request_id");
             entity.Property(step => step.Ordinal).HasColumnName("ordinal");
@@ -65,6 +71,22 @@ internal static class LearningRequestModel
             entity.Property(step => step.Result).HasColumnName("result");
             entity.Property(step => step.Failure).HasColumnName("failure");
             entity.HasOne<LearningRequest>().WithMany().HasForeignKey(step => step.RequestId).OnDelete(DeleteBehavior.Restrict);
+        });
+        modelBuilder.Entity<LearningProviderAttempt>(entity =>
+        {
+            entity.ToTable("learning_provider_attempts", table => table.HasCheckConstraint("CK_learning_provider_attempts_state",
+                "number BETWEEN 1 AND 3 AND ((finished_at IS NULL AND outcome IS NULL) OR (finished_at IS NOT NULL AND outcome IS NOT NULL))"));
+            entity.HasKey(attempt => attempt.Id);
+            entity.Property(attempt => attempt.Id).ValueGeneratedNever().HasColumnName("id");
+            entity.Property(attempt => attempt.RequestId).HasColumnName("request_id");
+            entity.Property(attempt => attempt.Ordinal).HasColumnName("ordinal");
+            entity.Property(attempt => attempt.Number).HasColumnName("number");
+            entity.Property(attempt => attempt.LeaseToken).HasColumnName("lease_token");
+            entity.Property(attempt => attempt.StartedAt).HasColumnName("started_at");
+            entity.Property(attempt => attempt.FinishedAt).HasColumnName("finished_at");
+            entity.Property(attempt => attempt.Outcome).HasMaxLength(50).HasColumnName("outcome");
+            entity.HasIndex(attempt => new { attempt.RequestId, attempt.Ordinal, attempt.Number }).IsUnique();
+            entity.HasOne<LearningProviderStep>().WithMany().HasForeignKey(attempt => new { attempt.RequestId, attempt.Ordinal }).OnDelete(DeleteBehavior.Restrict);
         });
     }
 }

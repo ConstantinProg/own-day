@@ -6,6 +6,46 @@ namespace OwnDay.Infrastructure.Persistence;
 
 public sealed class EfLearningRequestStore(OwnDayDbContext db) : ILearningRequestStore
 {
+    public sealed record AttemptAdmission(Guid? Id, bool Unknown, bool OwnershipLost);
+
+    public async Task<AttemptAdmission> BeginAttemptAsync(LearningRequestLease lease, int ordinal, int maxAttempts,
+        TimeSpan renewal, CancellationToken token)
+    {
+        await using var transaction = await db.Database.BeginTransactionAsync(token);
+        await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock({lease.UserId.Value})", token);
+        var fenced = await db.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE learning_requests SET lease_until = clock_timestamp() + {renewal}
+            WHERE id = {lease.RequestId} AND user_id = {lease.UserId.Value} AND status = 2
+                AND lease_token = {lease.Token} AND attempt_count = {lease.Attempt} AND lease_until > clock_timestamp()
+            """, token);
+        if (fenced == 0) return new(null, false, true);
+        var attempts = await db.Set<LearningProviderAttempt>().Where(a => a.RequestId == lease.RequestId && a.Ordinal == ordinal)
+            .OrderBy(a => a.Number).ToListAsync(token);
+        if (attempts.Any(a => a.FinishedAt is null || a.Outcome == "unexpected_failure")) return new(null, true, false);
+        if (attempts.Count >= maxAttempts || attempts.LastOrDefault()?.Outcome == "permanent_failure") return new(null, false, false);
+        var now = await db.Database.SqlQuery<DateTime>($"SELECT clock_timestamp() AS \"Value\"").SingleAsync(token);
+        var attempt = new LearningProviderAttempt
+        {
+            RequestId = lease.RequestId, Ordinal = ordinal, Number = attempts.Count + 1,
+            LeaseToken = lease.Token, StartedAt = now
+        };
+        db.Add(attempt);
+        await db.SaveChangesAsync(token);
+        var stillOwned = await db.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE learning_requests SET lease_token = lease_token WHERE id = {lease.RequestId}
+                AND lease_token = {lease.Token} AND lease_until > clock_timestamp() AND status = 2
+            """, token);
+        if (stillOwned == 0) return new(null, false, true);
+        await transaction.CommitAsync(token);
+        return new(attempt.Id, false, false);
+    }
+
+    public Task<int> FinishAttemptAsync(Guid id, string outcome, CancellationToken token) =>
+        db.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE learning_provider_attempts SET finished_at = clock_timestamp(), outcome = {outcome}
+            WHERE id = {id} AND finished_at IS NULL
+            """, token);
+
     public async Task<LearningRequestLease?> ClaimAsync(TimeSpan lease, CancellationToken token)
     {
         if (lease <= TimeSpan.Zero || lease > TimeSpan.FromMinutes(5)) throw new ArgumentOutOfRangeException(nameof(lease));

@@ -14,7 +14,8 @@ using OwnDay.Infrastructure.Telegram.Commands;
 
 namespace OwnDay.Infrastructure.Learning;
 
-public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<LearningRequestProcessingOptions> options)
+public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<LearningRequestProcessingOptions> options,
+    LearningProviderExecutor provider)
     : ILearningRequestRunner
 {
     public async Task<bool> RunAsync(LearningRequestLease lease, int maxAttempts, CancellationToken token)
@@ -63,19 +64,19 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
                 if (!await scope.ServiceProvider.GetRequiredService<EfLearningRequestStore>().SaveStepAsync(
                     lease, pending, TimeSpan.FromSeconds(options.Value.LeaseSeconds), token)) return false;
             }
-            // This scope contains only the adapter's services. No entity/DbContext
-            // from prepare is retained, and no dedicated DB connection is open.
-            await using (var scope = scopes.CreateAsyncScope())
+            var execution = await provider.ExecuteAsync(lease, pending, token);
+            if (execution.OwnershipLost) return false;
+            if (execution.Unknown)
             {
-                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
-                timeout.CancelAfter(TimeSpan.FromSeconds(options.Value.ProviderTimeoutSeconds));
-                try { pending.Result = await ExecuteProviderAsync(scope.ServiceProvider, pending, timeout.Token); }
-                catch (LessonProviderException failure) { pending.Failure = failure.Reason; }
-                catch (OperationCanceledException) when (!token.IsCancellationRequested)
-                {
-                    pending.Failure = LessonProviderFailure.Timeout;
-                }
+                await using var scope = scopes.CreateAsyncScope();
+                return await scope.ServiceProvider.GetRequiredService<ILearningRequestStore>().ApplyAsync(lease,
+                    (_, _) => Task.FromResult(new LearningRequestExecution(null, "provider_outcome_unknown")
+                    {
+                        Replies = ["The provider outcome is unknown. No result was applied or answer assessed. Check the current lesson before explicitly retrying the original command."]
+                    }), token);
             }
+            pending.Result = execution.Result;
+            pending.Failure = execution.Failure;
             token.ThrowIfCancellationRequested();
             await using (var scope = scopes.CreateAsyncScope())
             {
@@ -97,33 +98,6 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
         var study = new StudyService(services.GetRequiredService<IStudyScheduleStore>(), lessons, programs,
             services.GetRequiredService<IKnowledgeStore>(), learning, curriculum, services.GetRequiredService<TimeProvider>());
         return new(learning, new(curriculum), new(knowledge, learning), new(study));
-    }
-
-    private static async Task<string> ExecuteProviderAsync(IServiceProvider services, LearningProviderStep step, CancellationToken token)
-    {
-        object result;
-        switch (step.Kind)
-        {
-            case "generate":
-                result = await services.GetRequiredService<ILessonTeacher>().GenerateAsync(step.ReadInput<LessonRequest>(), token);
-                break;
-            case "assess":
-                var assessment = step.ReadInput<LessonAssessmentInput>();
-                result = await services.GetRequiredService<ILessonTeacher>().AssessAsync(assessment.Lesson, assessment.Answer, token);
-                break;
-            case "explain":
-                var explanation = step.ReadInput<LessonExplanationInput>();
-                result = await services.GetRequiredService<ILessonTeacher>().ExplainAsync(explanation.Lesson, explanation.Request, explanation.Kind, token);
-                break;
-            case "plan":
-                result = await services.GetRequiredService<ICurriculumPlanner>().PlanAsync(step.ReadInput<CurriculumRequest>(), token);
-                break;
-            case "teach":
-                result = await services.GetRequiredService<ITeachingPlanner>().ProposeAsync(step.ReadInput<TeachingInput>().ToRequest(), token);
-                break;
-            default: throw new InvalidOperationException("Unsupported Learning provider step.");
-        }
-        return JsonSerializer.Serialize(result, JsonSerializerOptions.Web);
     }
 
     private static string TargetStamp(OwnDayDbContext db)

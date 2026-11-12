@@ -123,6 +123,7 @@ public sealed class OpenAILessonTeacher(Func<ChatClient> createClient, IOptions<
             {
                 JsonException => LessonProviderFailure.InvalidResponse,
                 OperationCanceledException => LessonProviderFailure.Timeout,
+                ClientResultException { Status: >= 400 and < 500 and not 408 and not 429 } => LessonProviderFailure.PermanentHttpError,
                 _ => LessonProviderFailure.HttpError
             };
             LogFailure(reason, (exception as ClientResultException)?.Status, stopwatch.ElapsedMilliseconds);
