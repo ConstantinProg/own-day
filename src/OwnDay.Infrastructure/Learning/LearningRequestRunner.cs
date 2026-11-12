@@ -11,6 +11,9 @@ using OwnDay.Application.Learning.Requests;
 using OwnDay.Application.StructuredItems;
 using OwnDay.Infrastructure.Persistence;
 using OwnDay.Infrastructure.Telegram.Commands;
+using OwnDay.Application.Dialogue;
+using OwnDay.Domain.Dialogue;
+using OwnDay.Domain.Learning;
 
 namespace OwnDay.Infrastructure.Learning;
 
@@ -37,6 +40,9 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
                 return await services.GetRequiredService<ILearningRequestStore>().ApplyAsync(lease, async (request, cancellationToken) =>
                 {
                     if (request.AttemptCount > maxAttempts) return new(null, "attempts_exhausted");
+                    if (request.PayloadKind == "learning_text" && request.PayloadVersion == 1 ||
+                        request.PayloadKind == "learning_command" && request.PayloadVersion == 3)
+                        return await ExecuteDialogueAsync(services, db, request, session, handler, cancellationToken);
                     if (request.PayloadKind != "learning_command" || request.PayloadVersion is not (1 or 2)) return new(null, "unsupported_payload");
                     LearningCommandInput? input;
                     try { input = JsonSerializer.Deserialize<LearningCommandInput>(request.NormalizedInput, JsonSerializerOptions.Web); }
@@ -62,10 +68,14 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
             {
                 await using var scope = scopes.CreateAsyncScope();
                 return await scope.ServiceProvider.GetRequiredService<ILearningRequestStore>().ApplyAsync(lease,
-                    (_, _) => Task.FromResult(new LearningRequestExecution(null, "stale_target")
+                    async (request, cancellationToken) =>
                     {
-                        Replies = ["Learning context changed while the request was being processed. No result was applied. Check the current lesson or repeat the original command."]
-                    }), token);
+                        await SynchronizeTerminalDialogueAsync(scope.ServiceProvider, request, cancellationToken);
+                        return new LearningRequestExecution(null, "stale_target")
+                        {
+                            Replies = ["Learning context changed while the request was being processed. No result was applied. Check the current lesson or repeat the original command."]
+                        };
+                    }, token);
             }
 
             await using (var scope = scopes.CreateAsyncScope())
@@ -79,10 +89,14 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
             {
                 await using var scope = scopes.CreateAsyncScope();
                 return await scope.ServiceProvider.GetRequiredService<ILearningRequestStore>().ApplyAsync(lease,
-                    (_, _) => Task.FromResult(new LearningRequestExecution(null, "provider_outcome_unknown")
+                    async (request, cancellationToken) =>
                     {
-                        Replies = ["The provider outcome is unknown. No result was applied or answer assessed. Check the current lesson before explicitly retrying the original command."]
-                    }), token);
+                        await SynchronizeTerminalDialogueAsync(scope.ServiceProvider, request, cancellationToken);
+                        return new LearningRequestExecution(null, "provider_outcome_unknown")
+                        {
+                            Replies = ["The provider outcome is unknown. No result was applied or answer assessed. Check the current lesson before explicitly retrying the original command."]
+                        };
+                    }, token);
             }
             pending.Result = execution.Result;
             pending.Failure = execution.Failure;
@@ -109,12 +123,93 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
         return new(learning, new(curriculum), new(knowledge, learning), new(study));
     }
 
-    private static string TargetStamp(OwnDayDbContext db)
+    private static async Task<LearningRequestExecution> ExecuteDialogueAsync(IServiceProvider services, OwnDayDbContext db,
+        LearningRequest request, LearningProviderSession session, TelegramLearningCommandHandler handler, CancellationToken token)
+    {
+        LearningCommandInput? command = null;
+        LearningTextInput? text = null;
+        try
+        {
+            if (request.PayloadKind == "learning_command") command = JsonSerializer.Deserialize<LearningCommandInput>(request.NormalizedInput, JsonSerializerOptions.Web);
+            else text = JsonSerializer.Deserialize<LearningTextInput>(request.NormalizedInput, JsonSerializerOptions.Web);
+        }
+        catch (JsonException) { return new(null, "unsupported_payload"); }
+        if (command is null && (text?.Text is null || text.Text.Length is < 1 or > 3000) ||
+            command is not null && (command.Arguments is null || command.Arguments.Length > 4000 ||
+                !handler.Handles(command.Name) && command.Name != "cancel")) return new(null, "unsupported_payload");
+        var lesson = await services.GetRequiredService<ILessonStore>().FindActiveAsync(request.UserId, token);
+        var store = services.GetRequiredService<IDialogueStore>();
+        var program = await store.ReadProgramAsync(request.UserId, token);
+        var now = new DateTimeOffset(await db.Database.SqlQuery<DateTime>($"SELECT clock_timestamp() AS \"Value\"").SingleAsync(token));
+        var pedagogicalStamp = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
+            TargetStamp(db, includeDialogue: false) + JsonSerializer.Serialize(program, JsonSerializerOptions.Web))));
+        var turn = new DialogueTurn(request.Id, request.UserId, command is null ? null : CommandKind(command.Name),
+            command?.Arguments ?? text!.Text, command?.LessonId ?? text?.LessonId, command?.PromptId ?? text?.PromptId,
+            new DateTimeOffset(request.ReceivedAt), now, lesson is null ? null : db.Entry(lesson).Property<uint>("TargetVersion").OriginalValue,
+            request.SourceMessageId ?? request.SourceUpdateId);
+        var decision = await new LearningDialogueService(store, session).DecideAsync(turn, lesson, program, pedagogicalStamp, token);
+        var introduce = db.Entry(decision.Context).State == EntityState.Added;
+        var audit = decision.Audit is null ? null : JsonSerializer.Serialize(decision.Audit, JsonSerializerOptions.Web);
+        if (decision.Execute is not { } operation)
+        {
+            session.EnsureComplete();
+            return new(null, decision.Audit?.Code ?? "dialogue_reply")
+                { Replies = Introduce(introduce, TelegramDialoguePresenter.Render(decision.Reply ?? new(DialogueReplyKind.Unavailable))), DialogueOutcomeJson = audit };
+        }
+        var name = operation == DialogueOperationKind.None ? command!.Name : CommandName(operation);
+        var replies = await handler.HandleAsync(new(name, decision.Arguments, request.UserId), token);
+        session.EnsureComplete();
+        var active = db.Set<Lesson>().Local.SingleOrDefault(value => value.UserId == request.UserId &&
+            value.Status is LessonStatus.AwaitingAnswer or LessonStatus.Paused);
+        decision.Context.Synchronize(active, now, turn.SourceOrder);
+        return new(null, decision.Audit?.Code ?? "reply_committed") { Replies = Introduce(introduce, replies), DialogueOutcomeJson = audit };
+    }
+
+    private static IReadOnlyList<string> Introduce(bool introduce, IReadOnlyList<string> replies) => introduce
+        ? [TelegramDialoguePresenter.Introduction, .. replies] : replies;
+
+    private static DialogueOperationKind CommandKind(string name) => name switch
+    {
+        "answer" => DialogueOperationKind.Answer, "learn_ask" => DialogueOperationKind.Clarify,
+        "learn_explain" => DialogueOperationKind.Explain, "learn_pause" => DialogueOperationKind.Pause,
+        "learn_resume" => DialogueOperationKind.Resume, "learn_finish" => DialogueOperationKind.Finish,
+        "learn_next" => DialogueOperationKind.Next, "learn_progress" => DialogueOperationKind.Progress,
+        "learn_request" or "learn_program" => DialogueOperationKind.CreateProgram,
+        "learn_project" => DialogueOperationKind.CreateProjectProgram, "learn_select" => DialogueOperationKind.SelectProgram,
+        "learn_confirm" => DialogueOperationKind.Confirm, "cancel" => DialogueOperationKind.Cancel,
+        _ => DialogueOperationKind.None
+    };
+    private static string CommandName(DialogueOperationKind operation) => operation switch
+    {
+        DialogueOperationKind.Answer => "answer", DialogueOperationKind.Clarify => "learn_ask",
+        DialogueOperationKind.Explain => "learn_explain", DialogueOperationKind.Pause => "learn_pause",
+        DialogueOperationKind.Resume => "learn_resume", DialogueOperationKind.Finish => "learn_finish",
+        DialogueOperationKind.Next => "learn_next", DialogueOperationKind.Progress => "learn_progress",
+        DialogueOperationKind.CreateProgram => "learn_request", DialogueOperationKind.CreateProjectProgram => "learn_project",
+        DialogueOperationKind.SelectProgram => "learn_select", _ => throw new InvalidOperationException("Unsupported dialogue action.")
+    };
+
+    private static async Task SynchronizeTerminalDialogueAsync(IServiceProvider services, LearningRequest request, CancellationToken token)
+    {
+        if (request.PayloadKind != "learning_text" && request.PayloadVersion != 3) return;
+        var store = services.GetRequiredService<IDialogueStore>();
+        var db = services.GetRequiredService<OwnDayDbContext>();
+        var now = new DateTimeOffset(await db.Database.SqlQuery<DateTime>($"SELECT clock_timestamp() AS \"Value\"").SingleAsync(token));
+        var lesson = await services.GetRequiredService<ILessonStore>().FindActiveAsync(request.UserId, token);
+        var context = await store.FindAsync(request.UserId, token);
+        if (context is null) store.Add(DialogueContext.Create(request.UserId, lesson, now));
+        else if (context.SchemaVersion == DialogueContext.CurrentSchemaVersion &&
+            (context.InterruptedAt is null || request.ReceivedAt >= context.InterruptedAt.Value.UtcDateTime))
+            context.Synchronize(lesson, now, request.SourceMessageId ?? request.SourceUpdateId);
+    }
+
+    private static string TargetStamp(OwnDayDbContext db, bool includeDialogue = true)
     {
         // Addressed original row values, including keys, route versions and preferences.
         // Repeating the use case also rechecks absence, owner and prerequisite queries.
         // Newly proposed state is never part of a stamp and never survives prepare.
         var rows = db.ChangeTracker.Entries().Where(entry => entry.State != EntityState.Added &&
+                (includeDialogue || entry.Entity is not DialogueContext) &&
                 entry.Entity.GetType().Namespace?.StartsWith("OwnDay.Domain", StringComparison.Ordinal) == true)
             .Select(entry => entry.Metadata.Name + ":" + JsonSerializer.Serialize(
                 entry.OriginalValues.Properties.OrderBy(property => property.Name, StringComparer.Ordinal)

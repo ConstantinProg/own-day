@@ -19,6 +19,7 @@ they do not establish that every capability already exists.
 - [Learning commands](phase-5/learning-commands.md): programs, lessons, knowledge, reviews, scheduling and progress.
 - [Durable Learning requests](features/learning/request-processing.md): receipt, worker recovery and safe command cutover.
 - [Shared provider budget](features/learning/cost-control.md): monthly USD 10 admission, Learning usage and Inbox compatibility.
+- [Current-exercise dialogue](features/learning/dialogue.md): Learning-first text, bounded intent proposals, confirmation and restart.
 - [Learning acceptance and operational review](phase-5/acceptance.md): scenario coverage, configuration, migrations and limitations.
 
 Earlier guides retain historical implementation context. Follow their links to automatic processing and the

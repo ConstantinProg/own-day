@@ -10,7 +10,8 @@ public enum LearningRequestStatus
     Running
 }
 
-public sealed record LearningCommandInput(string Name, string Arguments, Guid? LessonId = null);
+public sealed record LearningCommandInput(string Name, string Arguments, Guid? LessonId = null,
+    Guid? PromptId = null, long? DialogueRevision = null);
 
 public sealed class LearningRequest
 {
@@ -28,6 +29,7 @@ public sealed class LearningRequest
     // A reply intent was committed, including validation/provider failure replies.
     // This does not assert successful learning or delivery to Telegram.
     public string? Outcome { get; init; } = "reply_committed";
+    public string? DialogueOutcomeJson { get; init; }
     public DateTime ReceivedAt { get; init; }
     public DateTime? CompletedAt { get; init; }
     public DateTime AvailableAt { get; init; }

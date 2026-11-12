@@ -12,12 +12,42 @@ using OwnDay.Domain;
 using OwnDay.Domain.Learning;
 using OwnDay.Infrastructure.OpenAIAnalysis;
 using OwnDay.Infrastructure.Learning;
+using OwnDay.Application.Dialogue;
 using Xunit;
 
 namespace OwnDay.UnitTests.Learning;
 
 public sealed class OpenAILessonTeacherTests
 {
+    [Theory]
+    [InlineData("{\"Intent\":\"Answer\"}", true)]
+    [InlineData("{\"Intent\":\"Answer\",\"TargetId\":\"foreign\"}", false)]
+    [InlineData("{\"Intent\":1}", false)]
+    public async Task ResolveAsync_StrictBoundedIntentContract_RejectsExtraAuthorityAndRetainsUsage(string proposal, bool valid)
+    {
+        using var handler = new ResponseHandler(JsonSerializer.Serialize(new
+        {
+            id = "classifier-response", model = "gpt-6-luna", created = 1, @object = "chat.completion",
+            usage = new { prompt_tokens = 30, completion_tokens = 10, total_tokens = 40 },
+            choices = new[] { new { index = 0, finish_reason = "stop", message = new { role = "assistant", content = proposal } } }
+        }));
+        using var http = new HttpClient(handler);
+        var usage = new LearningProviderUsage { LedgerAttemptId = Guid.NewGuid() };
+        var teacher = new OpenAILessonTeacher(() => new ChatClient("gpt-6-luna", new ApiKeyCredential("dummy"), new OpenAIClientOptions
+        { Transport = new HttpClientPipelineTransport(http), RetryPolicy = new ClientRetryPolicy(0) }),
+            Options.Create(new OpenAIInboxAnalysisOptions { Enabled = true, ApiKey = "dummy" }), new RecordingLogger(), usage: usage);
+        var input = new LearningIntentInput("Could you help me?", "Write a polite request.", null, null, [], [LearningIntent.Answer, LearningIntent.Ambiguous]);
+        if (valid) Assert.Equal(LearningIntent.Answer, (await teacher.ResolveAsync(input, default)).Intent);
+        else Assert.Equal(LessonProviderFailure.InvalidResponse, (await Assert.ThrowsAsync<LessonProviderException>(() => teacher.ResolveAsync(input, default))).Reason);
+        Assert.Equal(30, usage.Response!.InputTokens);
+        using var body = JsonDocument.Parse(handler.RequestBody!);
+        Assert.Equal(512, body.RootElement.GetProperty("max_completion_tokens").GetInt32());
+        Assert.Equal("none", body.RootElement.GetProperty("reasoning_effort").GetString());
+        var schema = body.RootElement.GetProperty("response_format").GetProperty("json_schema").GetProperty("schema");
+        Assert.False(schema.GetProperty("additionalProperties").GetBoolean());
+        Assert.Equal("Intent", Assert.Single(schema.GetProperty("properties").EnumerateObject()).Name);
+    }
+
     [Fact]
     public async Task GenerateAsync_DisabledProvider_RecordsKnownZeroConsumption()
     {

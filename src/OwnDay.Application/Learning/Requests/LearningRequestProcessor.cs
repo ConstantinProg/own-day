@@ -6,6 +6,7 @@ public sealed record LearningRequestLease(Guid RequestId, Guid Token, UserId Use
 public sealed record LearningRequestExecution(LearningResult? Result, string Outcome)
 {
     public IReadOnlyList<string>? Replies { get; init; }
+    public string? DialogueOutcomeJson { get; init; }
 }
 
 public sealed class LearningAppliedOperation

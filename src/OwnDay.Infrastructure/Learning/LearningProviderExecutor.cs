@@ -8,6 +8,7 @@ using OwnDay.Application.Learning.Requests;
 using OwnDay.Application.Inbox.Analysis;
 using OwnDay.Application.Inbox.Observability;
 using OwnDay.Infrastructure.OpenAIAnalysis;
+using OwnDay.Application.Dialogue;
 using OwnDay.Infrastructure.Persistence;
 
 namespace OwnDay.Infrastructure.Learning;
@@ -106,8 +107,11 @@ public sealed class LearningProviderExecutor(IServiceScopeFactory scopes, IOptio
             usage = services.GetRequiredService<LearningProviderUsage>();
             var providerOptions = services.GetRequiredService<IOptions<OpenAIInboxAnalysisOptions>>().Value;
             usage.LedgerAttemptId = await services.GetRequiredService<IOpenAIRequestLedger>().AdmitLearningAsync(attemptId,
-                new InboxAnalyzerDescriptor(providerOptions.Model, step.Kind + "-v" + step.Version, "learning-v" + step.Version,
-                    MaxOutputTokens: providerOptions.MaxOutputTokens, TimeoutSeconds: providerOptions.TimeoutSeconds), deadline.Token);
+                new InboxAnalyzerDescriptor(providerOptions.Model, step.Kind + "-v" + step.Version,
+                    (step.Kind == "intent" ? "learning-intent-v" : "learning-v") + step.Version,
+                    ReasoningEffort: step.Kind == "intent" && providerOptions.Model == "gpt-6-luna" ? "none" : null,
+                    MaxOutputTokens: step.Kind == "intent" ? Math.Min(512, providerOptions.MaxOutputTokens) : providerOptions.MaxOutputTokens,
+                    TimeoutSeconds: providerOptions.TimeoutSeconds), deadline.Token);
             if (usage.LedgerAttemptId is null) throw new LessonProviderException(LessonProviderFailure.BudgetLimit);
             var result = await InvokeAsync(scope.ServiceProvider, step, deadline.Token);
             outcome = "succeeded";
@@ -151,6 +155,9 @@ public sealed class LearningProviderExecutor(IServiceScopeFactory scopes, IOptio
         object result;
         switch (step.Kind)
         {
+            case "intent":
+                result = await services.GetRequiredService<ILearningIntentResolver>().ResolveAsync(step.ReadInput<LearningIntentInput>(), token);
+                break;
             case "generate":
                 result = await services.GetRequiredService<ILessonTeacher>().GenerateAsync(step.ReadInput<LessonRequest>(), token);
                 break;

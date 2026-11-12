@@ -32,6 +32,7 @@ internal static class LearningRequestModel
             entity.Property(request => request.NormalizedInput).HasColumnType("jsonb").HasColumnName("normalized_input");
             entity.Property(request => request.Status).HasColumnName("status");
             entity.Property(request => request.Outcome).HasMaxLength(100).HasColumnName("outcome");
+            entity.Property(request => request.DialogueOutcomeJson).HasColumnType("jsonb").HasColumnName("dialogue_outcome");
             entity.Property(request => request.ReceivedAt).HasColumnName("received_at");
             entity.Property(request => request.CompletedAt).HasColumnName("completed_at");
             entity.Property(request => request.AvailableAt).HasColumnName("available_at");
@@ -39,6 +40,8 @@ internal static class LearningRequestModel
             entity.Property(request => request.LeaseToken).HasColumnName("lease_token");
             entity.Property(request => request.LeaseUntil).HasColumnName("lease_until");
             entity.HasIndex(request => request.SourceKey).IsUnique();
+            entity.HasIndex(request => request.UserId).HasDatabaseName("IX_learning_requests_dialogue_owner")
+                .HasFilter("payload_kind = 'learning_text' OR (payload_kind = 'learning_command' AND payload_version = 3)");
             entity.HasIndex(request => new { request.UserId, request.Sequence }).IsUnique();
             entity.HasIndex(request => new { request.ReceivedAt, request.UserId, request.Sequence })
                 .HasFilter("status IN (1, 2)").HasDatabaseName("IX_learning_requests_active_head");

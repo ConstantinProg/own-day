@@ -358,3 +358,48 @@ The earlier readiness P2 is fixed in `afe64ee` and remains documented separately
 
 S2 is complete locally. No billing-account cap, production deployment, live provider
 quality or test-bot check is claimed. The next dependent implementation is S3.
+
+## S3 — current-exercise dialogue
+
+Added separate versioned owner DialogueContext with optimistic revision/xmin,
+question binding, source-order boundaries and bounded pending values. No change to
+LearningContext's required ProgramId or pedagogical authority. Natural text v1 and
+command v3 drain through the existing queue, prepare/provider/apply and shared
+command/Application use cases. Migration is additive and rejects destructive
+downgrade over dialogue state or pending inputs; legacy bootstrap invents no program.
+
+Deterministic controls precede one enum-only classifier proposal. The proposal has
+bounded context without answer keys, local strict validation and financial admission.
+Clarification preserves the question and does not assess; an unresolved choice
+persists the original request, which alone can later be assessed. Consequential
+changes require a fresh code tied to exact parameters/versions, never bare consent.
+Audit and reply publication are atomic with effects. Pause/restart/resume retains
+the actual Lesson without generation. Explicit editor transitions invalidate pending
+dialogue; enrollment remains sticky after the flag is disabled or during first-call
+in-flight processing. The [dialogue guide](features/learning/dialogue.md) documents
+supported contracts and compatible rollback.
+
+Evidence before final verification:
+
+- The first two natural-input PostgreSQL tests failed against the prior Inbox path.
+- Incremental runs reached 12 new PostgreSQL dialogue cases and 29 contract/unit
+  checks passing, including English question-as-answer, original-input resolution,
+  restart, stale/foreign/versioned consent and source-order rejection.
+- Added atomic publication rollback/recovery, populated legacy upgrade and sticky
+  enrollment tests. Full run: 631 integration passed, one failed, one live skipped;
+  all 753 unit checks passed. The failure was the new legacy SQL fixture interpreting
+  JSON braces as composite-format placeholders, before exercising the migration.
+- Broad provider regression reproduced that same single fixture failure (94 passed,
+  one failed). Replaced the embedded JSON literal with an SQL parameter. Added a
+  monotonic source-boundary regression and reran restore/Release/full tests. Results
+  follow below; earlier failed runs are not counted as accepted verification.
+
+Real model classification quality and keyboard/NVDA acceptance remain external
+gates. No paid invocation, test-bot check, rollout or production deployment occurred.
+
+Final restore and Release build passed with zero warnings/errors. Complete
+regression passed: 632 integration tests, one live smoke skipped, 754 unit tests.
+The legacy migration fixture uses a parameter explicitly cast to jsonb; an
+intermediate run was cancelled before acceptance to include that correction.
+EF model/snapshot equality is included. Local acceptance criteria are met;
+post-commit review follows before advancing.

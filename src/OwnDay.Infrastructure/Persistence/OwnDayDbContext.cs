@@ -67,6 +67,7 @@ public sealed class OwnDayDbContext(DbContextOptions<OwnDayDbContext> options)
         KnowledgeModel.Configure(modelBuilder);
         StudyModel.Configure(modelBuilder);
         LearningRequestModel.Configure(modelBuilder);
+        DialogueModel.Configure(modelBuilder);
         modelBuilder.Entity<OwnDay.Domain.Learning.Lesson>(entity =>
         {
             entity.ToTable("learning_lessons");
@@ -331,7 +332,8 @@ public sealed class OwnDayDbContext(DbContextOptions<OwnDayDbContext> options)
             {
                 typeof(Lesson), typeof(LessonInteraction), typeof(LearningProgram), typeof(CurriculumRoute),
                 typeof(LearningContext), typeof(Skill), typeof(LearningEvidence), typeof(ProgramSkillLink),
-                typeof(ReviewSchedule), typeof(LearningPreference), typeof(StudySchedule), typeof(Project), typeof(Action)
+                typeof(ReviewSchedule), typeof(LearningPreference), typeof(StudySchedule), typeof(Project), typeof(Action),
+                typeof(OwnDay.Domain.Dialogue.DialogueContext)
             })
             {
                 modelBuilder.Entity(target).Property<uint>("TargetVersion").IsRowVersion();

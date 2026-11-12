@@ -109,6 +109,7 @@ public sealed class EfLearningRequestStore(OwnDayDbContext db) : ILearningReques
         // Recheck the fence after target I/O/writes. An expired worker rolls back everything.
         var completed = await db.Database.ExecuteSqlInterpolatedAsync($"""
             UPDATE learning_requests SET status = 0, completed_at = clock_timestamp(), outcome = {execution.Outcome},
+                dialogue_outcome = CAST({execution.DialogueOutcomeJson} AS jsonb),
                 lease_token = NULL, lease_until = NULL
             WHERE id = {request.Id} AND status = 2 AND lease_token = {lease.Token} AND lease_until > clock_timestamp()
             """, token);

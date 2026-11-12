@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using OwnDay.Domain;
 using OwnDay.Domain.Learning;
+using OwnDay.Application.Dialogue;
 
 namespace OwnDay.Application.Learning.Requests;
 
@@ -61,9 +62,12 @@ public sealed class StaleLearningPreparationException : Exception;
 // use-case rules for legacy commands and the worker, including conditional Adapt.
 public sealed class LearningProviderSession(IReadOnlyList<LearningProviderStep> steps, Func<string> targetStamp,
     Func<string>? targets = null)
-    : ILessonTeacher, ICurriculumPlanner, ITeachingPlanner
+    : ILessonTeacher, ICurriculumPlanner, ITeachingPlanner, ILearningIntentResolver
 {
     private int _ordinal;
+
+    public Task<LearningIntentProposal> ResolveAsync(LearningIntentInput input, CancellationToken token) =>
+        ConsumeAsync<LearningIntentProposal>("intent", input, token);
 
     public Task<LessonMaterial> GenerateAsync(LessonRequest request, CancellationToken token) =>
         ConsumeAsync<LessonMaterial>("generate", request, token);

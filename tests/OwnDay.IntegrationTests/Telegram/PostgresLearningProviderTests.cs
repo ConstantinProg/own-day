@@ -18,6 +18,7 @@ using OpenAI.Chat;
 using OwnDay.Application.Learning;
 using OwnDay.Application.Learning.Requests;
 using OwnDay.Application.Inbox.Observability;
+using OwnDay.Application.Dialogue;
 using OwnDay.Domain;
 using OwnDay.Domain.Learning;
 using OwnDay.Domain.Projects;
@@ -363,6 +364,7 @@ public sealed partial class PostgresLearningProviderTests : IAsyncLifetime
             services.Replace(ServiceDescriptor.Scoped<ILessonTeacher>(provider => new Provider(probe, provider.GetRequiredService<OwnDayDbContext>(), provider.GetRequiredService<LearningProviderUsage>(), source)));
             services.Replace(ServiceDescriptor.Scoped<ICurriculumPlanner>(provider => new Provider(probe, provider.GetRequiredService<OwnDayDbContext>(), provider.GetRequiredService<LearningProviderUsage>())));
             services.Replace(ServiceDescriptor.Scoped<ITeachingPlanner>(provider => new Provider(probe, provider.GetRequiredService<OwnDayDbContext>(), provider.GetRequiredService<LearningProviderUsage>())));
+            services.Replace(ServiceDescriptor.Scoped<ILearningIntentResolver>(provider => new Provider(probe, provider.GetRequiredService<OwnDayDbContext>(), provider.GetRequiredService<LearningProviderUsage>())));
             if (!publicIngress) services.Replace(ServiceDescriptor.Scoped<ITelegramUpdateHandler, TestIngress>());
             services.Configure<LearningRequestProcessingOptions>(options => { options.Enabled = worker; options.PollMilliseconds = 20; });
             if (configure is not null) services.Configure(configure);
@@ -379,12 +381,15 @@ public sealed partial class PostgresLearningProviderTests : IAsyncLifetime
         public LessonProviderFailure FailureReason { get; init; } = LessonProviderFailure.HttpError;
         public System.Collections.Concurrent.ConcurrentDictionary<string, int> KindCalls { get; } = new();
         public bool IgnoreCancellation { get; init; }
+        public LearningIntent Intent { get; init; } = LearningIntent.Answer;
+        public System.Collections.Concurrent.ConcurrentQueue<LearningIntentInput> IntentInputs { get; } = new();
+        public System.Collections.Concurrent.ConcurrentQueue<string> AssessedAnswers { get; } = new();
         public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public int Calls;
     }
 
-    private sealed class Provider(Probe probe, OwnDayDbContext db, LearningProviderUsage usage, bool source = false) : ILessonTeacher, ICurriculumPlanner, ITeachingPlanner
+    private sealed class Provider(Probe probe, OwnDayDbContext db, LearningProviderUsage usage, bool source = false) : ILessonTeacher, ICurriculumPlanner, ITeachingPlanner, ILearningIntentResolver
     {
         private async Task BlockAsync(string kind, CancellationToken token)
         {
@@ -432,7 +437,9 @@ public sealed partial class PostgresLearningProviderTests : IAsyncLifetime
             return await teacher.GenerateAsync(request, token);
         }
         public async Task<LessonAssessment> AssessAsync(LessonSnapshot lesson, string answer, CancellationToken token)
-        { await BlockAsync("assess", token); return new("Feedback", true); }
+        { probe.AssessedAnswers.Enqueue(answer); await BlockAsync("assess", token); return new("Feedback", true); }
+        public async Task<LearningIntentProposal> ResolveAsync(LearningIntentInput input, CancellationToken token)
+        { probe.IntentInputs.Enqueue(input); await BlockAsync("intent", token); return new(probe.Intent); }
         public async Task<LessonExplanation> ExplainAsync(LessonSnapshot lesson, string request, LessonInteractionKind kind, CancellationToken token)
         { await BlockAsync("explain", token); return new("Explanation"); }
         public Task<LessonAssessment> AssessAsync(Lesson lesson, string answer, CancellationToken token) => throw new InvalidOperationException("Tracked lesson crossed provider boundary.");

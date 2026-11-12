@@ -4,6 +4,7 @@ public sealed class LearningRequestProcessingOptions
 {
     public bool Enabled { get; set; }
     public bool DurableIngressEnabled { get; set; }
+    public bool DialogueEnabled { get; set; }
     public bool AcceptancePaused { get; set; }
     public int MaxQueueAgeSeconds { get; set; } = 300;
     public int Parallelism { get; set; } = 2;

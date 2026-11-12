@@ -8,6 +8,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\tools\OwnDay.InboxEvaluation\OwnDay.InboxEvaluation.csproj" />
     <None Include="..\..\evaluation\inbox\golden-*.json" Link="GoldenDataset/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\evaluation\learning\golden-*.json" Link="LearningGoldenDataset/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <ProjectReference Include="..\..\src\OwnDay.Application\OwnDay.Application.csproj" />
     <ProjectReference Include="..\..\src\OwnDay.Host\OwnDay.Host.csproj" />
     <ProjectReference Include="..\..\src\OwnDay.Infrastructure\OwnDay.Infrastructure.csproj" />

@@ -19,6 +19,29 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
 
         NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+        modelBuilder.Entity("OwnDay.Domain.Dialogue.DialogueContext", b =>
+        {
+            b.Property<long>("UserId").ValueGeneratedNever().HasColumnType("bigint").HasColumnName("user_id");
+            b.Property<long>("Revision").IsConcurrencyToken().HasColumnType("bigint").HasColumnName("revision");
+            b.Property<int>("SchemaVersion").ValueGeneratedOnAdd().HasDefaultValue(1).HasColumnType("integer").HasColumnName("schema_version");
+            b.Property<int>("Phase").HasColumnType("integer").HasColumnName("phase");
+            b.Property<int>("ExpectedResponse").HasColumnType("integer").HasColumnName("expected_response");
+            b.Property<Guid>("PromptId").HasColumnType("uuid").HasColumnName("prompt_id");
+            b.Property<Guid?>("TargetLessonId").HasColumnType("uuid").HasColumnName("target_lesson_id");
+            b.Property<string>("QuestionFingerprint").HasMaxLength(64).HasColumnType("character varying(64)").HasColumnName("question_fingerprint");
+            b.Property<DateTimeOffset?>("PromptOpenedAt").HasColumnType("timestamp with time zone").HasColumnName("prompt_opened_at");
+            b.Property<DateTimeOffset>("LastActivityAt").HasColumnType("timestamp with time zone").HasColumnName("last_activity_at");
+            b.Property<DateTimeOffset?>("InterruptedAt").HasColumnType("timestamp with time zone").HasColumnName("interrupted_at");
+            b.Property<long>("InterruptedSourceOrder").HasColumnType("bigint").HasColumnName("interrupted_source_order");
+            b.Property<long>("ResponseAfterSourceOrder").HasColumnType("bigint").HasColumnName("response_after_source_order");
+            b.Property<Guid?>("DeferredGoalRequestId").HasColumnType("uuid").HasColumnName("deferred_goal_request_id");
+            b.Property<string>("PendingClarification").HasColumnType("jsonb").HasColumnName("pending_clarification");
+            b.Property<string>("PendingConfirmation").HasColumnType("jsonb").HasColumnName("pending_confirmation");
+            b.Property<uint>("TargetVersion").IsConcurrencyToken().ValueGeneratedOnAddOrUpdate().HasColumnType("xid").HasColumnName("xmin");
+            b.HasKey("UserId");
+            b.ToTable("dialogue_contexts", null, table => table.HasCheckConstraint("CK_dialogue_contexts_identity", "user_id > 0 AND revision > 0 AND schema_version > 0"));
+        });
+
         modelBuilder.Entity("OwnDay.Application.Inbox.Observability.InboxOperationEvent", b =>
             {
                 b.Property<Guid>("Id")
@@ -1441,6 +1464,11 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
 
                 b.HasIndex("SourceKey")
                     .IsUnique();
+
+                b.Property<string>("DialogueOutcomeJson").HasColumnType("jsonb").HasColumnName("dialogue_outcome");
+
+                b.HasIndex("UserId").HasDatabaseName("IX_learning_requests_dialogue_owner")
+                    .HasFilter("payload_kind = 'learning_text' OR (payload_kind = 'learning_command' AND payload_version = 3)");
 
                 b.HasIndex("UserId", "Sequence")
                     .IsUnique();
