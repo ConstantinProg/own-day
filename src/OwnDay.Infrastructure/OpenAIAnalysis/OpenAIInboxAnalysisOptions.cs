@@ -11,6 +11,7 @@ public sealed class OpenAIInboxAnalysisOptions
     // Includes reasoning and visible JSON output. Never increase automatically after truncation.
     public int MaxOutputTokens { get; set; } = 8192;
     public int TimeoutSeconds { get; set; } = 60;
+    public int MaxInputUtf8Bytes { get; set; } = 64_000;
 
     // Only send reasoning for the model whose capabilities are verified here. Legacy/custom models
     // still use strict Structured Outputs, but receive no potentially unsupported reasoning parameter.

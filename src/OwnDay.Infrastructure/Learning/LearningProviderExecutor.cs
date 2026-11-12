@@ -5,6 +5,9 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using OwnDay.Application.Learning;
 using OwnDay.Application.Learning.Requests;
+using OwnDay.Application.Inbox.Analysis;
+using OwnDay.Application.Inbox.Observability;
+using OwnDay.Infrastructure.OpenAIAnalysis;
 using OwnDay.Infrastructure.Persistence;
 
 namespace OwnDay.Infrastructure.Learning;
@@ -95,9 +98,17 @@ public sealed class LearningProviderExecutor(IServiceScopeFactory scopes, IOptio
     private async Task<LearningProviderExecution> InvokePhysicalAsync(Guid attemptId, LearningProviderStep step, CancellationTokenSource deadline)
     {
         var outcome = "unexpected_failure";
+        LearningProviderUsage? usage = null;
         try
         {
             await using var scope = scopes.CreateAsyncScope();
+            var services = scope.ServiceProvider;
+            usage = services.GetRequiredService<LearningProviderUsage>();
+            var providerOptions = services.GetRequiredService<IOptions<OpenAIInboxAnalysisOptions>>().Value;
+            usage.LedgerAttemptId = await services.GetRequiredService<IOpenAIRequestLedger>().AdmitLearningAsync(attemptId,
+                new InboxAnalyzerDescriptor(providerOptions.Model, step.Kind + "-v" + step.Version, "learning-v" + step.Version,
+                    MaxOutputTokens: providerOptions.MaxOutputTokens, TimeoutSeconds: providerOptions.TimeoutSeconds), deadline.Token);
+            if (usage.LedgerAttemptId is null) throw new LessonProviderException(LessonProviderFailure.BudgetLimit);
             var result = await InvokeAsync(scope.ServiceProvider, step, deadline.Token);
             outcome = "succeeded";
             return new(Result: result);
@@ -115,12 +126,15 @@ public sealed class LearningProviderExecutor(IServiceScopeFactory scopes, IOptio
         }
         finally
         {
-            // Bounded technical reconciliation outlives the logical deadline/Host
-            // token. It can update invocation metadata only, never checkpoint/Domain.
+            // Bounded invocation/financial reconciliation outlives the logical
+            // deadline/Host token, without changing checkpoints or Domain state.
             using var reconciliation = new CancellationTokenSource(TimeSpan.FromSeconds(5));
             try
             {
                 await using var scope = scopes.CreateAsyncScope();
+                if (usage?.LedgerAttemptId is { } ledgerId)
+                    await scope.ServiceProvider.GetRequiredService<IOpenAIRequestLedger>().FinishAsync(ledgerId,
+                        outcome == "succeeded" ? "response" : outcome, usage.Response, reconciliation.Token);
                 await scope.ServiceProvider.GetRequiredService<EfLearningRequestStore>().FinishAttemptAsync(attemptId, outcome, reconciliation.Token);
             }
             catch (Exception exception)

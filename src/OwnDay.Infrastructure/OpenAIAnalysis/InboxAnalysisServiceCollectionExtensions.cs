@@ -27,6 +27,8 @@ public static class InboxAnalysisServiceCollectionExtensions
                 "InboxAnalysis:OpenAI:ReasoningEffort must be none, low, medium, high, xhigh or max.")
             .Validate(options => options.TimeoutSeconds is >= 1 and <= 300,
                 "InboxAnalysis:OpenAI:TimeoutSeconds must be between 1 and 300.")
+            .Validate(options => options.MaxInputUtf8Bytes is >= 1024 and <= 256_000,
+                "OpenAI input must have a finite UTF-8 byte limit between 1024 and 256000.")
             .ValidateOnStart();
 
         services.AddOptions<InboxAnalysisProcessingOptions>()
@@ -44,6 +46,12 @@ public static class InboxAnalysisServiceCollectionExtensions
             .BindConfiguration(OpenAICostOptions.SectionName)
             .Validate(o => o.TokenLimit is null or > 0 && o.TokensPerRequest is > 0 and <= 10_000_000,
                 "CostControl token limit and reservation must be positive.")
+            .Validate(o => o.MonthlyUsdLimit is null or > 0 && o.MonthlyCallLimit > 0 && o.MonthlyUserCallLimit > 0 &&
+                o.MonthlyTokenLimit > 0 && o.MonthlyUserTokenLimit > 0,
+                "Monthly service and user admission limits must be positive.")
+            .Validate<IOptions<OpenAIInboxAnalysisOptions>>((cost, provider) => !provider.Value.Enabled ||
+                cost.TokensPerRequest >= (long)provider.Value.MaxInputUtf8Bytes + provider.Value.MaxOutputTokens + 1024,
+                "OpenAI reservation must cover bounded input, output and protocol overhead before enabling the provider.")
             .Validate(o => o.Models.All(p => !string.IsNullOrWhiteSpace(p.Key) &&
                 p.Value.InputUsdPerMillion is null or >= 0 && p.Value.CachedInputUsdPerMillion is null or >= 0 &&
                 p.Value.OutputUsdPerMillion is null or >= 0), "Model prices must be nonnegative USD per million tokens.")

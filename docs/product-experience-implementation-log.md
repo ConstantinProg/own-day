@@ -291,3 +291,59 @@ queue monitoring for disabled PostgreSQL workers. Release build and all seven
 focused health/HTTP/backlog tests passed after the fix. Review of the narrow guard
 found no further actionable findings; the earlier intermittent readiness 503 is
 reported as an observation, not a proven production PostgreSQL failure.
+
+## S2 — shared financial admission and monthly limits
+
+Approved policy: USD 10 per UTC calendar month across Inbox and Learning. The
+existing financial ledger now accepts a nullable Inbox source or a unique Learning
+physical-attempt source, with an exactly-one-source check and owner validation.
+Learning technical admission precedes financial admission; financial commit precedes
+every provider invocation. Distinct retries reserve separately; saved results do
+not call or charge again. No second Learning cost ledger was added.
+
+The shared budget lock serializes service/user token, call and USD admission with
+reconciliation. PostgreSQL supplies period/attempt timestamps. Configured prices
+are snapshotted. Unknown usage/effective price retains the monetary reservation;
+unknown requested price and unpriced current-month legacy consumption fail closed.
+Current runtime settings replace the old lifetime cap with monthly caps, while the
+legacy TokenLimit key remains available. Inbox statistics filter to Inbox sources.
+
+Real Learning scopes capture usage before response validation and reconcile with
+the bounded independent cleanup token, including stale/late outcomes. The adapter
+requires admission before provider/source I/O, so a synchronous compatibility path
+cannot bypass the shared budget. Paid Learning therefore requires completing the
+documented durable-ingress rollout gates. Input/output bounds and reservation-size
+validation prevent silently expanding individual requests. SDK retries remain off.
+
+The additive migration retains historical rows/unknown costs, adds source/period
+indexes and refuses destructive rollback over Learning history or unresolved
+reservations. The [cost guide](features/learning/cost-control.md) documents exact
+settings, price sources and the distinction between an application admission ceiling
+and a provider invoice guarantee.
+
+Validation so far:
+
+- Four initial monthly-budget tests failed before implementation (12 concurrent
+  requests admitted instead of two, unknown model price accepted, no monthly cap).
+- Focused financial/provider run: 97 integration tests and 32 unit checks passed.
+- An intermediate reconciliation expectation used two USD 5 reservations, leaving
+  insufficient space for another USD 5 call even after a small known charge. The
+  fixture was corrected to USD 4 reservations so it actually exercises released
+  capacity; the admission arithmetic was retained.
+- Source checks assert a durable financial row before every fake invocation.
+  Tests cover shared concurrent Inbox/Learning admission, stale results, crash
+  replay, ignored cancellation, exact usage/cached-price reconciliation, idempotent
+  finish, restart, monthly rollover, legacy upgrade/unknown consumption and refusal
+  to drop outstanding reservations. Inbox statistics remain source-specific.
+- Restore and Release build passed with zero warnings/errors. Repeated complete
+  regression: 613 integration tests passed, one live smoke skipped; 730 unit tests
+  passed. The earlier run with one readiness failure is not counted as passed.
+- EF model/snapshot equality passed through the repository's public API test.
+  `dotnet ef` is not installed here; no CLI pending-model result is claimed.
+- A final focused run follows the narrow guard moving admission before RFC source
+  retrieval. No production deployment or paid provider invocation ran.
+
+Final focused verification after the admission/source guard and known-zero local
+rejections: Release build passed with zero warnings/errors; 28 integration and
+35 unit checks passed, including concurrent service/user call and token caps.
+`git diff --check` passed. Post-commit review follows before S3.

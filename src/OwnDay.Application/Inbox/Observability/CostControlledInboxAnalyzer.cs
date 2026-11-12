@@ -6,6 +6,8 @@ public interface IOpenAIRequestLedger
 {
     Task<Guid?> AdmitAsync(InboxAnalysisRequest request, InboxAnalyzerDescriptor descriptor, CancellationToken cancellationToken);
     Task FinishAsync(Guid id, string code, InboxAnalyzerResponse? response, CancellationToken cancellationToken);
+    Task<Guid?> AdmitLearningAsync(Guid physicalAttemptId, InboxAnalyzerDescriptor descriptor, CancellationToken cancellationToken) =>
+        throw new NotSupportedException("Learning admission is not supported by this ledger.");
 }
 
 public sealed class CostControlledInboxAnalyzer(IInboxAnalyzer inner, IOpenAIRequestLedger ledger) : IInboxAnalyzer

@@ -34,6 +34,7 @@ public static class TelegramServiceCollectionExtensions
         services.AddScoped<OwnDay.Application.Learning.Requests.ILearningRequestRunner, OwnDay.Infrastructure.Learning.LearningRequestRunner>();
         services.AddSingleton<OwnDay.Infrastructure.Learning.LearningProviderCallGate>();
         services.AddSingleton<OwnDay.Infrastructure.Learning.LearningProviderExecutor>();
+        services.AddScoped<OwnDay.Infrastructure.Learning.LearningProviderUsage>();
         services.AddScoped<OwnDay.Application.Learning.Requests.LearningRequestProcessor>();
         services.AddHostedService<OwnDay.Infrastructure.Learning.LearningRequestWorker>();
         services.AddScoped<TelegramOutboxDeliveryService>();

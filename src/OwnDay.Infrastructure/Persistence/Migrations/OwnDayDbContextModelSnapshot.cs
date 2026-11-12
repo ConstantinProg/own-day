@@ -64,7 +64,7 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
                     .ValueGeneratedOnAdd()
                     .HasColumnType("uuid");
 
-                b.Property<Guid>("AnalysisId")
+                b.Property<Guid?>("AnalysisId")
                     .HasColumnType("uuid");
 
                 b.Property<int?>("CachedInputTokens")
@@ -76,6 +76,13 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
 
                 b.Property<long>("ChargedTokens")
                     .HasColumnType("bigint");
+
+                b.Property<Guid?>("LearningProviderAttemptId").HasColumnType("uuid");
+                b.Property<decimal?>("ReservedUsd").HasPrecision(20, 12).HasColumnType("numeric(20,12)");
+                b.Property<decimal?>("ChargedUsd").HasPrecision(20, 12).HasColumnType("numeric(20,12)");
+                b.Property<string>("PromptVersion").HasMaxLength(100).HasColumnType("character varying(100)");
+                b.Property<string>("SchemaVersion").HasMaxLength(100).HasColumnType("character varying(100)");
+                b.Property<int?>("MaxOutputTokens").HasColumnType("integer");
 
                 b.Property<string>("Code")
                     .IsRequired()
@@ -130,7 +137,10 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
 
                 b.HasIndex("UserId", "StartedAt");
 
-                b.ToTable("openai_request_attempts", (string)null);
+                b.HasIndex("LearningProviderAttemptId").IsUnique();
+                b.HasIndex("StartedAt");
+                b.ToTable("openai_request_attempts", null, table => table.HasCheckConstraint("CK_openai_request_attempts_source",
+                    "(\"AnalysisId\" IS NOT NULL AND \"LearningProviderAttemptId\" IS NULL) OR (\"AnalysisId\" IS NULL AND \"LearningProviderAttemptId\" IS NOT NULL)"));
             });
 
         modelBuilder.Entity("OwnDay.Application.Inbox.Observability.OpenAIRequestAttempt", b =>
@@ -138,8 +148,10 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
                 b.HasOne("OwnDay.Application.Inbox.Analysis.InboxAnalysis", null)
                     .WithMany()
                     .HasForeignKey("AnalysisId")
-                    .OnDelete(DeleteBehavior.Restrict)
-                    .IsRequired();
+                    .OnDelete(DeleteBehavior.Restrict);
+                b.HasOne("OwnDay.Application.Learning.Requests.LearningProviderAttempt", null)
+                    .WithMany().HasForeignKey("LearningProviderAttemptId")
+                    .HasConstraintName("FK_openai_attempts_learning_attempt").OnDelete(DeleteBehavior.Restrict);
             });
 
         modelBuilder.Entity("OwnDay.Application.Inbox.InboxDraft", b =>

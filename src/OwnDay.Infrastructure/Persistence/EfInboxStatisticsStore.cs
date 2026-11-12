@@ -76,7 +76,7 @@ public sealed class EfInboxStatisticsStore(OwnDayDbContext db) : IInboxStatistic
         var analysisCounts = await analyses.GroupBy(a => a.Status)
             .Select(g => new { Status = g.Key, Count = g.Count() }).ToDictionaryAsync(g => g.Status, g => g.Count, cancellationToken);
         var attempts = db.OpenAIRequestAttempts.AsNoTracking()
-            .Where(a => a.UserId == userId.Value && a.StartedAt >= start && a.StartedAt < end);
+            .Where(a => a.AnalysisId != null && a.UserId == userId.Value && a.StartedAt >= start && a.StartedAt < end);
         var tokens = await attempts.GroupBy(a => 1).Select(g => new TokenStatistics(
             g.Sum(a => (long?)a.InputTokens) ?? 0,
             g.Sum(a => (long?)a.CachedInputTokens) ?? 0,

@@ -4,7 +4,8 @@ namespace OwnDay.Application.Inbox.Observability;
 public sealed class OpenAIRequestAttempt
 {
     public Guid Id { get; init; } = Guid.NewGuid();
-    public Guid AnalysisId { get; init; }
+    public Guid? AnalysisId { get; init; }
+    public Guid? LearningProviderAttemptId { get; init; }
     public long UserId { get; init; }
     public int Sequence { get; init; }
     public string Model { get; set; } = string.Empty;
@@ -13,6 +14,11 @@ public sealed class OpenAIRequestAttempt
     public string Code { get; set; } = "pending";
     public long ReservedTokens { get; init; }
     public long ChargedTokens { get; set; }
+    public decimal? ReservedUsd { get; init; }
+    public decimal? ChargedUsd { get; set; }
+    public string? PromptVersion { get; init; }
+    public string? SchemaVersion { get; init; }
+    public int? MaxOutputTokens { get; init; }
     public int? InputTokens { get; set; }
     public int? CachedInputTokens { get; set; }
     public int? OutputTokens { get; set; }
@@ -29,6 +35,11 @@ public sealed class OpenAICostOptions
     // Global lifetime admission budget in this database. Null explicitly disables admission limits.
     public long? TokenLimit { get; set; } = 1_000_000;
     public long TokensPerRequest { get; set; } = 100_000;
+    public decimal? MonthlyUsdLimit { get; set; } = 10m;
+    public int MonthlyCallLimit { get; set; } = 10_000;
+    public int MonthlyUserCallLimit { get; set; } = 1_000;
+    public long MonthlyTokenLimit { get; set; } = 20_000_000;
+    public long MonthlyUserTokenLimit { get; set; } = 2_000_000;
     public Dictionary<string, OpenAIModelPrice> Models { get; set; } = new(StringComparer.Ordinal);
 }
 

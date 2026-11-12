@@ -1,6 +1,7 @@
 using System.ClientModel;
 using System.ClientModel.Primitives;
 using System.Text.Json;
+using System.Text;
 using Microsoft.Extensions.Options;
 using OpenAI.Chat;
 using OwnDay.Application.Inbox.Analysis;
@@ -19,7 +20,8 @@ public sealed class OpenAIInboxAnalyzer(ChatClient client, IOptions<OpenAIInboxA
     public void ValidateRequest(InboxAnalysisRequest request)
     {
         var input = JsonSerializer.Serialize(request, InboxAnalysisJson.Options);
-        if (input.Length > 48_000)
+        if (input.Length > 48_000 || Encoding.UTF8.GetByteCount(input) + Encoding.UTF8.GetByteCount(_systemPrompt) +
+            Encoding.UTF8.GetByteCount(OpenAIInboxAnalysisFormat.Schema) > options.Value.MaxInputUtf8Bytes)
         {
             throw new InboxAnalyzerException(InboxAnalysisCode.ContextLimit);
         }

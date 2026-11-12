@@ -152,6 +152,8 @@ public sealed partial class PostgresLearningProviderTests
         Assert.Equal(boundary == "result" ? 2 : 1, probe.Calls);
         var attempts = await observer.Set<LearningProviderAttempt>().ToArrayAsync();
         Assert.Equal(probe.Calls, attempts.Length);
+        Assert.Equal(probe.Calls, await observer.OpenAIRequestAttempts.CountAsync());
+        Assert.All(await observer.OpenAIRequestAttempts.ToListAsync(), row => Assert.True(row.ChargedUsd > 0));
         Assert.All(attempts, attempt => Assert.NotNull(attempt.FinishedAt));
     }
 
@@ -225,6 +227,9 @@ public sealed partial class PostgresLearningProviderTests
             await using var observer = Open();
             Assert.Empty(await observer.Set<Lesson>().ToListAsync());
             Assert.Equal("provider_outcome_unknown", (await observer.Set<LearningRequest>().SingleAsync()).Outcome);
+            var reservation = await observer.OpenAIRequestAttempts.SingleAsync();
+            Assert.Null(reservation.FinishedAt);
+            Assert.True(reservation.ChargedUsd > 0);
         }
         finally
         {

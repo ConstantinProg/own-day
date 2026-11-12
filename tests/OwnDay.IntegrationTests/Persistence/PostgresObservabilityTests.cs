@@ -21,7 +21,7 @@ using Xunit;
 namespace OwnDay.IntegrationTests.Persistence;
 
 [Trait("Requires", "PostgreSQL via OWNDAY_TEST_POSTGRES_CONNECTION")]
-public sealed class PostgresObservabilityTests : IAsyncLifetime
+public sealed partial class PostgresObservabilityTests : IAsyncLifetime
 {
     private readonly string _schema = "ownday_test_" + Guid.NewGuid().ToString("N");
     private DbContextOptions<OwnDayDbContext> _options = null!;
@@ -351,9 +351,13 @@ public sealed class PostgresObservabilityTests : IAsyncLifetime
     private ServiceProvider Provider() => new ServiceCollection()
         .AddScoped(_ => new OwnDayDbContext(_options)).BuildServiceProvider();
 
-    private static EfOpenAIRequestLedger Ledger(IServiceProvider provider, OpenAICostOptions options) => new(
-        provider.GetRequiredService<IServiceScopeFactory>(), Options.Create(options), TimeProvider.System,
-        NullLogger<EfOpenAIRequestLedger>.Instance);
+    private static EfOpenAIRequestLedger Ledger(IServiceProvider provider, OpenAICostOptions options, bool enforceMonthly = false)
+    {
+        // Legacy token-accounting tests explicitly exercise the pre-monetary policy.
+        if (!enforceMonthly) options.MonthlyUsdLimit = null;
+        return new(provider.GetRequiredService<IServiceScopeFactory>(), Options.Create(options), TimeProvider.System,
+            NullLogger<EfOpenAIRequestLedger>.Instance);
+    }
 
     private sealed class FakeAnalyzer(InboxAnalysisCode code) : IInboxAnalyzer
     {

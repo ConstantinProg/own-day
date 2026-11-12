@@ -11,12 +11,54 @@ using OwnDay.Application.Learning;
 using OwnDay.Domain;
 using OwnDay.Domain.Learning;
 using OwnDay.Infrastructure.OpenAIAnalysis;
+using OwnDay.Infrastructure.Learning;
 using Xunit;
 
 namespace OwnDay.UnitTests.Learning;
 
 public sealed class OpenAILessonTeacherTests
 {
+    [Fact]
+    public async Task GenerateAsync_DisabledProvider_RecordsKnownZeroConsumption()
+    {
+        var usage = new LearningProviderUsage { LedgerAttemptId = Guid.NewGuid() };
+        var teacher = new OpenAILessonTeacher(() => throw new InvalidOperationException("Must not create a paid client."),
+            Options.Create(new OpenAIInboxAnalysisOptions()), new RecordingLogger(), usage: usage);
+        var failure = await Assert.ThrowsAsync<LessonProviderException>(() => teacher.GenerateAsync(new("English"), default));
+        Assert.Equal(LessonProviderFailure.Unavailable, failure.Reason);
+        Assert.NotNull(usage.Response);
+        Assert.Equal(0, usage.Response.InputTokens);
+        Assert.Equal(0, usage.Response.OutputTokens);
+    }
+
+    [Fact]
+    public async Task GenerateAsync_MeteredScopeWithoutAdmission_DoesNotCreateClient()
+    {
+        using var sourceHandler = new ResponseHandler("RFC content", mediaType: "text/plain");
+        using var sourceHttp = new HttpClient(sourceHandler);
+        using var reader = new RfcLessonSourceReader(sourceHttp, TimeProvider.System);
+        var teacher = new OpenAILessonTeacher(() => throw new InvalidOperationException("Must not create a paid client."),
+            Options.Create(new OpenAIInboxAnalysisOptions { Enabled = true, ApiKey = "dummy" }),
+            new RecordingLogger(), reader, usage: new LearningProviderUsage());
+        var failure = await Assert.ThrowsAsync<LessonProviderException>(() => teacher.GenerateAsync(new("JSON"), default));
+        Assert.Equal(LessonProviderFailure.BudgetLimit, failure.Reason);
+        Assert.Equal(0, sourceHandler.Requests);
+    }
+
+    [Fact]
+    public async Task GenerateAsync_InputExceedsBudget_RejectsBeforeNetworkAndRecordsKnownZeroUsage()
+    {
+        var usage = new LearningProviderUsage { LedgerAttemptId = Guid.NewGuid() };
+        var teacher = new OpenAILessonTeacher(() => throw new InvalidOperationException("Must not create a paid client."),
+            Options.Create(new OpenAIInboxAnalysisOptions { Enabled = true, ApiKey = "dummy", MaxInputUtf8Bytes = 1024 }),
+            new RecordingLogger(), usage: usage);
+        var failure = await Assert.ThrowsAsync<LessonProviderException>(() => teacher.GenerateAsync(new("English"), default));
+        Assert.Equal(LessonProviderFailure.InvalidResponse, failure.Reason);
+        Assert.NotNull(usage.Response);
+        Assert.Equal(0, usage.Response.InputTokens);
+        Assert.Equal(0, usage.Response.OutputTokens);
+    }
+
     [Fact]
     public async Task GenerateAsync_PersonalizationAndTransfer_UsesExplicitChoicesAndOnlyRepeatedUnconflictedEvidence()
     {
@@ -379,9 +421,11 @@ public sealed class OpenAILessonTeacherTests
 
     private sealed class ResponseHandler(string body, HttpStatusCode status = HttpStatusCode.OK, string mediaType = "application/json") : HttpMessageHandler
     {
+        public int Requests { get; private set; }
         public string? RequestBody { get; private set; }
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            Requests++;
             RequestBody = request.Content is null ? null : await request.Content.ReadAsStringAsync(cancellationToken);
             return new HttpResponseMessage(status) { Content = new StringContent(body, Encoding.UTF8, mediaType) };
         }

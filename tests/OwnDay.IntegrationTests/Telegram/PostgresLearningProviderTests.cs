@@ -17,6 +17,7 @@ using OpenAI;
 using OpenAI.Chat;
 using OwnDay.Application.Learning;
 using OwnDay.Application.Learning.Requests;
+using OwnDay.Application.Inbox.Observability;
 using OwnDay.Domain;
 using OwnDay.Domain.Learning;
 using OwnDay.Domain.Projects;
@@ -181,6 +182,10 @@ public sealed partial class PostgresLearningProviderTests : IAsyncLifetime
         await WaitCompletedAsync();
         await using var observer = Open();
         Assert.Equal("stale_target", (await observer.Set<LearningRequest>().SingleAsync()).Outcome);
+        var accounted = await observer.OpenAIRequestAttempts.SingleAsync();
+        Assert.NotNull(accounted.LearningProviderAttemptId);
+        Assert.NotNull(accounted.ChargedUsd);
+        Assert.Equal(accounted.ReservedUsd, accounted.ChargedUsd);
         Assert.Empty(await observer.Set<LearningEvidence>().Where(e => e.ObservedAt == _now).ToListAsync());
         Assert.Empty(await observer.Set<Lesson>().Where(l => l.Status == LessonStatus.Completed && l.Answer == "A reply").ToListAsync());
     }
@@ -263,6 +268,13 @@ public sealed partial class PostgresLearningProviderTests : IAsyncLifetime
         await WaitCompletedAsync();
         await using var result = Open();
         Assert.Equal(MaterialSourceStatus.Unavailable, (await result.Set<Lesson>().SingleAsync()).Provenance!.Status);
+        var accounted = await result.OpenAIRequestAttempts.SingleAsync();
+        Assert.Equal(30, accounted.InputTokens);
+        Assert.Equal(10, accounted.OutputTokens);
+        Assert.Equal(5, accounted.CachedInputTokens);
+        Assert.Equal(0.00000755m, accounted.EstimatedUsd);
+        Assert.Equal(accounted.EstimatedUsd, accounted.ChargedUsd);
+        Assert.True(accounted.FinishedAt >= accounted.StartedAt);
     }
 
     [Theory]
@@ -348,9 +360,9 @@ public sealed partial class PostgresLearningProviderTests : IAsyncLifetime
                 if (interceptor is not null) options.AddInterceptors(interceptor);
             });
             services.Replace(ServiceDescriptor.Singleton<TimeProvider>(new Clock()));
-            services.Replace(ServiceDescriptor.Scoped<ILessonTeacher>(provider => new Provider(probe, provider.GetRequiredService<OwnDayDbContext>(), source)));
-            services.Replace(ServiceDescriptor.Scoped<ICurriculumPlanner>(provider => new Provider(probe, provider.GetRequiredService<OwnDayDbContext>())));
-            services.Replace(ServiceDescriptor.Scoped<ITeachingPlanner>(provider => new Provider(probe, provider.GetRequiredService<OwnDayDbContext>())));
+            services.Replace(ServiceDescriptor.Scoped<ILessonTeacher>(provider => new Provider(probe, provider.GetRequiredService<OwnDayDbContext>(), provider.GetRequiredService<LearningProviderUsage>(), source)));
+            services.Replace(ServiceDescriptor.Scoped<ICurriculumPlanner>(provider => new Provider(probe, provider.GetRequiredService<OwnDayDbContext>(), provider.GetRequiredService<LearningProviderUsage>())));
+            services.Replace(ServiceDescriptor.Scoped<ITeachingPlanner>(provider => new Provider(probe, provider.GetRequiredService<OwnDayDbContext>(), provider.GetRequiredService<LearningProviderUsage>())));
             if (!publicIngress) services.Replace(ServiceDescriptor.Scoped<ITelegramUpdateHandler, TestIngress>());
             services.Configure<LearningRequestProcessingOptions>(options => { options.Enabled = worker; options.PollMilliseconds = 20; });
             if (configure is not null) services.Configure(configure);
@@ -372,13 +384,17 @@ public sealed partial class PostgresLearningProviderTests : IAsyncLifetime
         public int Calls;
     }
 
-    private sealed class Provider(Probe probe, OwnDayDbContext db, bool source = false) : ILessonTeacher, ICurriculumPlanner, ITeachingPlanner
+    private sealed class Provider(Probe probe, OwnDayDbContext db, LearningProviderUsage usage, bool source = false) : ILessonTeacher, ICurriculumPlanner, ITeachingPlanner
     {
         private async Task BlockAsync(string kind, CancellationToken token)
         {
             Assert.Null(db.Database.CurrentTransaction);
             Assert.Empty(db.ChangeTracker.Entries());
             Assert.Equal(ConnectionState.Closed, db.Database.GetDbConnection().State);
+            Assert.NotNull(usage.LedgerAttemptId);
+            var admission = await db.OpenAIRequestAttempts.AsNoTracking().SingleAsync(a => a.Id == usage.LedgerAttemptId, token);
+            Assert.NotNull(admission.LearningProviderAttemptId);
+            Assert.Null(admission.AnalysisId);
             Interlocked.Increment(ref probe.Calls);
             var kindCall = probe.KindCalls.AddOrUpdate(kind, 1, (_, count) => count + 1);
             if (kind == probe.BlockedKind)
@@ -402,7 +418,9 @@ public sealed partial class PostgresLearningProviderTests : IAsyncLifetime
             {
                 Content = new StringContent(JsonSerializer.Serialize(new
                 {
-                    id = "test", model = "test", created = 1, @object = "chat.completion",
+                    id = "test", model = "gpt-6-luna", created = 1, @object = "chat.completion",
+                    usage = new { prompt_tokens = 30, completion_tokens = 10, total_tokens = 40,
+                        prompt_tokens_details = new { cached_tokens = 5 } },
                     choices = new[] { new { index = 0, finish_reason = "stop", message = new
                     { role = "assistant", content = "{\"Theory\":\"Theory\",\"Question\":\"Question\",\"ExpectedAnswer\":null,\"SourceQuote\":null}" } } }
                 }), Encoding.UTF8, "application/json")
@@ -410,7 +428,7 @@ public sealed partial class PostgresLearningProviderTests : IAsyncLifetime
             var teacher = new OpenAILessonTeacher(() => new ChatClient("test", new ApiKeyCredential("dummy-key"), new OpenAIClientOptions
             {
                 Transport = new HttpClientPipelineTransport(apiHttp), RetryPolicy = new ClientRetryPolicy(0)
-            }), Options.Create(new OpenAIInboxAnalysisOptions { Enabled = true, ApiKey = "dummy-key" }), NullLogger<OpenAILessonTeacher>.Instance, reader);
+            }), Options.Create(new OpenAIInboxAnalysisOptions { Enabled = true, ApiKey = "dummy-key" }), NullLogger<OpenAILessonTeacher>.Instance, reader, usage);
             return await teacher.GenerateAsync(request, token);
         }
         public async Task<LessonAssessment> AssessAsync(LessonSnapshot lesson, string answer, CancellationToken token)
