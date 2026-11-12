@@ -1,10 +1,23 @@
 using OwnDay.Domain.Dialogue;
 using OwnDay.Domain.Learning;
+using OwnDay.Application.Learning;
 
 namespace OwnDay.Application.Dialogue;
 
-internal static class FirstGoalConsultation
+public static class FirstGoalConsultation
 {
+    public static DialogueDecision CompleteCreation(DialogueContext context, CurriculumResult result, DialogueTurn turn)
+    {
+        if (result is CurriculumResult.Program created)
+        {
+            context.CompleteConsultation(created.Value, turn.Now, turn.SourceOrder);
+            return new(context, null, "", new(DialogueReplyKind.FirstProgramReady,
+                [created.Value.Goal, context.Consultation!.PracticalUse!]), new("first_program_created"));
+        }
+        context.RestoreConsultation(turn.Now, turn.SourceOrder);
+        return new(context, null, "", new(DialogueReplyKind.ConsultationRetry), new("consultation_creation_failed"));
+    }
+
     public static DialogueDecision Decide(DialogueContext context, DialogueTurn turn)
     {
         var text = turn.Text.Trim();

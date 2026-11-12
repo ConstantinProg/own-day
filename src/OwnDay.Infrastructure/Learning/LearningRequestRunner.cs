@@ -159,19 +159,9 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
         {
             var result = await CreateCurriculum(services, session).CreateAsync(request.UserId, creation.Goal, creation.Experience, null, token);
             session.EnsureComplete();
-            DialogueReply reply;
-            if (result is CurriculumResult.Program created)
-            {
-                decision.Context.CompleteConsultation(created.Value, now, turn.SourceOrder);
-                reply = new(DialogueReplyKind.FirstProgramReady, [created.Value.Goal, decision.Context.Consultation!.PracticalUse!]);
-            }
-            else
-            {
-                decision.Context.RestoreConsultation(now, turn.SourceOrder);
-                reply = new(DialogueReplyKind.ConsultationRetry);
-            }
-            return new(null, result is CurriculumResult.Program ? "first_program_created" : "consultation_creation_failed")
-                { Replies = Introduce(introduce, TelegramDialoguePresenter.Render(reply)) };
+            var completed = FirstGoalConsultation.CompleteCreation(decision.Context, result, turn);
+            return new(null, completed.Audit!.Code)
+                { Replies = Introduce(introduce, TelegramDialoguePresenter.Render(completed.Reply!)) };
         }
         if (decision.Execute is not { } operation)
         {

@@ -99,3 +99,21 @@ restart, stale consent, delayed messages and apply-commit rollback are covered.
 Real classifier quality, Telegram Desktop/NVDA and production topology/backfill
 remain unverified release gates. First-goal consultation and diagnostic acceptance
 are not claimed by this review.
+
+## First-goal consultation review
+
+Reviewed `408df32` against `572d52b`. Confirmed P2 (Important):
+[LearningRequestRunner.cs](../../src/OwnDay.Infrastructure/Learning/LearningRequestRunner.cs)
+selected the consultation phase and user response after curriculum creation.
+That is workflow policy in an adapter, splitting the first-goal rules between
+Application and Infrastructure and making subsequent diagnostic transitions harder
+to change and test together. Move result-to-transition policy into the existing
+Application consultation slice; retain runner dispatch, transaction and rendering.
+The narrow correction and validation follow in the implementation log.
+
+No confirmed P0/P1 or other actionable findings were found. Reviewed typed creation
+without delimiter parsing, original-goal preservation, bounded self-report, current
+prompt/source binding, no selected-program replacement, failure/explicit retry,
+atomic publication, sticky capability and schema/draft rollback safety. Runtime
+flags remain off. Existing program/lesson use cases and Domain invariants remain
+authoritative; no broad redesign or additional dependency is justified.

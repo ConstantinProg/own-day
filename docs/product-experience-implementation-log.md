@@ -445,3 +445,14 @@ Final focused validation passed: Release build without warnings/errors, ten
 integration and 28 unit/model checks passed. Both downgrade rejection and unknown
 draft version guards preserve data; populated schema upgrade preserves consent.
 `git diff --check` passed. Local acceptance is ready for commit and review.
+
+Implementation `408df32` reviewed against `572d52b`: one confirmed P2 boundary
+finding. Runner selected consultation phase/reply after the creation result, splitting
+Application workflow policy across layers. Move that small policy into the existing
+Application consultation slice; runner retains dispatch/rendering and the queue
+transaction. Added pure Application success/failure checks. No P0/P1 found.
+Focused regression/re-review follows before closing the milestone.
+
+P2 fix validation: clean Release build, ten integration and 30 unit/model tests
+passed. The result policy now resides in Application and is directly exercised
+without persistence/transport. No behavior or public Telegram command changed.
