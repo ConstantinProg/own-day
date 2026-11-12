@@ -50,3 +50,24 @@ were not verified. USD 10/month is approved, but not enforced by S1 technical
 attempts; source-aware shared financial admission is S2. Dialogue/content/manual
 accessibility acceptance belongs to subsequent requirements and is not claimed
 by this infrastructure review.
+
+## Follow-up review through shared financial admission
+
+Coverage extended through `0e90153` on 2026-11-12. The readiness P2 discovered by
+subsequent regression is [documented with reproduction](../defects.md) and fixed
+in `afe64ee`; its two red capability cases and seven subsequent focused checks
+are recorded in the implementation log. The earlier no-findings assessment is
+not evidence that the intermittent SQLite readiness case had already been proven.
+
+Post-commit review of `afe64ee..0e90153` found no actionable remaining P0/P1/P2/P3.
+Checked source exclusivity and ownership, global budget-lock ordering, UTC periods,
+service/user caps, immutable price snapshots, unknown reservations, stale/late cost
+reconciliation, physical-call scope lifetimes, local input rejection and guarded
+migration rollback. The financial extension reuses the existing ledger and preserves
+Inbox-only statistics. Shared admission is USD 10/month in runtime configuration;
+it is not an OpenAI billing-account cap or an invoice guarantee.
+
+Validation: full regression of 613 integration and 730 unit tests passed, one live
+smoke skipped. After final source/local-admission guards and added cap scenarios,
+28 focused integration and 35 unit checks passed with a clean Release build.
+EF model/snapshot equality passed. No paid API call or production deployment ran.
