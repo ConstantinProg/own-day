@@ -38,3 +38,30 @@ Post-commit review of `0a4aa02..dd7c2e2`:
 
 Rollout: apply additive schema first, then compatible synchronous Host; rollback code
 without dropping data. Public background ingress remains disabled.
+
+Follow-up acceptance commit: `f86d3ed`. All six tracked receipt tests passed after the
+fix; re-review found no remaining blocking findings. S1.1 is complete.
+
+## S1.2
+
+The no-provider lane processes Pause/Resume/Finish through existing Application use
+cases. Public commands stay synchronous; the worker is disabled by default. PostgreSQL
+head claim, database-clock leases, ownership fencing, unique operation markers and
+effect/reply/completion atomicity are implemented. Ready/backoff and Running heads
+block later dependent work. Different owners can execute concurrently.
+
+Validation:
+
+- Release build: zero warnings/errors. EF reports no pending model changes.
+- Full regression: 524 integration and 719 unit tests passed; one live smoke skipped.
+- Worker tests cover two workers, independent owners, backed-off/Running head, expired
+  ownership and duplicate apply, poison/exhausted requests, commit rollback, expiry
+  during mutation, HTTP receipt followed by Host restart and HTTP token cancellation.
+- An additional migration check preserves a completed synchronous request without
+  scheduling it or inventing an operation marker.
+- Tests explicitly re-enable the hosted lane removed by `OwnDayHostFactory`; a
+  test-only HTTP producer only accepts the supported no-provider operations.
+
+Deployment remains schema-first with the worker/public ingress disabled. No mixed
+synchronous/queued writers for one production owner are permitted. Drain accepted
+cohort/test requests with a compatible worker before code rollback; never drop data.

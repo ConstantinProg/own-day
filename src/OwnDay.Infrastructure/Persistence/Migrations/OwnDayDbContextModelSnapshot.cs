@@ -1351,13 +1351,29 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
                     .HasColumnType("uuid")
                     .HasColumnName("id");
 
+                b.Property<int>("AttemptCount")
+                    .HasColumnType("integer")
+                    .HasColumnName("attempt_count");
+
+                b.Property<DateTime>("AvailableAt")
+                    .HasColumnType("timestamp with time zone")
+                    .HasColumnName("available_at");
+
                 b.Property<long>("ChatId")
                     .HasColumnType("bigint")
                     .HasColumnName("chat_id");
 
-                b.Property<DateTime>("CompletedAt")
+                b.Property<DateTime?>("CompletedAt")
                     .HasColumnType("timestamp with time zone")
                     .HasColumnName("completed_at");
+
+                b.Property<Guid?>("LeaseToken")
+                    .HasColumnType("uuid")
+                    .HasColumnName("lease_token");
+
+                b.Property<DateTime?>("LeaseUntil")
+                    .HasColumnType("timestamp with time zone")
+                    .HasColumnName("lease_until");
 
                 b.Property<string>("NormalizedInput")
                     .IsRequired()
@@ -1365,7 +1381,6 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
                     .HasColumnName("normalized_input");
 
                 b.Property<string>("Outcome")
-                    .IsRequired()
                     .HasMaxLength(100)
                     .HasColumnType("character varying(100)")
                     .HasColumnName("outcome");
@@ -1420,7 +1435,9 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
 
                 b.ToTable("learning_requests", null, t =>
                     {
-                        t.HasCheckConstraint("CK_learning_requests_completion", "status = 0 AND completed_at >= received_at AND outcome = 'reply_committed'");
+                        t.HasCheckConstraint("CK_learning_requests_attempts", "attempt_count >= 0");
+
+                        t.HasCheckConstraint("CK_learning_requests_completion", "(status = 0 AND completed_at IS NOT NULL AND completed_at >= received_at AND outcome IS NOT NULL AND lease_token IS NULL AND lease_until IS NULL) OR (status = 1 AND completed_at IS NULL AND outcome IS NULL AND lease_token IS NULL AND lease_until IS NULL) OR (status = 2 AND completed_at IS NULL AND outcome IS NULL AND lease_token IS NOT NULL AND lease_until IS NOT NULL)");
 
                         t.HasCheckConstraint("CK_learning_requests_identity", "user_id > 0 AND sequence > 0 AND payload_version > 0");
                     });
@@ -1436,6 +1453,35 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
                 b.ToTable("telegram_outbox_messages", null, t => t.HasCheckConstraint(
                     "CK_telegram_outbox_messages_learning_reply",
                     "(learning_request_id IS NULL AND reply_ordinal IS NULL) OR (learning_request_id IS NOT NULL AND reply_ordinal IS NOT NULL AND reply_ordinal >= 0)"));
+            });
+
+        modelBuilder.Entity("OwnDay.Application.Learning.Requests.LearningAppliedOperation", b =>
+            {
+                b.Property<Guid>("RequestId")
+                    .HasColumnType("uuid")
+                    .HasColumnName("request_id");
+
+                b.Property<string>("Step")
+                    .HasMaxLength(50)
+                    .HasColumnType("character varying(50)")
+                    .HasColumnName("step");
+
+                b.Property<DateTime>("AppliedAt")
+                    .HasColumnType("timestamp with time zone")
+                    .HasColumnName("applied_at");
+
+                b.HasKey("RequestId", "Step");
+
+                b.ToTable("learning_applied_operations", (string)null);
+            });
+
+        modelBuilder.Entity("OwnDay.Application.Learning.Requests.LearningAppliedOperation", b =>
+            {
+                b.HasOne("OwnDay.Application.Learning.Requests.LearningRequest", null)
+                    .WithMany()
+                    .HasForeignKey("RequestId")
+                    .OnDelete(DeleteBehavior.Restrict)
+                    .IsRequired();
             });
 
 #pragma warning restore 612, 618

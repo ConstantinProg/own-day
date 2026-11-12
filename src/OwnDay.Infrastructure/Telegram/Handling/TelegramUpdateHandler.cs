@@ -236,6 +236,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
                 NormalizedInput = JsonSerializer.Serialize(new LearningCommandInput(
                     learningDispatch.Command.Name, learningDispatch.Command.Arguments), JsonSerializerOptions.Web),
                 ReceivedAt = now,
+                AvailableAt = now,
                 CompletedAt = _timeProvider.GetUtcNow().UtcDateTime
             };
             _dbContext.Add(learningRequest);

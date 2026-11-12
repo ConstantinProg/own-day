@@ -18,6 +18,15 @@ public static class TelegramServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
 
         services.TryAddSingleton<TimeProvider>(TimeProvider.System);
+        services.AddOptions<OwnDay.Infrastructure.Learning.LearningRequestProcessingOptions>()
+            .BindConfiguration("Learning:Processing")
+            .Validate(settings => settings.Parallelism is >= 1 and <= 8 && settings.PollMilliseconds is >= 20 and <= 60000 &&
+                settings.LeaseSeconds is >= 1 and <= 300 && settings.MaxAttempts is >= 1 and <= 5,
+                "Learning processing requires finite concurrency, poll, lease and attempt limits.")
+            .ValidateOnStart();
+        services.AddScoped<OwnDay.Application.Learning.Requests.ILearningRequestStore, OwnDay.Infrastructure.Persistence.EfLearningRequestStore>();
+        services.AddScoped<OwnDay.Application.Learning.Requests.LearningRequestProcessor>();
+        services.AddHostedService<OwnDay.Infrastructure.Learning.LearningRequestWorker>();
         services.AddScoped<TelegramOutboxDeliveryService>();
         services.AddHostedService<TelegramOutboxWorker>();
         services.AddScoped<StudyInvitationDispatcher>();
