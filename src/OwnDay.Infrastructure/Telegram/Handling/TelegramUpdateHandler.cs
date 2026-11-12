@@ -20,10 +20,7 @@ namespace OwnDay.Infrastructure.Telegram.Handling;
 
 public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
 {
-    private readonly OwnDay.Application.Learning.LearningService _learning;
-    private readonly TelegramCurriculumCommandHandler _curriculum;
-    private readonly TelegramKnowledgeCommandHandler _knowledge;
-    private readonly TelegramStudyCommandHandler _study;
+    private readonly TelegramLearningCommandHandler _learningCommands;
     private readonly TelegramStatisticsCommandHandler _statistics;
     private readonly TelegramActionCommandHandler _actionCommandHandler;
     private readonly TelegramStructuredCommandHandler _structuredCommandHandler;
@@ -65,10 +62,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         ArgumentNullException.ThrowIfNull(logger);
 
         ArgumentNullException.ThrowIfNull(learning);
-        _learning = learning;
-        _curriculum = curriculum;
-        _knowledge = knowledge;
-        _study = study;
+        _learningCommands = new(learning, curriculum, knowledge, study);
         _statistics = statistics;
         _router = router;
         _actionCommandHandler = actionCommandHandler;
@@ -191,7 +185,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
             {
                 await _inboxFlow.CloseAsync(command.UserId, cancellationToken);
             }
-            if (IsLearningCommand(command.Name))
+            if (_learningCommands.Handles(command.Name))
             {
                 if (_processing.DurableIngressEnabled)
                 {
@@ -218,16 +212,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
             }
             replies = command.Name switch
             {
-                _ when _study.Handles(command.Name) => await _study.HandleAsync(command, cancellationToken),
-                _ when _curriculum.Handles(command.Name) => await _curriculum.HandleAsync(command, cancellationToken),
-                _ when _knowledge.Handles(command.Name) => await _knowledge.HandleAsync(command, cancellationToken),
-                "learn" => TelegramLearningPresenter.Render(await _learning.StartAsync(command.UserId, command.Arguments, cancellationToken)),
-                "answer" => TelegramLearningPresenter.Render(await _learning.AnswerAsync(command.UserId, command.Arguments, cancellationToken)),
-                "learn_ask" => TelegramLearningPresenter.Render(await _learning.ClarifyAsync(command.UserId, command.Arguments, cancellationToken)),
-                "learn_explain" => TelegramLearningPresenter.Render(await _learning.ExplainAsync(command.UserId, cancellationToken)),
-                "learn_pause" => TelegramLearningPresenter.Render(await _learning.PauseAsync(command.UserId, cancellationToken)),
-                "learn_resume" => TelegramLearningPresenter.Render(await _learning.ResumeAsync(command.UserId, cancellationToken)),
-                "learn_finish" => TelegramLearningPresenter.Render(await _learning.FinishAsync(command.UserId, cancellationToken)),
+                _ when _learningCommands.Handles(command.Name) => await _learningCommands.HandleAsync(command, cancellationToken),
                 "stats" => await _statistics.HandleAsync(command.UserId, command.Arguments, locale, cancellationToken),
                 "settings" => [TelegramTexts.Get(locale, "settings.menu")],
                 "language" => await _languageFlow.SelectAsync(command.UserId, command.Arguments.Trim(), locale, cancellationToken),
@@ -253,7 +238,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         // Synchronous compatibility boundary: no receipt is committed until the operation
         // and its reply intents complete. The existing user lock serializes sequences.
         LearningRequest? learningRequest = null;
-        if (route is TelegramUpdateRouteResult.Dispatch learningDispatch && IsLearningCommand(learningDispatch.Command.Name))
+        if (route is TelegramUpdateRouteResult.Dispatch learningDispatch && _learningCommands.Handles(learningDispatch.Command.Name))
         {
             learningRequest = await AddLearningRequestAsync(update, learningDispatch, now, ready: false, cancellationToken);
         }
@@ -303,10 +288,6 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
             }
         }
     }
-
-    private bool IsLearningCommand(string name) => _study.Handles(name) || _curriculum.Handles(name) ||
-        _knowledge.Handles(name) || name is "learn" or "answer" or "learn_ask" or "learn_explain" or
-        "learn_pause" or "learn_resume" or "learn_finish";
 
     private async Task<LearningRequest> AddLearningRequestAsync(Update update, TelegramUpdateRouteResult.Dispatch dispatch,
         DateTime receivedAt, bool ready, CancellationToken token)

@@ -270,3 +270,15 @@ The user approved a shared service budget of USD 10 per calendar month on 2026-1
 and requested a review of all branch changes, including Clean Code. Use UTC month
 boundaries and preserve reservations for unknown usage. This records the budget
 decision; source-aware ledger implementation is the next change, not yet completed.
+
+Implementation commit: `bb46aed` (parent `bbde307`). Post-commit review of that
+diff and the complete `origin/main..bb46aed` branch found no confirmed P0/P1/P2.
+A P3 Clean Code finding (duplicated lesson-command recognition/dispatch in the
+Telegram handler) is addressed by reusing the existing shared handler. The
+[full branch review](reviews/product-experience-branch-review.md) records rationale,
+architecture assessment and validation gaps. Focused fix validation follows.
+
+Cleanup validation: final Release build passed with zero warnings/errors; all 238
+Learning/Curriculum/Study/review/personalization integration regressions passed.
+Re-review of shared dispatch found no remaining actionable findings. S1.5 local
+implementation is complete; the external rollout gates above remain open.
