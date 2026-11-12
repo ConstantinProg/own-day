@@ -80,3 +80,17 @@ check, rollback, duplicate apply and cancellation against the PostgreSQL tests.
 Validation gaps remain explicit: this is an isolated no-provider lane, not the S1.3
 provider protocol or S1.5 public cutover. Production replicas/webhook settings, real
 Telegram delivery and live provider behavior remain unverified. S1.2 is complete.
+
+## S1.3 — investigation only
+
+The [provider-path inventory](features/learning/provider-path-inventory.md) maps the
+current command entry points, conditional external steps, mutations and apply guards.
+No S1.3 production changes have been made. Prepared inputs/results, target stamps,
+fresh-scope provider execution and the required blocked-provider matrix remain to be
+implemented and verified. This is not a completed milestone or a verified blocker.
+
+S1.3–S1.5 and S2–S11 remain unfinished. Their requirements/dependencies are unchanged.
+The legacy long provider transaction is still present, and public early-ack remains
+disabled. Later external acceptance also requires a test bot, approved finite live
+budget, manual Telegram Desktop/NVDA verification and the plan's content/retention
+decisions; none of those checks were performed or claimed as passed.
