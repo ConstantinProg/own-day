@@ -1345,6 +1345,99 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
                     .OnDelete(DeleteBehavior.Restrict);
             });
 
+        modelBuilder.Entity("OwnDay.Application.Learning.Requests.LearningRequest", b =>
+            {
+                b.Property<Guid>("Id")
+                    .HasColumnType("uuid")
+                    .HasColumnName("id");
+
+                b.Property<long>("ChatId")
+                    .HasColumnType("bigint")
+                    .HasColumnName("chat_id");
+
+                b.Property<DateTime>("CompletedAt")
+                    .HasColumnType("timestamp with time zone")
+                    .HasColumnName("completed_at");
+
+                b.Property<string>("NormalizedInput")
+                    .IsRequired()
+                    .HasColumnType("jsonb")
+                    .HasColumnName("normalized_input");
+
+                b.Property<string>("Outcome")
+                    .IsRequired()
+                    .HasMaxLength(100)
+                    .HasColumnType("character varying(100)")
+                    .HasColumnName("outcome");
+
+                b.Property<string>("PayloadKind")
+                    .IsRequired()
+                    .HasMaxLength(50)
+                    .HasColumnType("character varying(50)")
+                    .HasColumnName("payload_kind");
+
+                b.Property<int>("PayloadVersion")
+                    .HasColumnType("integer")
+                    .HasColumnName("payload_version");
+
+                b.Property<DateTime>("ReceivedAt")
+                    .HasColumnType("timestamp with time zone")
+                    .HasColumnName("received_at");
+
+                b.Property<long>("Sequence")
+                    .HasColumnType("bigint")
+                    .HasColumnName("sequence");
+
+                b.Property<string>("SourceKey")
+                    .IsRequired()
+                    .HasMaxLength(100)
+                    .HasColumnType("character varying(100)")
+                    .HasColumnName("source_key");
+
+                b.Property<int?>("SourceMessageId")
+                    .HasColumnType("integer")
+                    .HasColumnName("source_message_id");
+
+                b.Property<int>("SourceUpdateId")
+                    .HasColumnType("integer")
+                    .HasColumnName("source_update_id");
+
+                b.Property<int>("Status")
+                    .HasColumnType("integer")
+                    .HasColumnName("status");
+
+                b.Property<long>("UserId")
+                    .HasColumnType("bigint")
+                    .HasColumnName("user_id");
+
+                b.HasKey("Id");
+
+                b.HasIndex("SourceKey")
+                    .IsUnique();
+
+                b.HasIndex("UserId", "Sequence")
+                    .IsUnique();
+
+                b.ToTable("learning_requests", null, t =>
+                    {
+                        t.HasCheckConstraint("CK_learning_requests_completion", "status = 0 AND completed_at >= received_at AND outcome = 'reply_committed'");
+
+                        t.HasCheckConstraint("CK_learning_requests_identity", "user_id > 0 AND sequence > 0 AND payload_version > 0");
+                    });
+            });
+
+        modelBuilder.Entity("OwnDay.Infrastructure.Persistence.TelegramOutboxMessage", b =>
+            {
+                b.Property<Guid?>("LearningRequestId").HasColumnType("uuid").HasColumnName("learning_request_id");
+                b.Property<int?>("ReplyOrdinal").HasColumnType("integer").HasColumnName("reply_ordinal");
+                b.HasIndex("LearningRequestId", "ReplyOrdinal").IsUnique();
+                b.HasOne("OwnDay.Application.Learning.Requests.LearningRequest", null)
+                    .WithMany().HasForeignKey("LearningRequestId").OnDelete(DeleteBehavior.Restrict);
+                b.ToTable("telegram_outbox_messages", null, t => t.HasCheckConstraint(
+                    "CK_telegram_outbox_messages_learning_reply",
+                    "(learning_request_id IS NULL AND reply_ordinal IS NULL) OR (learning_request_id IS NOT NULL AND reply_ordinal IS NOT NULL AND reply_ordinal >= 0)"));
+            });
+
 #pragma warning restore 612, 618
     }
 }

@@ -43,6 +43,7 @@ public sealed class OwnDayDbContext(DbContextOptions<OwnDayDbContext> options)
         CurriculumModel.Configure(modelBuilder);
         KnowledgeModel.Configure(modelBuilder);
         StudyModel.Configure(modelBuilder);
+        LearningRequestModel.Configure(modelBuilder);
         modelBuilder.Entity<OwnDay.Domain.Learning.Lesson>(entity =>
         {
             entity.ToTable("learning_lessons");
@@ -275,6 +276,15 @@ public sealed class OwnDayDbContext(DbContextOptions<OwnDayDbContext> options)
             entity.Property(message => message.Text).HasColumnName("text");
             entity.Property(message => message.ReplyMarkupJson).HasColumnName("reply_markup_json");
             entity.Property(message => message.StudyInvitationId).HasColumnName("study_invitation_id");
+            entity.Property(message => message.LearningRequestId).HasColumnName("learning_request_id");
+            entity.Property(message => message.ReplyOrdinal).HasColumnName("reply_ordinal");
+            entity.HasOne<OwnDay.Application.Learning.Requests.LearningRequest>().WithMany()
+                .HasForeignKey(message => message.LearningRequestId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(message => new { message.LearningRequestId, message.ReplyOrdinal }).IsUnique();
+            entity.ToTable("telegram_outbox_messages", table => table.HasCheckConstraint(
+                "CK_telegram_outbox_messages_learning_reply",
+                "(learning_request_id IS NULL AND reply_ordinal IS NULL) OR " +
+                "(learning_request_id IS NOT NULL AND reply_ordinal IS NOT NULL AND reply_ordinal >= 0)"));
             entity.Property(message => message.Status).HasColumnName("status");
             entity.Property(message => message.AttemptCount).HasColumnName("attempt_count");
             entity.Property(message => message.NextAttemptAt).HasColumnName("next_attempt_at");

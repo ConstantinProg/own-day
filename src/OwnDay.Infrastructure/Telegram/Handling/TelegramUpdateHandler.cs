@@ -1,8 +1,10 @@
 using System.Data;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Npgsql;
 using OwnDay.Application.Interactions;
+using OwnDay.Application.Learning.Requests;
 using OwnDay.Infrastructure.Persistence;
 using OwnDay.Infrastructure.Telegram.Cleanup;
 using OwnDay.Infrastructure.Telegram.Commands;
@@ -217,11 +219,35 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
             replyMarkup = TelegramNavigation.Keyboard(command.Name, locale);
         }
 
+        // Synchronous compatibility boundary: no receipt is committed until the operation
+        // and its reply intents complete. The existing user lock serializes sequences.
+        LearningRequest? learningRequest = null;
+        if (route is TelegramUpdateRouteResult.Dispatch learningDispatch && IsLearningCommand(learningDispatch.Command.Name))
+        {
+            var sequence = await _dbContext.Set<LearningRequest>()
+                .Where(request => request.UserId == user)
+                .MaxAsync(request => (long?)request.Sequence, cancellationToken) ?? 0;
+            learningRequest = new LearningRequest
+            {
+                UserId = user, Sequence = checked(sequence + 1),
+                SourceKey = $"telegram:update:{update.Id}", SourceUpdateId = update.Id,
+                SourceMessageId = update.Message?.Id ?? update.CallbackQuery?.Message?.Id,
+                ChatId = learningDispatch.ChatId,
+                NormalizedInput = JsonSerializer.Serialize(new LearningCommandInput(
+                    learningDispatch.Command.Name, learningDispatch.Command.Arguments), JsonSerializerOptions.Web),
+                ReceivedAt = now,
+                CompletedAt = _timeProvider.GetUtcNow().UtcDateTime
+            };
+            _dbContext.Add(learningRequest);
+        }
+
         for (var index = 0; index < replies.Count; index++)
         {
             _dbContext.TelegramOutboxMessages.Add(new TelegramOutboxMessage
             {
                 Id = Guid.NewGuid(),
+                LearningRequestId = learningRequest?.Id,
+                ReplyOrdinal = learningRequest is null ? null : index,
                 ChatId = chatId,
                 Text = replies[index],
                 ReplyMarkupJson = index == replies.Count - 1 ? replyMarkup : null,
@@ -260,6 +286,10 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
             }
         }
     }
+
+    private bool IsLearningCommand(string name) => _study.Handles(name) || _curriculum.Handles(name) ||
+        _knowledge.Handles(name) || name is "learn" or "answer" or "learn_ask" or "learn_explain" or
+        "learn_pause" or "learn_resume" or "learn_finish";
 
     private async Task<IReadOnlyList<string>> CancelAsync(ProcessIncomingCommand command, string locale, CancellationToken token)
     {
