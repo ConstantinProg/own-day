@@ -2,9 +2,12 @@ using System.Data;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Npgsql;
 using OwnDay.Application.Interactions;
 using OwnDay.Application.Learning.Requests;
+using OwnDay.Domain.Learning;
+using OwnDay.Infrastructure.Learning;
 using OwnDay.Infrastructure.Persistence;
 using OwnDay.Infrastructure.Telegram.Cleanup;
 using OwnDay.Infrastructure.Telegram.Commands;
@@ -32,6 +35,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
     private readonly ITelegramMessageCleaner _messageCleaner;
     private readonly ILogger<TelegramUpdateHandler> _logger;
     private readonly ITelegramCallbackResponder? _callbackResponder;
+    private readonly LearningRequestProcessingOptions _processing;
 
     public TelegramUpdateHandler(
         TelegramUpdateRouter router,
@@ -48,7 +52,8 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         TelegramCurriculumCommandHandler curriculum,
         TelegramKnowledgeCommandHandler knowledge,
         TelegramStudyCommandHandler study,
-        ITelegramCallbackResponder? callbackResponder = null)
+        ITelegramCallbackResponder? callbackResponder = null,
+        IOptions<LearningRequestProcessingOptions>? processing = null)
     {
         ArgumentNullException.ThrowIfNull(router);
         ArgumentNullException.ThrowIfNull(actionCommandHandler);
@@ -75,6 +80,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         _messageCleaner = messageCleaner;
         _logger = logger;
         _callbackResponder = callbackResponder;
+        _processing = processing?.Value ?? new();
     }
 
     public async Task HandleAsync(
@@ -185,6 +191,31 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
             {
                 await _inboxFlow.CloseAsync(command.UserId, cancellationToken);
             }
+            if (IsLearningCommand(command.Name))
+            {
+                if (_processing.DurableIngressEnabled)
+                {
+                    if (!_processing.Enabled || _processing.AcceptancePaused)
+                        throw new InvalidOperationException("Learning acceptance is temporarily paused.");
+                    var databaseNow = await _dbContext.Database.SqlQuery<DateTime>(
+                        $"SELECT clock_timestamp() AS \"Value\"").SingleAsync(cancellationToken);
+                    var oldestAllowed = databaseNow.AddSeconds(-_processing.MaxQueueAgeSeconds);
+                    if (await _dbContext.Set<LearningRequest>().AnyAsync(request =>
+                        request.Status != LearningRequestStatus.Completed && request.ReceivedAt < oldestAllowed, cancellationToken))
+                        throw new InvalidOperationException("Learning processing backlog requires recovery before accepting more work.");
+                    await AddLearningRequestAsync(update, dispatch, databaseNow, ready: true, cancellationToken);
+                    await _dbContext.ProcessedTelegramUpdates.Where(processed => processed.UpdateId == update.Id)
+                        .ExecuteUpdateAsync(setters => setters.SetProperty(processed => processed.ProcessedAt, databaseNow), cancellationToken);
+                    await _dbContext.SaveChangesAsync(cancellationToken);
+                    await transaction.CommitAsync(cancellationToken);
+                    await AcknowledgeAsync(update, cancellationToken);
+                    return;
+                }
+                // Closing the producer must never route around previously accepted work.
+                if (await _dbContext.Set<LearningRequest>().AnyAsync(request => request.UserId == user &&
+                    request.Status != LearningRequestStatus.Completed, cancellationToken))
+                    throw new InvalidOperationException("Drain accepted Learning work before restoring synchronous commands.");
+            }
             replies = command.Name switch
             {
                 _ when _study.Handles(command.Name) => await _study.HandleAsync(command, cancellationToken),
@@ -224,22 +255,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         LearningRequest? learningRequest = null;
         if (route is TelegramUpdateRouteResult.Dispatch learningDispatch && IsLearningCommand(learningDispatch.Command.Name))
         {
-            var sequence = await _dbContext.Set<LearningRequest>()
-                .Where(request => request.UserId == user)
-                .MaxAsync(request => (long?)request.Sequence, cancellationToken) ?? 0;
-            learningRequest = new LearningRequest
-            {
-                UserId = user, Sequence = checked(sequence + 1),
-                SourceKey = $"telegram:update:{update.Id}", SourceUpdateId = update.Id,
-                SourceMessageId = update.Message?.Id ?? update.CallbackQuery?.Message?.Id,
-                ChatId = learningDispatch.ChatId,
-                NormalizedInput = JsonSerializer.Serialize(new LearningCommandInput(
-                    learningDispatch.Command.Name, learningDispatch.Command.Arguments), JsonSerializerOptions.Web),
-                ReceivedAt = now,
-                AvailableAt = now,
-                CompletedAt = _timeProvider.GetUtcNow().UtcDateTime
-            };
-            _dbContext.Add(learningRequest);
+            learningRequest = await AddLearningRequestAsync(update, learningDispatch, now, ready: false, cancellationToken);
         }
 
         for (var index = 0; index < replies.Count; index++)
@@ -291,6 +307,32 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
     private bool IsLearningCommand(string name) => _study.Handles(name) || _curriculum.Handles(name) ||
         _knowledge.Handles(name) || name is "learn" or "answer" or "learn_ask" or "learn_explain" or
         "learn_pause" or "learn_resume" or "learn_finish";
+
+    private async Task<LearningRequest> AddLearningRequestAsync(Update update, TelegramUpdateRouteResult.Dispatch dispatch,
+        DateTime receivedAt, bool ready, CancellationToken token)
+    {
+        var command = dispatch.Command;
+        var sequence = await _dbContext.Set<LearningRequest>().Where(request => request.UserId == command.UserId)
+            .MaxAsync(request => (long?)request.Sequence, token) ?? 0;
+        Guid? lessonId = null;
+        if (ready && command.Name is "answer" or "learn_ask" or "learn_explain")
+            lessonId = await _dbContext.Set<Lesson>().Where(lesson => lesson.UserId == command.UserId &&
+                (lesson.Status == LessonStatus.AwaitingAnswer || lesson.Status == LessonStatus.Paused))
+                .Select(lesson => (Guid?)lesson.Id).SingleOrDefaultAsync(token);
+        var request = new LearningRequest
+        {
+            UserId = command.UserId, Sequence = checked(sequence + 1),
+            SourceKey = $"telegram:update:{update.Id}", SourceUpdateId = update.Id,
+            SourceMessageId = update.Message?.Id ?? update.CallbackQuery?.Message?.Id,
+            ChatId = dispatch.ChatId, PayloadVersion = ready ? 2 : 1,
+            NormalizedInput = JsonSerializer.Serialize(new LearningCommandInput(command.Name, command.Arguments, lessonId), JsonSerializerOptions.Web),
+            Status = ready ? LearningRequestStatus.Ready : LearningRequestStatus.Completed,
+            Outcome = ready ? null : "reply_committed", ReceivedAt = receivedAt, AvailableAt = receivedAt,
+            CompletedAt = ready ? null : _timeProvider.GetUtcNow().UtcDateTime
+        };
+        _dbContext.Add(request);
+        return request;
+    }
 
     private async Task<IReadOnlyList<string>> CancelAsync(ProcessIncomingCommand command, string locale, CancellationToken token)
     {

@@ -1,5 +1,51 @@
 # Learning request processing
 
+## Current command ingress and rollout gate
+
+The producer is controlled by `Learning:Processing:DurableIngressEnabled` (default
+`false`). It requires `Enabled=true`; worker startup verifies PostgreSQL and all
+installed migrations before serving traffic. The schema is unchanged by this
+cutover. All Learning commands, including preference/schedule/selection writers
+and read-only commands, share the owner's sequence. Productivity and explicit
+Inbox commands keep their existing paths. There are no Learning callback routes in
+the current router; invitation start is an existing command and uses this sequence.
+
+Receipt atomically commits update deduplication, immutable versioned input and
+destination before HTTP 200. `ProcessedAt` means receipt completion for queued
+updates; `learning_requests.status/outcome` describes actual processing. Failure
+before commit rolls back receipt, allowing Telegram redelivery. Duplicate source
+updates acknowledge their existing receipt even while acceptance is paused.
+Worker cancellation is independent of the completed HTTP request token. Queued
+commands remain visible in chat; receipt does not wait for command deletion.
+
+Payload version 2 binds Answer/Clarify/Explain to the active Lesson at receipt.
+The worker checks this binding before preparation and rechecks target stamps at
+apply. Missing/replaced questions produce an explicit clarification with no
+assessment; an answer queued before generation cannot bind itself to the new
+question. Version 1 readers are retained for already accepted test requests.
+Do not roll back to a consumer that cannot read version 2 while any remain pending.
+
+`AcceptancePaused=true` closes new Learning receipts while the compatible worker
+drains. Switching back to synchronous mode is rejected for owners with pending
+requests. `MaxQueueAgeSeconds` (default 300, range 30–86400) closes new acceptance
+when any unfinished head is overdue. Worker recovery continues. The
+`learning_queue` readiness check exposes pending count and oldest age in its data;
+an overdue backlog is unhealthy. Configure monitoring for this check and the
+existing request/attempt outcome logs. Liveness remains independent of readiness.
+
+Deployment remains operator-controlled: apply additive schema, install a compatible
+consumer, run test-bot smoke, stop/drain old synchronous ingress, then enable the
+producer for the entire bot/user cohort. Verify one ingress connection and one
+active deliverer without deployment overlap. No production flag was enabled or
+deployment performed by this change. Test-bot smoke, topology verification and
+production-size outbox migration rehearsal remain external gates. On rollback,
+pause acceptance, drain/recover with a compatible worker and retain all data and
+markers; never reintroduce a synchronous writer over pending work.
+
+The sections below describe the earlier incremental deliveries and their original
+disabled production state; the settings and protocol above are the current
+implementation.
+
 The public implementation records completed synchronous Learning commands. It does
 not acknowledge Learning HTTP requests before execution or schedule background work.
 `processed_telegram_updates`, Domain changes, `learning_requests` and linked Telegram

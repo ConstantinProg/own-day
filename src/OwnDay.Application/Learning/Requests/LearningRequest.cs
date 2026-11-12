@@ -10,7 +10,7 @@ public enum LearningRequestStatus
     Running
 }
 
-public sealed record LearningCommandInput(string Name, string Arguments);
+public sealed record LearningCommandInput(string Name, string Arguments, Guid? LessonId = null);
 
 public sealed class LearningRequest
 {

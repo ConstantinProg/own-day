@@ -24,6 +24,10 @@ public static class TelegramServiceCollectionExtensions
                 settings.LeaseSeconds is >= 1 and <= 300 && settings.MaxAttempts is >= 1 and <= 5 &&
                 settings.ProviderTimeoutSeconds is >= 1 and <= 120 && settings.MaxProviderAttempts is >= 1 and <= 3,
                 "Learning processing requires finite concurrency, poll, lease and attempt limits.")
+            .Validate(settings => !settings.DurableIngressEnabled || settings.Enabled,
+                "Durable Learning ingress requires the installed worker to be enabled.")
+            .Validate(settings => settings.MaxQueueAgeSeconds is >= 30 and <= 86400,
+                "Learning queue age must be between 30 seconds and one day.")
             .ValidateOnStart();
         services.AddScoped<OwnDay.Infrastructure.Persistence.EfLearningRequestStore>();
         services.AddScoped<OwnDay.Application.Learning.Requests.ILearningRequestStore>(provider => provider.GetRequiredService<OwnDay.Infrastructure.Persistence.EfLearningRequestStore>());

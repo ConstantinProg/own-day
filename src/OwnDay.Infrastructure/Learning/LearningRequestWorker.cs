@@ -2,13 +2,27 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Microsoft.EntityFrameworkCore;
 using OwnDay.Application.Learning.Requests;
+using OwnDay.Infrastructure.Persistence;
 
 namespace OwnDay.Infrastructure.Learning;
 
 public sealed class LearningRequestWorker(IServiceScopeFactory scopes, IOptions<LearningRequestProcessingOptions> options,
     TimeProvider clock, ILogger<LearningRequestWorker> logger) : BackgroundService
 {
+    public override async Task StartAsync(CancellationToken cancellationToken)
+    {
+        if (options.Value.Enabled)
+        {
+            await using var scope = scopes.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
+            if (!db.Database.IsNpgsql() || (await db.Database.GetPendingMigrationsAsync(cancellationToken)).Any())
+                throw new InvalidOperationException("Learning processing requires PostgreSQL with all compatible migrations applied before startup.");
+        }
+        await base.StartAsync(cancellationToken);
+    }
+
     protected override Task ExecuteAsync(CancellationToken stoppingToken) => options.Value.Enabled
         ? Task.WhenAll(Enumerable.Range(0, options.Value.Parallelism).Select(_ => RunAsync(stoppingToken)))
         : Task.CompletedTask;

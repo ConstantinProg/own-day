@@ -36,6 +36,7 @@
 - Authenticate webhook requests before dispatching updates. Preserve rejection of missing, invalid, or multiple secret-header values and fixed-time secret comparison.
 - Keep Telegram parsing/routing separate from outbound delivery. Do not let `Telegram.Bot` types leak into Domain contracts or core behavior.
 - For domain-changing Telegram updates, keep update deduplication, domain mutation, and outbound message intent atomic where a reply is required. Use the existing transactional outbox for outbound delivery.
+- For durable Learning ingress, commit update deduplication and the versioned request atomically before HTTP success. Apply Domain changes, the operation marker, reply intents, and request completion atomically in the worker; receipt does not mean the use case completed.
 
 ## Tests
 

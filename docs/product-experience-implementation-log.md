@@ -230,3 +230,43 @@ PostgreSQL 18 at port 55440. The previous full-suite results above are historica
 not rerun results. Validation gaps: production-size backfill rehearsal, real bot,
 provider and deployment topology remain unverified. S1.4 is complete locally;
 the production cutover gate remains closed. Next implementation is S1.5.
+
+## S1.5 — durable command ingress
+
+All Learning commands share the durable owner sequence when explicitly enabled,
+including preferences, schedules, selection, review and invitation commands. Receipt
+commits versioned input, destination and dedup before HTTP 200. Existing Application
+use cases execute through the prepared worker, without network calls in receipt or
+apply. Payload v2 binds question-related input to the Lesson visible at receipt;
+unbound/replaced targets produce clarification instead of assessing another question.
+Version 1 remains readable. No schema or historical user rows are rewritten.
+
+The producer stays disabled by default. Options reject producer-without-worker;
+worker startup rejects missing migrations/non-PostgreSQL. Operators can pause new
+acceptance while draining. An overdue backlog closes intake and fails readiness;
+readiness JSON exposes pending count and oldest age. A disabled producer cannot
+run synchronous commands over accepted pending work. Root engineering instructions
+now distinguish receipt atomicity from effect/reply/completion atomicity.
+
+Validation:
+
+- Before production changes, all 32 initial ingress cases failed against the old
+  synchronous behavior. Subsequent focused run: 51 passed, covering every provider
+  branch through the public handler, receipt rollback/restart and stale Answer.
+- Final Release build: zero warnings/errors. Full regression on isolated PostgreSQL
+  18: 601 integration tests passed, one opt-in live smoke skipped; 728 unit tests
+  passed. This includes pause/overdue backlog, disabled-writer bypass prevention,
+  options and missing-migration gates, command journey and legacy regressions.
+- An intermediate build found the health-check abstraction was not an Infrastructure
+  dependency. Moved the operational check to Host; no package was added.
+- `git diff --check` passed. Post-commit review follows.
+
+Local implementation/automated acceptance is complete. Production enablement remains
+conditional on test-bot smoke, verified single ingress/deliverer topology and an
+outbox backfill rehearsal on production-size data. No deployment or paid API call ran.
+These external checks are not claimed as passed.
+
+The user approved a shared service budget of USD 10 per calendar month on 2026-11-12
+and requested a review of all branch changes, including Clean Code. Use UTC month
+boundaries and preserve reservations for unknown usage. This records the budget
+decision; source-aware ledger implementation is the next change, not yet completed.

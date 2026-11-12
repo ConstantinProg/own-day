@@ -37,12 +37,21 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
                 return await services.GetRequiredService<ILearningRequestStore>().ApplyAsync(lease, async (request, cancellationToken) =>
                 {
                     if (request.AttemptCount > maxAttempts) return new(null, "attempts_exhausted");
-                    if (request.PayloadKind != "learning_command" || request.PayloadVersion != 1) return new(null, "unsupported_payload");
+                    if (request.PayloadKind != "learning_command" || request.PayloadVersion is not (1 or 2)) return new(null, "unsupported_payload");
                     LearningCommandInput? input;
                     try { input = JsonSerializer.Deserialize<LearningCommandInput>(request.NormalizedInput, JsonSerializerOptions.Web); }
                     catch (JsonException) { return new(null, "unsupported_payload"); }
                     if (input is null || input.Name is null || input.Arguments is null || !handler.Handles(input.Name))
                         return new(null, "unsupported_payload");
+                    if (request.PayloadVersion == 2 && input.Name is "answer" or "learn_ask" or "learn_explain")
+                    {
+                        var lesson = await services.GetRequiredService<ILessonStore>().FindActiveAsync(request.UserId, cancellationToken);
+                        if (input.LessonId is null || lesson?.Id != input.LessonId)
+                            return new(null, "stale_target")
+                            {
+                                Replies = ["The addressed question is no longer current or was not available when the command arrived. Check the current lesson and repeat the command; no answer was assessed."]
+                            };
+                    }
                     var replies = await handler.HandleAsync(new(input.Name, input.Arguments, request.UserId), cancellationToken);
                     session.EnsureComplete();
                     return new(null, "reply_committed") { Replies = replies };

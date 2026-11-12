@@ -79,7 +79,7 @@ public sealed partial class PostgresLearningProviderTests : IAsyncLifetime
     {
         var arguments = await SeedAsync(command);
         var probe = new Probe(blockedKind);
-        using var host = Host(probe, worker: true);
+        using var host = Host(probe, worker: true, publicIngress: true);
         using var client = host.CreateClient();
         client.DefaultRequestHeaders.Add("X-Telegram-Bot-Api-Secret-Token", "integration-test-webhook-secret");
         var response = await client.PostAsJsonAsync("/telegram/webhook", new
@@ -334,7 +334,10 @@ public sealed partial class PostgresLearningProviderTests : IAsyncLifetime
     private OwnDayDbContext Open() => new(new DbContextOptionsBuilder<OwnDayDbContext>().UseNpgsql(_connection).Options);
 
     private WebApplicationFactory<Program> Host(Probe probe, bool worker, bool source = false,
-        Action<LearningRequestProcessingOptions>? configure = null, IInterceptor? interceptor = null) => new OwnDayHostFactory().WithWebHostBuilder(builder =>
+        Action<LearningRequestProcessingOptions>? configure = null, IInterceptor? interceptor = null,
+        bool publicIngress = false) => new OwnDayHostFactory().WithWebHostBuilder(builder =>
+    {
+        builder.UseSetting("Learning:Processing:DurableIngressEnabled", publicIngress.ToString());
         builder.ConfigureServices(services =>
         {
             services.RemoveAll<DbContextOptions<OwnDayDbContext>>();
@@ -348,11 +351,12 @@ public sealed partial class PostgresLearningProviderTests : IAsyncLifetime
             services.Replace(ServiceDescriptor.Scoped<ILessonTeacher>(provider => new Provider(probe, provider.GetRequiredService<OwnDayDbContext>(), source)));
             services.Replace(ServiceDescriptor.Scoped<ICurriculumPlanner>(provider => new Provider(probe, provider.GetRequiredService<OwnDayDbContext>())));
             services.Replace(ServiceDescriptor.Scoped<ITeachingPlanner>(provider => new Provider(probe, provider.GetRequiredService<OwnDayDbContext>())));
-            services.Replace(ServiceDescriptor.Scoped<ITelegramUpdateHandler, TestIngress>());
+            if (!publicIngress) services.Replace(ServiceDescriptor.Scoped<ITelegramUpdateHandler, TestIngress>());
             services.Configure<LearningRequestProcessingOptions>(options => { options.Enabled = worker; options.PollMilliseconds = 20; });
             if (configure is not null) services.Configure(configure);
             if (worker) services.AddHostedService<LearningRequestWorker>();
-        }));
+        });
+    });
 
     private sealed class Clock : TimeProvider { public override DateTimeOffset GetUtcNow() => _now; }
     private sealed class Probe(string blockedKind)

@@ -1,8 +1,11 @@
 # Learning provider paths
 
 Inventory for S1.3, based on `141d56e`. The disabled background lane now invokes
-these same use cases through concrete, durable provider steps. Public entry points
-still execute inside the legacy Telegram transaction until the separate cutover.
+these same use cases through concrete, durable provider steps. With
+`Learning:Processing:DurableIngressEnabled=true`, every entry below commits a
+versioned receipt and executes in the worker; no provider is available to that
+receipt path. With the switch off, the synchronous compatibility path remains for
+the schema-first rollout. Do not mix modes for an owner with pending work.
 
 | Entry | Existing use case | External steps | Required prepare/apply guards |
 |---|---|---|---|

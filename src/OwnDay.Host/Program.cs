@@ -27,7 +27,8 @@ builder.Services
     .AddHealthChecks()
     .AddDbContextCheck<OwnDayDbContext>(
         name: "postgresql",
-        tags: ["ready"]);
+        tags: ["ready"])
+    .AddCheck<OwnDay.Host.HealthChecks.LearningQueueHealthCheck>("learning_queue", tags: ["ready"]);
 builder.Services.AddScoped<ActionService>();
 builder.Services.AddScoped<IActionStore, EfActionStore>();
 builder.Services.AddScoped<StructuredItemService>();
@@ -98,7 +99,15 @@ app.MapHealthChecks("/health/live", new HealthCheckOptions
 });
 app.MapHealthChecks("/health/ready", new HealthCheckOptions
 {
-    Predicate = healthCheck => healthCheck.Tags.Contains("ready")
+    Predicate = healthCheck => healthCheck.Tags.Contains("ready"),
+    ResponseWriter = (context, report) => context.Response.WriteAsJsonAsync(new
+    {
+        status = report.Status.ToString(),
+        checks = report.Entries.ToDictionary(entry => entry.Key, entry => new
+        {
+            status = entry.Value.Status.ToString(), data = entry.Value.Data
+        })
+    }, context.RequestAborted)
 });
 app.MapGet("/version", () => TypedResults.Ok(new
 {
