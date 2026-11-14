@@ -17,11 +17,14 @@ public sealed class EfDialogueStore(OwnDayDbContext db) : IDialogueStore
             : Task.FromResult<DialogueContext?>(local);
     }
     public void Add(DialogueContext context) => db.Add(context);
-    public Task<DialogueProgramSnapshot?> ReadProgramAsync(UserId user, CancellationToken token) =>
-        (from context in db.Set<LearningContext>() join program in db.Set<LearningProgram>() on context.ProgramId equals program.Id
+    public async Task<DialogueProgramSnapshot?> ReadProgramAsync(UserId user, CancellationToken token)
+    {
+        var selected = await (from context in db.Set<LearningContext>() join program in db.Set<LearningProgram>() on context.ProgramId equals program.Id
          where context.UserId == user && program.UserId == user
-         select new DialogueProgramSnapshot(program.Id, program.Goal, program.Discipline, program.Routes.Max(route => route.Version), EF.Property<uint>(program, "TargetVersion"), program.EnglishDiagnostic != null))
+         select new { Snapshot = new DialogueProgramSnapshot(program.Id, program.Goal, program.Discipline, program.Routes.Max(route => route.Version), EF.Property<uint>(program, "TargetVersion"), program.EnglishDiagnostic != null), context.Practice })
         .SingleOrDefaultAsync(token);
+        return selected is null ? null : selected.Snapshot with { PracticeStatus = selected.Practice?.Status };
+    }
     public Task<DialogueProgramSnapshot?> ReadProgramByIdAsync(UserId user, Guid programId, CancellationToken token) =>
         db.Set<LearningProgram>().Where(program => program.UserId == user && program.Id == programId)
             .Select(program => new DialogueProgramSnapshot(program.Id, program.Goal, program.Discipline, program.Routes.Max(route => route.Version), EF.Property<uint>(program, "TargetVersion"), program.EnglishDiagnostic != null))

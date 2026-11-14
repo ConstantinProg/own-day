@@ -160,6 +160,10 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
                                 select program.EnglishDiagnostic).SingleOrDefaultAsync(cancellationToken);
         if (diagnostic is { Supported: false })
             throw new InvalidOperationException("A compatible English diagnostic reader is required before accepting updates for this owner.");
+        var practice = await _dbContext.Set<LearningContext>().Where(context => context.UserId == user)
+            .Select(context => context.Practice).SingleOrDefaultAsync(cancellationToken);
+        if (practice is { Supported: false })
+            throw new InvalidOperationException("A compatible practice reader is required before accepting updates for this owner.");
         var dialogueMode = _processing.DialogueEnabled || dialogue is not null ||
             await _dbContext.Set<LearningRequest>().AnyAsync(request => request.UserId == user &&
                 (request.PayloadKind == "learning_text" || request.PayloadKind == "learning_command" && request.PayloadVersion == 3), cancellationToken);
@@ -188,7 +192,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
                 var lessonId = await CurrentLessonIdAsync(user, cancellationToken);
                 await AddReceiptAsync(update, user, chatId, new LearningTextInput(ordinary.Value, lessonId,
                     dialogue?.PromptId, dialogue?.Revision, _processing.ConsultationEnabled || dialogue?.Consultation is not null,
-                    _processing.EnglishDiagnosticEnabled),
+                    _processing.EnglishDiagnosticEnabled, _processing.PracticeEnabled),
                     "learning_text", 1, databaseNow, ready: true, cancellationToken);
                 await CommitReceiptAsync(databaseNow);
                 return;

@@ -10,7 +10,8 @@ public enum DialogueExpectedResponse { None, ConsultationDetail, DiagnosticChoic
 public enum DialogueOperationKind
 {
     None, Answer, Clarify, Explain, Pause, Resume, Finish, Next, Progress,
-    CreateProgram, CreateProjectProgram, SelectProgram, ChangeGoal, Cancel, Confirm, Diagnose
+    CreateProgram, CreateProjectProgram, SelectProgram, ChangeGoal, Cancel, Confirm, Diagnose,
+    BeginPractice, NextPractice, PausePractice, ResumePractice, StopPractice, PracticeInfo, StartOtherLesson
 }
 
 public sealed record DialogueClarification(Guid OriginalRequestId, ImmutableArray<DialogueOperationKind> Allowed,
@@ -26,7 +27,7 @@ public sealed record DialogueConfirmation(Guid ProposalId, string Code, Guid Ori
 // for pedagogical state; there are no jobs, provider results or transport types here.
 public sealed partial class DialogueContext
 {
-    public const int CurrentSchemaVersion = 3;
+    public const int CurrentSchemaVersion = 4;
     private DialogueContext() { }
     public UserId UserId { get; private set; }
     public int SchemaVersion { get; private set; } = CurrentSchemaVersion;

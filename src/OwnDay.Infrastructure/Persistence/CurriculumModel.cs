@@ -13,6 +13,9 @@ internal static class CurriculumModel
     {
         modelBuilder.Entity<LearningContext>(entity =>
         {
+            entity.Property(context => context.Practice).HasConversion(
+                value => JsonSerializer.Serialize(value, JsonSerializerOptions.Web),
+                value => JsonSerializer.Deserialize<LearningPractice>(value, JsonSerializerOptions.Web)).HasColumnType("jsonb");
             entity.ToTable("learning_contexts");
             entity.HasKey(c => c.UserId);
             entity.Property(c => c.UserId).HasConversion(id => id.Value, value => new UserId(value)).ValueGeneratedNever();

@@ -148,6 +148,9 @@ public sealed class PostgresProgramsTests
             // New evidence metadata must prevent an unsafe downgrade before old indexes are restored.
             var rollbackFailure = await Assert.ThrowsAsync<PostgresException>(() => constraints.GetService<IMigrator>().MigrateAsync(previous));
             Assert.Contains("Retain diagnostic results and assistance", rollbackFailure.MessageText);
+            // A safe newer downgrade may have completed before an older guard
+            // rejected the chain. Restore the current reader schema before EF reads.
+            await constraints.Database.MigrateAsync();
             Assert.Equal(2, await constraints.Set<LearningProgram>().CountAsync());
             Assert.Single(await constraints.Set<LearningContext>().ToListAsync());
             Assert.Equal(skill.Id, (await constraints.Set<ProgramSkillLink>().SingleAsync()).SkillId);

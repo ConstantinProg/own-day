@@ -7,6 +7,9 @@ namespace OwnDay.Application.Learning;
 
 public interface ICurriculumStore
 {
+    Task<LearningContext?> FindContextAsync(UserId user, CancellationToken token);
+    Task<Lesson?> FindPracticeLessonAsync(UserId user, Guid lessonId, CancellationToken token);
+    Task<Lesson?> FindLastProgramLessonAsync(UserId user, Guid programId, CancellationToken token);
     Task<LearningProgram?> FindAsync(UserId user, CancellationToken token);
     Task<LearningProgram?> FindAsync(UserId user, Guid programId, CancellationToken token);
     Task<IReadOnlyList<LearningProgram>> ListAsync(UserId user, int offset, int limit, CancellationToken token);
@@ -74,6 +77,9 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
         }
         if (goal.Length is < 1 or > LearningProgram.MaxGoalLength) return new CurriculumResult.InvalidInput();
         if (await lessons.FindActiveAsync(user, token) is not null) return new CurriculumResult.LessonInProgress();
+        var currentContext = await store.FindContextAsync(user, token);
+        if (currentContext?.Practice is { Supported: false }) return new CurriculumResult.InvalidTransition();
+        if (currentContext?.Practice is { Active: true }) return new CurriculumResult.LessonInProgress();
         try
         {
             var authored = englishDiagnostic && projectId is null && EnglishLearningContent.IsEnglishGoal(goal);
@@ -108,6 +114,10 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
         if (program is null) return new CurriculumResult.ProgramNotFound();
         var current = await store.FindAsync(user, token);
         if (current?.Id != program.Id && await lessons.FindActiveAsync(user, token) is not null)
+            return new CurriculumResult.LessonInProgress();
+        var context = await store.FindContextAsync(user, token);
+        if (context?.Practice is { Supported: false }) return new CurriculumResult.InvalidTransition();
+        if (current?.Id != program.Id && context?.Practice is { Active: true })
             return new CurriculumResult.LessonInProgress();
         await store.SelectAsync(program, token);
         return new CurriculumResult.Program(program);

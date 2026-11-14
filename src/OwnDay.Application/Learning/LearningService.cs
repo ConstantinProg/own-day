@@ -300,7 +300,7 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
         Transfer = lesson.Transfer, Content = lesson.Content
     };
 
-    private static LearningResult.Session Session(Lesson lesson) => new(lesson.Topic, lesson.Question, lesson.Status)
+    internal static LearningResult.Session Session(Lesson lesson) => new(lesson.Topic, lesson.Question, lesson.Status)
     {
         Provenance = lesson.Provenance, ProjectActionId = lesson.ProjectActionId, Transfer = lesson.Transfer,
         Content = lesson.Content, Theory = lesson.Content is null ? null : lesson.Theory,

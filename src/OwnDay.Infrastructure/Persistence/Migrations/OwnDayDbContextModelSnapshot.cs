@@ -23,7 +23,7 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
         {
             b.Property<long>("UserId").ValueGeneratedNever().HasColumnType("bigint").HasColumnName("user_id");
             b.Property<long>("Revision").IsConcurrencyToken().HasColumnType("bigint").HasColumnName("revision");
-            b.Property<int>("SchemaVersion").ValueGeneratedOnAdd().HasDefaultValue(3).HasColumnType("integer").HasColumnName("schema_version");
+            b.Property<int>("SchemaVersion").ValueGeneratedOnAdd().HasDefaultValue(4).HasColumnType("integer").HasColumnName("schema_version");
             b.Property<int>("Phase").HasColumnType("integer").HasColumnName("phase");
             b.Property<int>("ExpectedResponse").HasColumnType("integer").HasColumnName("expected_response");
             b.Property<Guid>("PromptId").HasColumnType("uuid").HasColumnName("prompt_id");
@@ -1604,6 +1604,7 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
                 b.Property<string>("Content").HasColumnType("jsonb");
             });
         }
+        modelBuilder.Entity("OwnDay.Domain.Learning.LearningContext", b => b.Property<string>("Practice").HasColumnType("jsonb"));
 #pragma warning restore 612, 618
     }
 }

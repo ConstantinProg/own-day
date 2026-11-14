@@ -6,7 +6,8 @@ using System.Text.Json;
 
 namespace OwnDay.Application.Dialogue;
 
-public sealed class LearningDialogueService(IDialogueStore store, ILearningIntentResolver resolver, bool consultationEnabled = false)
+public sealed class LearningDialogueService(IDialogueStore store, ILearningIntentResolver resolver, bool consultationEnabled = false,
+    bool practiceEnabled = false)
 {
     public async Task<DialogueDecision> DecideAsync(DialogueTurn turn, Lesson? lesson, DialogueProgramSnapshot? program,
         string stamp, CancellationToken token)
@@ -103,6 +104,31 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
         if (command is not null && (context.PendingClarification is not null || context.PendingConfirmation is not null))
             context.Synchronize(lesson, turn.Now, turn.SourceOrder);
 
+        if (practiceEnabled || program?.PracticeStatus is not null)
+        {
+            var count = normalized switch { "давай одно упражнение" or "практика 1" => "1",
+                "давай два упражнения" or "практика 2" => "2", "давай три упражнения" or "практика 3" => "3", _ => null };
+            if (command is null && count is not null) return new(context, DialogueOperationKind.BeginPractice, count);
+            if (command is null && (normalized.StartsWith("практика ", StringComparison.Ordinal) ||
+                normalized.StartsWith("давай ", StringComparison.Ordinal) && normalized.Contains("упражнен", StringComparison.Ordinal)))
+                return new(context, DialogueOperationKind.BeginPractice, "0");
+        }
+        if (program?.PracticeStatus is not null)
+        {
+            if (lesson is null && command is null && normalized is "помощь" or "help" or "что дальше" or "как продолжить")
+                return new(context, DialogueOperationKind.PracticeInfo, "");
+            if (command == DialogueOperationKind.Next || command is null && normalized is "дальше" or "следующее упражнение" or "next")
+                return new(context, DialogueOperationKind.NextPractice, "");
+            if (program.PracticeStatus is LearningPracticeStatus.Running or LearningPracticeStatus.Paused)
+            {
+                if (command == DialogueOperationKind.Pause || command is null && normalized is "пауза" or "pause" or "мне пора, продолжим позже")
+                    return new(context, DialogueOperationKind.PausePractice, "");
+                if (command is null && normalized is "хватит практики" or "закончим практику") return new(context, DialogueOperationKind.StopPractice, "");
+                if (command == DialogueOperationKind.Resume || command is null && normalized is "продолжим" or "продолжить" or "resume")
+                    return new(context, DialogueOperationKind.ResumePractice, "");
+            }
+        }
+
         if (lesson is null && program?.HasEnglishDiagnostic == true &&
             command is null or DialogueOperationKind.Diagnose or DialogueOperationKind.Resume or DialogueOperationKind.Next or DialogueOperationKind.Pause or DialogueOperationKind.Cancel)
             return new(context, DialogueOperationKind.Diagnose,
@@ -183,6 +209,9 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
             context.Synchronize(lesson, turn.Now, turn.SourceOrder);
             return Recap(context, lesson);
         }
+        if (action == DialogueOperationKind.StartOtherLesson && lesson is null &&
+            program?.PracticeStatus is LearningPracticeStatus.Running or LearningPracticeStatus.Paused)
+            return Reply(context, DialogueReplyKind.MustEndPractice);
         DialogueProgramSnapshot? selectedProgram = null;
         if (action is DialogueOperationKind.CreateProgram or DialogueOperationKind.CreateProjectProgram or DialogueOperationKind.SelectProgram)
         {

@@ -7,6 +7,7 @@ public sealed class LearningRequestProcessingOptions
     public bool DialogueEnabled { get; set; }
     public bool ConsultationEnabled { get; set; }
     public bool EnglishDiagnosticEnabled { get; set; }
+    public bool PracticeEnabled { get; set; }
     public bool AcceptancePaused { get; set; }
     public int MaxQueueAgeSeconds { get; set; } = 300;
     public int Parallelism { get; set; } = 2;

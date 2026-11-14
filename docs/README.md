@@ -23,6 +23,7 @@ they do not establish that every capability already exists.
 - [First-goal consultation](features/learning/first-goal.md): saved practical goal and experience, first program and diagnostic offer.
 - [English diagnostic and first exercise](features/learning/english-diagnostic.md): bounded reading/writing, restart/skip and conservative assistance credit.
 - [Experience acceptance](features/learning/experience-acceptance.md): hosted complete/skip journeys, saved-help recap and capped opt-in Learning smoke.
+- [Bounded skill practice](features/learning/bounded-practice.md): explicit 1–3 exercise volume, next/pause/stop and atomic recovery.
 - [Learning acceptance and operational review](phase-5/acceptance.md): scenario coverage, configuration, migrations and limitations.
 
 Earlier guides retain historical implementation context. Follow their links to automatic processing and the

@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using OwnDay.Domain;
 using OwnDay.Domain.Dialogue;
+using OwnDay.Domain.Learning;
 
 namespace OwnDay.Application.Dialogue;
 
@@ -31,9 +32,9 @@ public interface ILearningIntentResolver
 }
 
 public sealed record LearningTextInput(string Text, Guid? LessonId, Guid? PromptId, long? DialogueRevision, bool ConsultationAllowed = false,
-    bool EnglishDiagnosticAllowed = false);
+    bool EnglishDiagnosticAllowed = false, bool PracticeAllowed = false);
 public sealed record DialogueProgramSnapshot(Guid Id, string Goal, string Discipline, int RouteVersion, uint Version = 0,
-    bool HasEnglishDiagnostic = false);
+    bool HasEnglishDiagnostic = false, LearningPracticeStatus? PracticeStatus = null);
 public sealed record DialogueOriginalInput(string Text, Guid? LessonId, Guid? PromptId);
 public interface IDialogueStore
 {
@@ -54,7 +55,7 @@ public enum DialogueReplyKind
     NoActiveLesson, Paused, NeedBinding, NeedActualInput, Recap, MustFinishLesson, ProgramUnavailable,
     GoalDeferred, ChooseAnswerOrQuestion, ChooseQuestionOrGoal, ChoosePauseOrResume, ConfirmFinish,
     ConfirmProgramSelection, ConfirmProgramCreation, ConfirmGoalIntent,
-    AskGoal, AskPracticalUse, AskExperience, ConsultationRetry, ConsultationUnavailable, FirstProgramReady, ConsultationPaused
+    AskGoal, AskPracticalUse, AskExperience, ConsultationRetry, ConsultationUnavailable, FirstProgramReady, ConsultationPaused, MustEndPractice
 }
 public sealed record DialogueReply(DialogueReplyKind Kind, IReadOnlyList<string>? Values = null);
 public sealed record DialogueDecision(DialogueContext Context, DialogueOperationKind? Execute, string Arguments,

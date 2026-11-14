@@ -13,8 +13,9 @@ Legacy commands remain available. Independent mastery is not claimed by recap.
 
 For ordinary tests configure `OWNDAY_TEST_POSTGRES_CONNECTION` to an isolated
 PostgreSQL 18 database with `Pooling=false` and run the integration project. The
-pre-existing untracked request-fixture exclusion is documented in the execution
-logs and defects list; it does not represent a production defect or a passed test.
+historical untracked request-fixture exclusion is documented in the execution
+logs and defects list. Subsequent bounded-practice verification runs the entire
+solution without that exclusion; its adjacent migration pair currently passes.
 
 ## Explicit paid smoke
 

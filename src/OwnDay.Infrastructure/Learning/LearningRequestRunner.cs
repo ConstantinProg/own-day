@@ -127,6 +127,11 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
             services.GetRequiredService<StructuredItemService>(), services.GetRequiredService<KnowledgeService>(), session,
             services.GetRequiredService<IActionStore>());
 
+    private static LearningPracticeService CreatePractice(IServiceProvider services, LearningProviderSession session) =>
+        new(services.GetRequiredService<ICurriculumStore>(), services.GetRequiredService<ILessonStore>(),
+            new(services.GetRequiredService<ILessonStore>(), session, services.GetRequiredService<KnowledgeService>()),
+            CreateCurriculum(services, session));
+
     private static async Task<LearningRequestExecution> ExecuteDialogueAsync(IServiceProvider services, OwnDayDbContext db,
         LearningRequest request, LearningProviderSession session, TelegramLearningCommandHandler handler, LearningRequestProcessingOptions processing, CancellationToken token)
     {
@@ -151,7 +156,8 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
             command?.Arguments ?? text!.Text, command?.LessonId ?? text?.LessonId, command?.PromptId ?? text?.PromptId,
             new DateTimeOffset(request.ReceivedAt), now, lesson is null ? null : db.Entry(lesson).Property<uint>("TargetVersion").OriginalValue,
             request.SourceMessageId ?? request.SourceUpdateId);
-        var decision = await new LearningDialogueService(store, session, processing.ConsultationEnabled || text?.ConsultationAllowed == true)
+        var decision = await new LearningDialogueService(store, session, processing.ConsultationEnabled || text?.ConsultationAllowed == true,
+            processing.PracticeEnabled || text?.PracticeAllowed == true)
             .DecideAsync(turn, lesson, program, pedagogicalStamp, token);
         var introduce = db.Entry(decision.Context).State == EntityState.Added;
         var audit = decision.Audit is null ? null : JsonSerializer.Serialize(decision.Audit, JsonSerializerOptions.Web);
@@ -183,8 +189,20 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
             }
             return new(null, result.Outcome) { Replies = Introduce(introduce, TelegramCurriculumPresenter.Render(result.Result)) };
         }
-        var name = operation == DialogueOperationKind.None ? command!.Name : CommandName(operation);
+        if (operation is DialogueOperationKind.BeginPractice or DialogueOperationKind.NextPractice or DialogueOperationKind.PausePractice or
+            DialogueOperationKind.ResumePractice or DialogueOperationKind.StopPractice or DialogueOperationKind.PracticeInfo)
+        {
+            var result = await CreatePractice(services, session).ExecuteAsync(request.UserId, operation, decision.Arguments, token);
+            session.EnsureComplete();
+            var current = db.Set<Lesson>().Local.SingleOrDefault(value => value.UserId == request.UserId &&
+                value.Status is LessonStatus.AwaitingAnswer or LessonStatus.Paused);
+            decision.Context.Synchronize(current, now, turn.SourceOrder);
+            return new(null, "practice_reply") { Replies = TelegramPracticePresenter.Render(result) };
+        }
+        var name = operation is DialogueOperationKind.None or DialogueOperationKind.StartOtherLesson ? command!.Name : CommandName(operation);
         var replies = await handler.HandleAsync(new(name, decision.Arguments, request.UserId), token);
+        var practiceResult = await CreatePractice(services, session).SynchronizeAsync(request.UserId, operation, token);
+        if (practiceResult is not null) replies = [.. replies, .. TelegramPracticePresenter.Render(practiceResult)];
         session.EnsureComplete();
         var active = db.Set<Lesson>().Local.SingleOrDefault(value => value.UserId == request.UserId &&
             value.Status is LessonStatus.AwaitingAnswer or LessonStatus.Paused);
@@ -205,6 +223,7 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
         "learn_project" => DialogueOperationKind.CreateProjectProgram, "learn_select" => DialogueOperationKind.SelectProgram,
         "learn_confirm" => DialogueOperationKind.Confirm, "cancel" => DialogueOperationKind.Cancel,
         "learn_diagnose" => DialogueOperationKind.Diagnose,
+        "learn" or "learn_practice" or "learn_review" or "learn_focus" or "learn_adapt" or "learn_project_practice" or "learn_transfer" or "learn_invite_start" => DialogueOperationKind.StartOtherLesson,
         _ => DialogueOperationKind.None
     };
     private static string CommandName(DialogueOperationKind operation) => operation switch

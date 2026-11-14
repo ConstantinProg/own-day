@@ -2,6 +2,16 @@
 
 ## Local untracked legacy-migration fixture uses the current EF model
 
+Update during bounded-practice verification: the class contains six cases, not
+four as earlier reported. The actual filter excluded the whole class; the wrong
+count came from comparing totals while other cases were being added. All six now
+pass unchanged with the newer adjacent migration pair, because its predecessor
+already has the current Lesson fields. The old failure below is historical evidence
+from the English-diagnostic schema pair, not a current reproduction claim. The
+full solution regression is now run without this exclusion. The fixture remains
+fragile because it chooses the latest predecessor instead of pinning its intended
+migration and seeding historical columns explicitly.
+
 Severity: P2 (test fixture only). Observed during English diagnostic verification
 on 2026-11-14. The pre-existing, untracked file
 `tests/OwnDay.IntegrationTests/Telegram/PostgresLearningRequestTests.cs` is outside
