@@ -39,15 +39,10 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
 
         var normalized = Normalize(turn.Text);
         var command = turn.Command;
-        if (lesson is null && program?.HasEnglishDiagnostic == true &&
-            command is null or DialogueOperationKind.Diagnose or DialogueOperationKind.Resume or DialogueOperationKind.Next or DialogueOperationKind.Pause or DialogueOperationKind.Cancel)
-            return new(context, DialogueOperationKind.Diagnose,
-                command == DialogueOperationKind.Resume ? "resume" : command == DialogueOperationKind.Next ? "start" :
-                command is DialogueOperationKind.Pause or DialogueOperationKind.Cancel ? "pause" : turn.Text);
         if (lesson is null && program is null && context.Consultation is { CreatedProgramId: null } &&
             command is DialogueOperationKind.Cancel or DialogueOperationKind.Pause or DialogueOperationKind.Resume)
             return FirstGoalConsultation.Decide(context, turn with { Command = null, Text = command == DialogueOperationKind.Resume ? "resume" : "pause" });
-        if (lesson is null && program is not null && command is null &&
+        if (lesson is null && program is { HasEnglishDiagnostic: false } && command is null &&
             (context.Phase == DialoguePhase.DiagnosticOffer || normalized is "продолжим" or "продолжить" or "resume") &&
             context.Consultation?.CreatedProgramId == program.Id)
         {
@@ -107,6 +102,12 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
             return ChoiceReply(context, context.PendingClarification.Allowed);
         if (command is not null && (context.PendingClarification is not null || context.PendingConfirmation is not null))
             context.Synchronize(lesson, turn.Now, turn.SourceOrder);
+
+        if (lesson is null && program?.HasEnglishDiagnostic == true &&
+            command is null or DialogueOperationKind.Diagnose or DialogueOperationKind.Resume or DialogueOperationKind.Next or DialogueOperationKind.Pause or DialogueOperationKind.Cancel)
+            return new(context, DialogueOperationKind.Diagnose,
+                command == DialogueOperationKind.Resume ? "resume" : command == DialogueOperationKind.Next ? "start" :
+                command is DialogueOperationKind.Pause or DialogueOperationKind.Cancel ? "pause" : turn.Text);
 
         var bound = lesson is not null && turn.ReceiptLessonId == lesson.Id &&
             (turn.ReceiptPromptId == context.PromptId || legacy && turn.ReceiptPromptId is null) &&

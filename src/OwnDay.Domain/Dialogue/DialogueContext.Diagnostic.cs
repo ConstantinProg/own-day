@@ -23,5 +23,8 @@ public sealed partial class DialogueContext
     public bool MatchesDiagnostic(LearningProgram program) => program.UserId == UserId &&
         program.EnglishDiagnostic is { Supported: true } diagnostic && DiagnosticTarget is { } target &&
         target.ProgramId == program.Id && target.ContentVersion == diagnostic.ContentVersion &&
-        target.ItemIndex == diagnostic.Results.Length && target.Status == diagnostic.Status;
+        target.ItemIndex == diagnostic.Results.Length && target.Status == diagnostic.Status &&
+        (diagnostic.Status == EnglishDiagnosticStatus.Offered
+            ? Phase == DialoguePhase.DiagnosticOffer && ExpectedResponse == DialogueExpectedResponse.DiagnosticChoice
+            : Phase == DialoguePhase.Diagnostic && ExpectedResponse == DialogueExpectedResponse.DiagnosticAnswer);
 }

@@ -23,6 +23,7 @@ public sealed class EnglishDiagnosticDialogue(ICurriculumStore programs, Curricu
         }
         if (normalized is "прогресс" or "progress")
             return new(await curriculum.ProgressAsync(turn.UserId, 1, token), "diagnostic_progress");
+        if (normalized is "ответ" or "вопрос" or "answer" or "question") return Choice(program);
         if (normalized.StartsWith("хочу ", StringComparison.Ordinal) || normalized.StartsWith("сменить ", StringComparison.Ordinal) ||
             normalized.Contains("ignore previous", StringComparison.Ordinal) || normalized.Contains("ignore system", StringComparison.Ordinal) ||
             normalized is "другая цель" or "другая тема" or "да" or "нет" or "yes" or "no" && diagnostic.Status != EnglishDiagnosticStatus.Offered)

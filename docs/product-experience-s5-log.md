@@ -58,3 +58,18 @@ Final validation before implementation commit:
 
 Implementation is ready for commit; mandatory post-commit review follows.
 No paid request, Telegram live send, production enrollment or deployment ran.
+
+Post-commit review of `6e7350b` against `a82385d` found a P1 consent-ordering defect
+and a P2 diagnostic control-word defect. Three new scenarios failed against that
+commit, while explicit help remained unassessed. The correction routes pending
+consent before diagnosis, requires the actual diagnostic expectation in Domain,
+and rejects bare choice words before classifier admission. Four focused cases and
+all 761 unit tests passed after correction; complete repository regression and the
+separate fix commit follow. Details: [code review](reviews/english-diagnostic-review.md).
+
+Fix verification: complete repository regression passed, 645 integration tests and
+one live smoke skipped, with the same explicit four-case untracked-class exclusion.
+All 761 unit tests passed and Release build had zero warnings/errors. The new
+confirmation test proves the selected program changes through the existing guarded
+use case with zero classifier/assessment calls and the original diagnostic result
+retained. Choice words/help do not become observations.

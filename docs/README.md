@@ -21,6 +21,7 @@ they do not establish that every capability already exists.
 - [Shared provider budget](features/learning/cost-control.md): monthly USD 10 admission, Learning usage and Inbox compatibility.
 - [Current-exercise dialogue](features/learning/dialogue.md): Learning-first text, bounded intent proposals, confirmation and restart.
 - [First-goal consultation](features/learning/first-goal.md): saved practical goal and experience, first program and diagnostic offer.
+- [English diagnostic and first exercise](features/learning/english-diagnostic.md): bounded reading/writing, restart/skip and conservative assistance credit.
 - [Learning acceptance and operational review](phase-5/acceptance.md): scenario coverage, configuration, migrations and limitations.
 
 Earlier guides retain historical implementation context. Follow their links to automatic processing and the

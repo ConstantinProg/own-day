@@ -224,6 +224,58 @@ public sealed partial class PostgresLearningProviderTests
     }
 
     [Fact]
+    public async Task Post_ProgramConfirmationDuringWriting_ResolvesConsentWithoutAssessingConfirmationText()
+    {
+        var probe = new Probe("");
+        using var host = EnglishHost(probe);
+        using var client = host.CreateClient();
+        await SendEnglishAsync(client, 1, "Хочу читать и писать на английском");
+        await SendEnglishAsync(client, 2, "Рабочие письма");
+        await SendEnglishAsync(client, 3, "Начинаю с нуля");
+        await SendEnglishAsync(client, 4, "начнём диагностику");
+        await SendEnglishAsync(client, 5, "B");
+        var other = LearningProgram.Create(_user, "Algebra", "Beginner", null, "Mathematics", [new("root", "Fractions", [])], null);
+        await using (var db = Open())
+        {
+            db.Add(other);
+            await db.SaveChangesAsync();
+        }
+        await SendEnglishAsync(client, 6, "/learn_select " + other.Id);
+        string code;
+        await using (var db = Open()) code = (await db.Set<DialogueContext>().SingleAsync()).PendingConfirmation!.Code;
+        await SendEnglishAsync(client, 7, "подтверждаю " + code);
+        await using var result = Open();
+        Assert.Equal(other.Id, (await result.Set<LearningContext>().SingleAsync()).ProgramId);
+        Assert.Empty(await result.Set<Lesson>().ToListAsync());
+        var diagnostic = (await result.Set<LearningProgram>().SingleAsync(program => program.Id != other.Id)).EnglishDiagnostic!;
+        Assert.Single(diagnostic.Results);
+        Assert.Equal(0, probe.KindCalls.GetValueOrDefault("assess"));
+        Assert.Equal(0, probe.KindCalls.GetValueOrDefault("intent"));
+        Assert.Null((await result.Set<DialogueContext>().SingleAsync()).PendingConfirmation);
+    }
+
+    [Theory]
+    [InlineData("ответ")]
+    [InlineData("вопрос")]
+    [InlineData("не понял")]
+    public async Task Post_WritingControlOrHelp_DoesNotAssessControlWords(string control)
+    {
+        var probe = new Probe("");
+        using var host = EnglishHost(probe);
+        using var client = host.CreateClient();
+        await SendEnglishAsync(client, 1, "Хочу читать и писать на английском");
+        await SendEnglishAsync(client, 2, "Рабочие письма");
+        await SendEnglishAsync(client, 3, "Начинаю с нуля");
+        await SendEnglishAsync(client, 4, "начнём диагностику");
+        await SendEnglishAsync(client, 5, "B");
+        await SendEnglishAsync(client, 6, control);
+        await using var db = Open();
+        Assert.Single((await db.Set<LearningProgram>().SingleAsync()).EnglishDiagnostic!.Results);
+        Assert.Empty(await db.Set<Lesson>().ToListAsync());
+        Assert.Equal(0, probe.Calls);
+    }
+
+    [Fact]
     public async Task Migrate_LegacySuccessfulReviewAndCompletedDiagnostic_PreservesHistoryWithoutInventingIndependence()
     {
         await SeedAsync("learn_review");
