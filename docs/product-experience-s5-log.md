@@ -73,3 +73,36 @@ All 761 unit tests passed and Release build had zero warnings/errors. The new
 confirmation test proves the selected program changes through the existing guarded
 use case with zero classifier/assessment calls and the original diagnostic result
 retained. Choice words/help do not become observations.
+
+`fbfb400` was re-reviewed against `6e7350b` after commit. Both findings are resolved;
+no confirmed remaining P0/P1/P2/P3. S5 is complete locally, with expert/live/NVDA
+and deployment gates explicitly retained. All implementation and review fixes are
+committed; the original user changes remain excluded.
+
+## Next stage: S6 blocked at external acceptance
+
+The S6 requirements were inspected after closing S5. They require paid opt-in
+Learning live smoke with a test account and a bounded budget, plus manual Telegram
+Desktop/NVDA acceptance of both E1 journeys. `OPENAI_API_KEY` and the checked
+OpenAI configuration-key environment variables are absent in this session. No
+test-account live run or human keyboard/screen-reader acceptance record is
+available. NVDA being installed does not establish that acceptance passed.
+Fake providers, static copy checks and hosted-worker tests cannot substitute for
+those explicit requirements. Production enrollment/deployment is not an alternative.
+
+S6/E1 is not complete. No new S6 implementation is claimed, and its combined
+hosted-lifecycle/failure journeys still need their own acceptance run in addition
+to the required live/manual checks. To resume, configure a non-production test
+account/key through runtime configuration (never commit or paste secrets), perform
+the capped live evaluation and record the manual client/OS/NVDA versions/results.
+Retention approval, real topology/backfill and expert quality thresholds must be
+resolved before the external pilot.
+
+S7–S9 remain unstarted behind E1 and their individual design/guard requirements.
+S10 can be scoped independently after S5 but still needs demonstrably comparable
+baseline/end observations; no comparability or calibrated achievement metric was
+invented in this run. S11 needs actual pilot data and expert calibration. The plan
+does not permit claiming these later capabilities from fake-only evidence.
+
+The untracked source plan receives an additive status/link note without changing
+its requirements or earlier decisions, and is intentionally not added to Git.

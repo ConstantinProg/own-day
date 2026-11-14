@@ -36,6 +36,14 @@ and complete repository regression passes: 645 integration tests, one live smoke
 skipped, 761 unit tests. Release solution build has zero warnings/errors.
 The separate fix commit and its post-commit re-review follow before completion.
 
+Re-reviewed fix `fbfb400` against `6e7350b` after commit. Both P1/P2 findings are
+resolved. Checked pending consent dominance, program/owner/version guards, expected
+response/phase binding, the no-network control-word path and preservation of the
+unfinished diagnostic when another program is selected. The correction uses the
+existing guarded selection use case and introduces no alternate mutation path.
+No confirmed remaining P0/P1/P2/P3 findings were found. Local S5 acceptance is
+complete with the validation gaps below retained as external release gates.
+
 ## Architecture assessment
 
 Production dependencies retain their original direction. Program owns bounded
