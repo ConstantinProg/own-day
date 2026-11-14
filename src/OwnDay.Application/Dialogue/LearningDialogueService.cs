@@ -115,6 +115,9 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
         if (command is { } explicitAction)
             return await DecideActionAsync(context, turn, explicitAction, turn.Text, lesson, program, stamp, false, bound, token);
 
+        if (normalized is "помощь" or "help" or "что дальше" or "как продолжить")
+            return lesson is null ? Reply(context, DialogueReplyKind.NoActiveLesson) : Recap(context, lesson);
+
         if ((normalized.Contains("пауза", StringComparison.Ordinal) || normalized.Contains("pause", StringComparison.Ordinal)) &&
             (normalized.Contains("продолж", StringComparison.Ordinal) || normalized.Contains("resume", StringComparison.Ordinal)))
             return OpenChoice(context, turn, stamp, [DialogueOperationKind.Pause, DialogueOperationKind.Resume]);
@@ -178,7 +181,7 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
         if (action == DialogueOperationKind.Resume && lesson?.Status == LessonStatus.AwaitingAnswer)
         {
             context.Synchronize(lesson, turn.Now, turn.SourceOrder);
-            return new(context, null, "", new(DialogueReplyKind.Recap, [lesson.Topic, lesson.Theory, lesson.Question]));
+            return Recap(context, lesson);
         }
         DialogueProgramSnapshot? selectedProgram = null;
         if (action is DialogueOperationKind.CreateProgram or DialogueOperationKind.CreateProjectProgram or DialogueOperationKind.SelectProgram)
@@ -236,6 +239,9 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
             _ => DialogueReplyKind.ConfirmProgramCreation
         }, [proposal.Label ?? "", proposal.Code]));
     private static DialogueDecision Reply(DialogueContext context, DialogueReplyKind kind) => new(context, null, "", new(kind));
+    private static DialogueDecision Recap(DialogueContext context, Lesson lesson) => new(context, null, "", new(DialogueReplyKind.Recap,
+        [lesson.Topic, lesson.Theory, lesson.Question,
+            lesson.Interactions.OrderByDescending(interaction => interaction.Id).FirstOrDefault()?.Explanation ?? "", lesson.Status.ToString()]));
     private static string Normalize(string text) => text.Trim().TrimEnd('.', '!').ToLowerInvariant();
     private static string Bounded(string text) => text[..Math.Min(500, text.Length)];
     private static string WithProgramTarget(string stamp, DialogueProgramSnapshot? program) =>
@@ -251,7 +257,7 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
     };
     private static DialogueOperationKind? Deterministic(string text)
     {
-        if (text is "пауза" or "поставь на паузу" or "pause" or "stop") return DialogueOperationKind.Pause;
+        if (text is "пауза" or "поставь на паузу" or "мне пора, продолжим позже" or "продолжим позже" or "pause" or "stop") return DialogueOperationKind.Pause;
         if (text is "продолжим" or "продолжить" or "давай продолжим" or "resume" or "continue") return DialogueOperationKind.Resume;
         if (text is "прогресс" or "мой прогресс" or "покажи прогресс" or "progress") return DialogueOperationKind.Progress;
         if (text is "дальше" or "следующее упражнение" or "next") return DialogueOperationKind.Next;

@@ -19,7 +19,7 @@ public static class TelegramLearningPresenter
         LearningResult.InvalidAnswer => ["Use /answer <answer> (up to 3000 characters)."],
         LearningResult.NoActiveLesson => ["Start a lesson with /learn <topic>."],
         LearningResult.ProviderUnavailable => ["The teacher is temporarily unavailable or returned invalid material. Retry the command."],
-        LearningResult.Session session => [RenderSession(session),
+        LearningResult.Session session => [.. session.Content is null ? new[] { RenderSession(session) } : RenderEnglishSession(session),
             .. session.Transfer is not null ? new[] { TransferNotice(session.Transfer) } : Array.Empty<string>(),
             .. session.ProjectActionId is long id ? new[] { ProjectPracticeNotice(id) } : Array.Empty<string>(),
             .. session.Provenance is not null ? new[] { RenderProvenance(session.Provenance) } : Array.Empty<string>()],
@@ -84,4 +84,9 @@ public static class TelegramLearningPresenter
         };
         return $"Topic: {session.Topic}\n{expected}\nCurrent question: {session.Question}\n\n{actions}";
     }
+
+    private static IReadOnlyList<string> RenderEnglishSession(LearningResult.Session session) => session.Status == LessonStatus.Paused
+        ? ["Остановимся здесь. Письмо, вопрос и помощь сохранены. Напишите «Продолжим», когда будете готовы."]
+        : TelegramDialoguePresenter.Render(new(OwnDay.Application.Dialogue.DialogueReplyKind.Recap,
+            [session.Topic, session.Theory ?? "", session.Question, session.LastExplanation ?? "", session.Status.ToString()]));
 }

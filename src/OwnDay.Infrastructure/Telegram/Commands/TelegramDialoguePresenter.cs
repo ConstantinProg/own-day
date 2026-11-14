@@ -30,7 +30,11 @@ public static class TelegramDialoguePresenter
     public static IReadOnlyList<string> Render(DialogueReply reply)
     {
         var values = reply.Values ?? [];
-        if (reply.Kind == DialogueReplyKind.Recap) return ["Продолжаем: " + values[0], values[1], values[2]];
+        if (reply.Kind == DialogueReplyKind.Recap) return ["Текущее упражнение: " + values[0], values[1],
+            .. values.Count > 3 && !string.IsNullOrWhiteSpace(values[3]) ? new[] { "Ранее разбирали (помощь сохранена):\n" + values[3] } : Array.Empty<string>(),
+            values[2] + "\n\n" + (values.Count > 4 && values[4] == "Paused"
+                ? "Упражнение на паузе. Напишите «Продолжим», чтобы вернуться к этому вопросу."
+                : "Напишите ответ или вопрос по упражнению. «Пауза» сохраняет вопрос, «помощь» показывает текущую точку возврата.")];
         if (reply.Kind is DialogueReplyKind.ConfirmFinish or DialogueReplyKind.ConfirmProgramSelection or
             DialogueReplyKind.ConfirmProgramCreation or DialogueReplyKind.ConfirmGoalIntent)
         {

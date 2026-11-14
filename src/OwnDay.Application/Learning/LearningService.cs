@@ -80,6 +80,9 @@ public abstract record LearningResult
     public sealed record ProviderUnavailable : LearningResult;
     public sealed record Session(string Topic, string Question, LessonStatus Status) : LearningResult
     {
+        public LearningContent? Content { get; init; }
+        public string? Theory { get; init; }
+        public string? LastExplanation { get; init; }
         public LessonProvenance? Provenance { get; init; }
         public long? ProjectActionId { get; init; }
         public InterdisciplinaryPractice? Transfer { get; init; }
@@ -299,7 +302,9 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
 
     private static LearningResult.Session Session(Lesson lesson) => new(lesson.Topic, lesson.Question, lesson.Status)
     {
-        Provenance = lesson.Provenance, ProjectActionId = lesson.ProjectActionId, Transfer = lesson.Transfer
+        Provenance = lesson.Provenance, ProjectActionId = lesson.ProjectActionId, Transfer = lesson.Transfer,
+        Content = lesson.Content, Theory = lesson.Content is null ? null : lesson.Theory,
+        LastExplanation = lesson.Content is null ? null : lesson.Interactions.OrderByDescending(interaction => interaction.Id).FirstOrDefault()?.Explanation
     };
 
     private static void ValidateUser(UserId user, CancellationToken token)

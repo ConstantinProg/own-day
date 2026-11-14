@@ -7,6 +7,21 @@ namespace OwnDay.UnitTests.Learning;
 
 public sealed class TelegramLearningPresenterTests
 {
+    [Fact]
+    public void Render_EnglishResumeWithMaximumSavedHelp_KeepsQuestionLastWithinTelegramLimit()
+    {
+        var session = new LearningResult.Session(new string('t', 500), new string('q', 1000), LessonStatus.AwaitingAnswer)
+        {
+            Content = OwnDay.Application.Learning.EnglishLearningContent.FirstLesson,
+            Theory = new string('a', 2500), LastExplanation = new string('h', 2500)
+        };
+        var messages = TelegramLearningPresenter.Render(session);
+        Assert.Contains(messages, message => message.Contains("Ранее", StringComparison.Ordinal) && message.Contains(session.LastExplanation, StringComparison.Ordinal));
+        Assert.Contains(session.Question, messages[^1]);
+        Assert.Contains("помощь", messages[^1]);
+        Assert.All(messages, message => Assert.InRange(message.Length, 1, 4096));
+    }
+
     [Theory]
     [InlineData(MaterialSourceStatus.None, "No authoritative source")]
     [InlineData(MaterialSourceStatus.Unavailable, "Source unavailable")]
