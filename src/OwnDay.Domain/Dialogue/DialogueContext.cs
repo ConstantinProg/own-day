@@ -73,7 +73,7 @@ public sealed partial class DialogueContext
         if (changed) PromptOpenedAt = lesson is null ? null : now;
         Phase = lesson?.Status == LessonStatus.Paused ? DialoguePhase.Paused : DialoguePhase.Learning;
         ExpectedResponse = lesson?.Status == LessonStatus.AwaitingAnswer ? DialogueExpectedResponse.LessonAnswer : DialogueExpectedResponse.None;
-        if (lesson is null) ResponseAfterSourceOrder = 0;
+        if (lesson is null) ResponseAfterSourceOrder = Math.Max(ResponseAfterSourceOrder, sourceOrder);
         else if (lesson.Status == LessonStatus.AwaitingAnswer && newExpectation && sourceOrder > 0)
             ResponseAfterSourceOrder = Math.Max(ResponseAfterSourceOrder, sourceOrder);
     }
@@ -93,6 +93,12 @@ public sealed partial class DialogueContext
 
     public bool MatchesQuestion(Lesson? lesson) => lesson is null ? TargetLessonId is null :
         lesson.UserId == UserId && TargetLessonId == lesson.Id && QuestionFingerprint == Hash(lesson.Question);
+
+    public void AdvanceResponseBoundary(long sourceOrder)
+    {
+        if (SchemaVersion != CurrentSchemaVersion || sourceOrder < 0) throw new InvalidOperationException("Invalid dialogue source boundary.");
+        ResponseAfterSourceOrder = Math.Max(ResponseAfterSourceOrder, sourceOrder);
+    }
 
     public void OpenClarification(Guid originalRequestId, DialogueOperationKind[] allowed, string stamp, DateTimeOffset now, long sourceOrder = 0)
     {

@@ -12,6 +12,20 @@ public sealed class DialogueContextTests
     private static readonly UserId Owner = new(101);
 
     [Fact]
+    public void Synchronize_CompletedQuestion_KeepsMonotonicBoundaryForNextStep()
+    {
+        var lesson = Lesson.Start(Owner, "English", "Theory", "Question");
+        var context = DialogueContext.Create(Owner, null, Now);
+        context.Synchronize(lesson, Now, sourceOrder: 10);
+        lesson.Complete("Answer", "Feedback", true);
+        context.Synchronize(null, Now.AddSeconds(1), sourceOrder: 20);
+        context.Synchronize(null, Now.AddSeconds(2), sourceOrder: 19);
+        Assert.Equal(20, context.ResponseAfterSourceOrder);
+        Assert.Null(context.TargetLessonId);
+        Assert.Equal(DialogueExpectedResponse.None, context.ExpectedResponse);
+    }
+
+    [Fact]
     public void Synchronize_ReorderedTurn_DoesNotLowerQuestionOrInterruptionBoundary()
     {
         var lesson = Lesson.Start(Owner, "English", "Theory", "Question");

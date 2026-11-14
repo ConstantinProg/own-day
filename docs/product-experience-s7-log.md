@@ -46,3 +46,21 @@ also passed. Provider generation runs outside transactions; saved-result replay
 does not pay again after a failed apply. EF model/snapshot equality, populated
 legacy upgrade and guarded practice downgrade are covered. `git diff --check` passes.
 Implementation commit and post-commit review follow before proceeding to S8.
+
+Implementation `637d362` was reviewed against `8f7c1b2` after commit. Confirmed P2:
+completion reset the dialogue source boundary, so a delayed older next could issue
+a future exercise. The new PostgreSQL case failed before correction with two
+Lessons. The fix retains a monotonic boundary across completion and records/checks
+mutating practice controls against it; fresh next remains allowed. Added a Domain
+boundary invariant test. [Review](reviews/bounded-practice-review.md).
+
+An overlapping intermediate build/test run held output assemblies and caused copy
+retry warnings; it is not counted as final validation. The subsequent sequential
+Release build passed with zero warnings/errors, followed by an unfiltered solution
+regression. Final results and the separate fix/re-review follow below. User-facing
+unavailable copy also avoids an internal handler-version instruction.
+
+Correction validation: complete unfiltered solution passed, 663 integration and
+767 unit tests, two opt-in live suites skipped. Final copy-only build passed with
+zero warnings/errors; late-next PostgreSQL case and 29 dialogue/presenter unit tests
+passed afterward. No exclusion of the original six user request tests.

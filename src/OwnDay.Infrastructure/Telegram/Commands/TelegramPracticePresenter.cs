@@ -17,7 +17,7 @@ public static class TelegramPracticePresenter
             PracticeReplyKind.Stopped => "Практика остановлена. Ответы сохранены; незавершённый вопрос можно продолжить отдельно. Для новой практики: «давай два упражнения».",
             PracticeReplyKind.Completed => $"Практика завершена: {practice!.LessonIds.Length} из {practice.RequestedCount}. Это учебные наблюдения, не подтверждение уровня. Новое упражнение автоматически не создаётся.",
             PracticeReplyKind.ProviderUnavailable => "План практики сохранён, но новое упражнение пока недоступно. Для явной повторной попытки напишите «дальше».",
-            _ => "Практика недоступна. Допустимо от одного до трёх упражнений; нужен совместимый обработчик."
+            _ => "Не удалось начать практику. Выберите от одного до трёх упражнений или напишите «помощь», чтобы вернуться к текущему вопросу."
         };
         return result.Lesson is null ? [text] : [text, .. TelegramLearningPresenter.Render(result.Lesson)];
     }

@@ -108,24 +108,24 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
         {
             var count = normalized switch { "давай одно упражнение" or "практика 1" => "1",
                 "давай два упражнения" or "практика 2" => "2", "давай три упражнения" or "практика 3" => "3", _ => null };
-            if (command is null && count is not null) return new(context, DialogueOperationKind.BeginPractice, count);
+            if (command is null && count is not null) return PracticeAction(context, turn, DialogueOperationKind.BeginPractice, count);
             if (command is null && (normalized.StartsWith("практика ", StringComparison.Ordinal) ||
                 normalized.StartsWith("давай ", StringComparison.Ordinal) && normalized.Contains("упражнен", StringComparison.Ordinal)))
-                return new(context, DialogueOperationKind.BeginPractice, "0");
+                return PracticeAction(context, turn, DialogueOperationKind.BeginPractice, "0");
         }
         if (program?.PracticeStatus is not null)
         {
             if (lesson is null && command is null && normalized is "помощь" or "help" or "что дальше" or "как продолжить")
                 return new(context, DialogueOperationKind.PracticeInfo, "");
             if (command == DialogueOperationKind.Next || command is null && normalized is "дальше" or "следующее упражнение" or "next")
-                return new(context, DialogueOperationKind.NextPractice, "");
+                return PracticeAction(context, turn, DialogueOperationKind.NextPractice);
             if (program.PracticeStatus is LearningPracticeStatus.Running or LearningPracticeStatus.Paused)
             {
                 if (command == DialogueOperationKind.Pause || command is null && normalized is "пауза" or "pause" or "мне пора, продолжим позже")
-                    return new(context, DialogueOperationKind.PausePractice, "");
-                if (command is null && normalized is "хватит практики" or "закончим практику") return new(context, DialogueOperationKind.StopPractice, "");
+                    return PracticeAction(context, turn, DialogueOperationKind.PausePractice);
+                if (command is null && normalized is "хватит практики" or "закончим практику") return PracticeAction(context, turn, DialogueOperationKind.StopPractice);
                 if (command == DialogueOperationKind.Resume || command is null && normalized is "продолжим" or "продолжить" or "resume")
-                    return new(context, DialogueOperationKind.ResumePractice, "");
+                    return PracticeAction(context, turn, DialogueOperationKind.ResumePractice);
             }
         }
 
@@ -268,6 +268,12 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
             _ => DialogueReplyKind.ConfirmProgramCreation
         }, [proposal.Label ?? "", proposal.Code]));
     private static DialogueDecision Reply(DialogueContext context, DialogueReplyKind kind) => new(context, null, "", new(kind));
+    private static DialogueDecision PracticeAction(DialogueContext context, DialogueTurn turn, DialogueOperationKind operation, string arguments = "")
+    {
+        if (turn.SourceOrder <= context.ResponseAfterSourceOrder) return Reply(context, DialogueReplyKind.NeedBinding);
+        context.AdvanceResponseBoundary(turn.SourceOrder);
+        return new(context, operation, arguments);
+    }
     private static DialogueDecision Recap(DialogueContext context, Lesson lesson) => new(context, null, "", new(DialogueReplyKind.Recap,
         [lesson.Topic, lesson.Theory, lesson.Question,
             lesson.Interactions.OrderByDescending(interaction => interaction.Id).FirstOrDefault()?.Explanation ?? "", lesson.Status.ToString()]));
