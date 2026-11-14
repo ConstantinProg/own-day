@@ -26,6 +26,11 @@ case and 29 dialogue/presenter unit tests. The separate fix commit is reviewed b
 
 ## Architecture assessment
 
+Re-review of `8287cbd` against `637d362`: the monotonic boundary survives completion,
+and rejected controls do not call the practice use case. Fresh source input remains
+accepted. Existing shared answer/confirmation regressions pass. No further confirmed
+P0/P1/P2 findings. No schema change in the correction.
+
 Domain owns the bounded associations, count, owner/skill/preceding-completion guards
 and practice lifecycle. It does not copy a second current question or provider jobs.
 Application owns progression and synchronization after the common use cases.

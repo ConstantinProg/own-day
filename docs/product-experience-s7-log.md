@@ -64,3 +64,8 @@ Correction validation: complete unfiltered solution passed, 663 integration and
 767 unit tests, two opt-in live suites skipped. Final copy-only build passed with
 zero warnings/errors; late-next PostgreSQL case and 29 dialogue/presenter unit tests
 passed afterward. No exclusion of the original six user request tests.
+
+S7 engineering completed in `8f7c1b2`, `637d362`, `8287cbd`. Post-commit re-review
+of the correction found no remaining confirmed blocking issues. Default-off flag,
+compatible-reader migration/rollback and bounded cost policy are documented. Manual
+and live acceptance remains deferred by the user; no production deployment.
