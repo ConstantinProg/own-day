@@ -27,6 +27,8 @@ public sealed class Lesson
     public long? ProjectActionId { get; private set; }
     public bool IsReview { get; private set; }
     public LessonTeaching? Teaching { get; private set; }
+    public AnswerAssistance Assistance { get; private set; }
+    public LearningContent? Content { get; private set; }
     public InterdisciplinaryPractice? Transfer { get; private set; }
     public IReadOnlyCollection<LessonInteraction> Interactions => _interactions.AsReadOnly();
 
@@ -40,7 +42,16 @@ public sealed class Lesson
         provenance?.Validate();
         if (expectedAnswer is not null) Validate(expectedAnswer, 500);
         return new Lesson { Id = Guid.NewGuid(), UserId = user, Topic = topic, Theory = theory, Question = question,
-            Provenance = provenance, ExpectedAnswer = expectedAnswer };
+            Provenance = provenance, ExpectedAnswer = expectedAnswer, Assistance = AnswerAssistance.Independent };
+    }
+
+    public void SetContent(LearningContent content)
+    {
+        RequireAwaitingAnswer();
+        content.Validate();
+        if (Content is not null || content.Kind == LearningContentKind.OpenWriting && ExpectedAnswer is not null)
+            throw new InvalidOperationException("Writing uses a rubric, not an exact answer key.");
+        Content = content;
     }
 
     public void Complete(string answer, string feedback, bool correct)
@@ -139,6 +150,7 @@ public sealed class Lesson
         Validate(request, 1000);
         Validate(explanation, 2500);
         _interactions.Add(new LessonInteraction(Id, kind, request, explanation));
+        Assistance = AnswerAssistance.Assisted;
     }
 
     private void RequireAwaitingAnswer()

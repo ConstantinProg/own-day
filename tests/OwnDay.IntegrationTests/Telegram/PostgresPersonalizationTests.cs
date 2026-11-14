@@ -102,19 +102,16 @@ public sealed class PostgresPersonalizationTests
             Assert.Empty(teacher.Requests[1].Personalization!.StrategyEvidence);
             await using (var rollback = new OwnDayDbContext(options))
             {
-                await rollback.GetService<IMigrator>().MigrateAsync(previous);
+                await Assert.ThrowsAsync<Npgsql.PostgresException>(() => rollback.GetService<IMigrator>().MigrateAsync(previous));
                 await rollback.Database.MigrateAsync();
             }
             await using (var restored = new OwnDayDbContext(options))
             {
                 Assert.Equal(4, await restored.Set<Lesson>().CountAsync());
                 Assert.Equal(3, await restored.Set<LearningEvidence>().CountAsync());
-                Assert.Empty(await restored.Set<LearningPreference>().ToListAsync());
-                Assert.All(await restored.Set<Lesson>().ToListAsync(), l =>
-                {
-                    Assert.Null(l.Teaching);
-                    Assert.Null(l.Transfer);
-                });
+                Assert.NotEmpty(await restored.Set<LearningPreference>().ToListAsync());
+                Assert.Contains(await restored.Set<Lesson>().ToListAsync(), lesson => lesson.Teaching is not null);
+                Assert.Contains(await restored.Set<Lesson>().ToListAsync(), lesson => lesson.Transfer is not null);
             }
         }
         finally

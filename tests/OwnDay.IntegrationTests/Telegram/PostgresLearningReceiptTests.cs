@@ -141,8 +141,10 @@ public sealed class PostgresLearningReceiptTests : IAsyncLifetime
             INSERT INTO telegram_outbox_messages (id, chat_id, text, status, attempt_count, next_attempt_at, created_at)
             VALUES ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 101, 'Pending legacy material', 0, 0, now(), now());
             """);
-        db.Add(Lesson.Start(new UserId(101), "Legacy", "Theory", "Question"));
-        await db.SaveChangesAsync();
+        await db.Database.ExecuteSqlRawAsync("""
+            INSERT INTO learning_lessons ("Id", "UserId", "Topic", "Theory", "Question", "Status", "IsReview", "AssessmentStatus")
+            VALUES ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 101, 'Legacy', 'Theory', 'Question', 0, false, 0)
+            """);
         await db.Database.MigrateAsync();
         db.ChangeTracker.Clear();
 

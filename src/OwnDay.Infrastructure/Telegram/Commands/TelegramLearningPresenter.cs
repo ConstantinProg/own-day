@@ -11,7 +11,9 @@ public static class TelegramLearningPresenter
     {
         LearningResult.Material material => RenderMaterial(material),
         LearningResult.Assessment assessment => ["AI assessment (may be inaccurate):\n" + assessment.Feedback + "\n" +
-            RenderAssessment(assessment.Status, assessment.DeterministicIsCorrect) + "\n\n/learn_skills · /learn <topic> · /learn_next (program)",
+            RenderAssessment(assessment.Status, assessment.DeterministicIsCorrect) +
+            (assessment.Assistance == AnswerAssistance.Assisted ? "\nОтвет с помощью: самостоятельный успех и увеличение интервала повторения не засчитаны." : "") +
+            "\n\n/learn_skills · /learn <topic> · /learn_next (program)",
             .. assessment.ProjectActionId is long actionId ? new[] { ProjectPracticeNotice(actionId) } : Array.Empty<string>()],
         LearningResult.InvalidTopic => ["Use /learn <topic> (up to 500 characters)."],
         LearningResult.InvalidAnswer => ["Use /answer <answer> (up to 3000 characters)."],
@@ -33,6 +35,10 @@ public static class TelegramLearningPresenter
 
     private static IReadOnlyList<string> RenderMaterial(LearningResult.Material material)
     {
+        if (material.Content is { } content)
+            return [material.Topic + "\n\n" + material.Theory + "\n\nЦель: " + content.Objective,
+                material.Question + "\n\nНапишите ответ, вопрос по упражнению или «пауза». Можно вернуться словом «Продолжим».\n" +
+                "Авторский материал OwnDay: " + content.Version + ". Это учебное упражнение, не подтверждение уровня."];
         var messages = new List<string> { material.Topic + "\n\n" + material.Theory, material.Question + "\n\n" + Actions };
         if (material.ProjectActionId is long id) messages.Add(ProjectPracticeNotice(id));
         if (material.Transfer is not null) messages.Add(TransferNotice(material.Transfer));

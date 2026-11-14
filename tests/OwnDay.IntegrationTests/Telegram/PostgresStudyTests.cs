@@ -28,8 +28,14 @@ public sealed class PostgresStudyTests
         {
             await seed.GetService<IMigrator>().MigrateAsync(Database.Previous);
             var program = LearningProgram.Create(new(101), "Algebra", "Beginner", null, "Mathematics", [new("a", "Algebra", [])], null);
-            seed.AddRange(program, LearningContext.Create(program));
-            await seed.SaveChangesAsync();
+            var topics = System.Text.Json.JsonSerializer.Serialize(program.CurrentRoute.Topics);
+            await seed.Database.ExecuteSqlInterpolatedAsync($"""
+                INSERT INTO learning_programs ("Id", "UserId", "Goal", "Experience", "Discipline", "DiagnosticPending", "Priority")
+                VALUES ({program.Id}, 101, {program.Goal}, {program.Experience}, {program.Discipline}, false, 1);
+                INSERT INTO learning_routes ("Id", "ProgramId", "Version", "Reason", "Topics")
+                VALUES ({program.CurrentRoute.Id}, {program.Id}, 1, {program.CurrentRoute.Reason}, CAST({topics} AS jsonb));
+                INSERT INTO learning_contexts ("UserId", "ProgramId") VALUES (101, {program.Id});
+                """);
             await seed.Database.MigrateAsync();
             Assert.Empty(await seed.Set<StudySchedule>().ToListAsync());
         }

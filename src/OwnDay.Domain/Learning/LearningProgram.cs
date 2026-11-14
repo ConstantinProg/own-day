@@ -18,7 +18,7 @@ public sealed record CurriculumTopic
     public IReadOnlyList<string> Prerequisites { get; }
 }
 
-public sealed class LearningProgram
+public sealed partial class LearningProgram
 {
     public const int MaxGoalLength = 500;
     public const int MaxExperienceLength = 1000;
@@ -61,6 +61,7 @@ public sealed class LearningProgram
 
     public void ApplyDiagnostic(string answer, string discipline, IEnumerable<CurriculumTopic> topics)
     {
+        if (EnglishDiagnostic is not null) throw new InvalidOperationException("Use the versioned English diagnostic.");
         if (!DiagnosticPending) throw new InvalidOperationException("Diagnosis has ended.");
         Validate(answer, MaxDiagnosticAnswerLength);
         if (!string.Equals(Discipline, discipline, StringComparison.Ordinal))
@@ -77,6 +78,11 @@ public sealed class LearningProgram
     public void SkipDiagnostic()
     {
         if (!DiagnosticPending) throw new InvalidOperationException("Diagnosis has ended.");
+        if (EnglishDiagnostic is { } diagnostic)
+        {
+            if (!diagnostic.Supported) throw new InvalidOperationException("A compatible diagnostic reader is required.");
+            EnglishDiagnostic = diagnostic with { Status = EnglishDiagnosticStatus.Skipped };
+        }
         DiagnosticPending = false;
     }
 

@@ -154,6 +154,12 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         var dialogue = await _dbContext.Set<DialogueContext>().SingleOrDefaultAsync(context => context.UserId == user, cancellationToken);
         if (dialogue is not null && (dialogue.SchemaVersion != DialogueContext.CurrentSchemaVersion || dialogue.Consultation is { Version: not 1 }))
             throw new InvalidOperationException("A compatible dialogue reader is required before accepting updates for this owner.");
+        var diagnostic = await (from selected in _dbContext.Set<LearningContext>()
+                                join program in _dbContext.Set<OwnDay.Domain.Learning.LearningProgram>() on selected.ProgramId equals program.Id
+                                where selected.UserId == user && program.UserId == user
+                                select program.EnglishDiagnostic).SingleOrDefaultAsync(cancellationToken);
+        if (diagnostic is { Supported: false })
+            throw new InvalidOperationException("A compatible English diagnostic reader is required before accepting updates for this owner.");
         var dialogueMode = _processing.DialogueEnabled || dialogue is not null ||
             await _dbContext.Set<LearningRequest>().AnyAsync(request => request.UserId == user &&
                 (request.PayloadKind == "learning_text" || request.PayloadKind == "learning_command" && request.PayloadVersion == 3), cancellationToken);
@@ -181,7 +187,8 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
                 var databaseNow = await EnsureLearningAcceptanceAsync(cancellationToken);
                 var lessonId = await CurrentLessonIdAsync(user, cancellationToken);
                 await AddReceiptAsync(update, user, chatId, new LearningTextInput(ordinary.Value, lessonId,
-                    dialogue?.PromptId, dialogue?.Revision, _processing.ConsultationEnabled || dialogue?.Consultation is not null),
+                    dialogue?.PromptId, dialogue?.Revision, _processing.ConsultationEnabled || dialogue?.Consultation is not null,
+                    _processing.EnglishDiagnosticEnabled),
                     "learning_text", 1, databaseNow, ready: true, cancellationToken);
                 await CommitReceiptAsync(databaseNow);
                 return;

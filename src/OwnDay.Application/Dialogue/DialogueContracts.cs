@@ -30,8 +30,10 @@ public interface ILearningIntentResolver
     Task<LearningIntentProposal> ResolveAsync(LearningIntentInput input, CancellationToken token);
 }
 
-public sealed record LearningTextInput(string Text, Guid? LessonId, Guid? PromptId, long? DialogueRevision, bool ConsultationAllowed = false);
-public sealed record DialogueProgramSnapshot(Guid Id, string Goal, string Discipline, int RouteVersion, uint Version = 0);
+public sealed record LearningTextInput(string Text, Guid? LessonId, Guid? PromptId, long? DialogueRevision, bool ConsultationAllowed = false,
+    bool EnglishDiagnosticAllowed = false);
+public sealed record DialogueProgramSnapshot(Guid Id, string Goal, string Discipline, int RouteVersion, uint Version = 0,
+    bool HasEnglishDiagnostic = false);
 public sealed record DialogueOriginalInput(string Text, Guid? LessonId, Guid? PromptId);
 public interface IDialogueStore
 {

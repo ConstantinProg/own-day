@@ -24,6 +24,7 @@ public sealed partial class PostgresLearningProviderTests
         }
         await using var db = Open();
         await Assert.ThrowsAsync<PostgresException>(() => db.GetService<IMigrator>().MigrateAsync("20261112200000_AddDialogueContexts"));
+        await db.Database.MigrateAsync();
         db.ChangeTracker.Clear();
         Assert.Equal("Хочу читать рабочие письма", (await db.Set<DialogueContext>().SingleAsync()).Consultation!.OriginalGoal);
         Assert.False(db.Database.HasPendingModelChanges());
@@ -91,6 +92,8 @@ public sealed partial class PostgresLearningProviderTests
         }
         await using var db = Open();
         var before = await db.Set<DialogueContext>().AsNoTracking().SingleAsync();
+        // Simulate the pre-assistance schema before testing its populated upgrade.
+        await db.Database.ExecuteSqlRawAsync("UPDATE learning_lessons SET \"Assistance\" = 0");
         await db.GetService<IMigrator>().MigrateAsync("20261112200000_AddDialogueContexts");
         await db.Database.MigrateAsync();
         var after = await db.Set<DialogueContext>().AsNoTracking().SingleAsync();

@@ -9,6 +9,8 @@ public static class TelegramDialoguePresenter
     public static IReadOnlyList<string> Help(bool introduce, bool consultation = false, OwnDay.Domain.Dialogue.DialogueContext? context = null,
         Guid? selectedProgramId = null)
     {
+        if (context?.DiagnosticTarget is not null)
+            return ["Диагностика и ответы сохранены. Напишите «Продолжим», чтобы увидеть текущее задание; можно попросить «помощь» или написать «пропустим»."];
         if (consultation && context?.TargetLessonId is null &&
             (selectedProgramId is null || selectedProgramId == context?.Consultation?.CreatedProgramId))
         {

@@ -61,6 +61,7 @@ public abstract record LearningResult
 {
     public sealed record Material(string Theory, string Question, string Topic) : LearningResult
     {
+        public LearningContent? Content { get; init; }
         public LessonProvenance? Provenance { get; init; }
         public bool HasReferenceCheck { get; init; }
         public long? ProjectActionId { get; init; }
@@ -68,6 +69,7 @@ public abstract record LearningResult
     }
     public sealed record Assessment(string Feedback) : LearningResult
     {
+        public AnswerAssistance Assistance { get; init; }
         public AnswerAssessmentStatus Status { get; init; }
         public bool? DeterministicIsCorrect { get; init; }
         public long? ProjectActionId { get; init; }
@@ -165,7 +167,8 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
         await knowledge.RecordAnswerAsync(active, result.Source, token);
         return new LearningResult.Assessment(result.Feedback)
         {
-            Status = active.AssessmentStatus, DeterministicIsCorrect = active.DeterministicIsCorrect, ProjectActionId = active.ProjectActionId
+            Status = active.AssessmentStatus, DeterministicIsCorrect = active.DeterministicIsCorrect, ProjectActionId = active.ProjectActionId,
+            Assistance = active.Assistance
         };
     }
 
@@ -291,7 +294,7 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
     internal static LearningResult.Material Material(Lesson lesson) => new(lesson.Theory, lesson.Question, lesson.Topic)
     {
         Provenance = lesson.Provenance, HasReferenceCheck = lesson.ExpectedAnswer is not null, ProjectActionId = lesson.ProjectActionId,
-        Transfer = lesson.Transfer
+        Transfer = lesson.Transfer, Content = lesson.Content
     };
 
     private static LearningResult.Session Session(Lesson lesson) => new(lesson.Topic, lesson.Question, lesson.Status)

@@ -26,7 +26,10 @@ public interface ICurriculumPlanner
 public abstract record CurriculumResult
 {
     public sealed record Program(LearningProgram Value) : CurriculumResult;
-    public sealed record Lesson(LearningResult Value) : CurriculumResult;
+    public sealed record Lesson(LearningResult Value) : CurriculumResult
+    {
+        public string? Introduction { get; init; }
+    }
     public sealed record InvalidInput : CurriculumResult;
     public sealed record ProjectNotFound : CurriculumResult;
     public sealed record NoProgram : CurriculumResult;
@@ -45,6 +48,7 @@ public abstract record CurriculumResult
     public sealed record ProjectActionNotFound : CurriculumResult;
     public sealed record TransferUnavailable : CurriculumResult;
     public sealed record Progress(LearningProgress Value) : CurriculumResult;
+    public sealed record Diagnostic(LearningProgram Value, string? Notice = null) : CurriculumResult;
     public sealed record NoProgress(int Page) : CurriculumResult;
 }
 
@@ -55,7 +59,8 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
     public const int PageSize = 10;
     public const int MaxPageNumber = int.MaxValue / PageSize;
 
-    public async Task<CurriculumResult> CreateAsync(UserId user, string goal, string experience, long? projectId, CancellationToken token)
+    public async Task<CurriculumResult> CreateAsync(UserId user, string goal, string experience, long? projectId, CancellationToken token,
+        bool englishDiagnostic = false)
     {
         ValidateUser(user, token);
         goal = goal.Trim();
@@ -71,10 +76,13 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
         if (await lessons.FindActiveAsync(user, token) is not null) return new CurriculumResult.LessonInProgress();
         try
         {
-            var proposal = await planner.PlanAsync(new(goal, experience, null, null), token);
+            var authored = englishDiagnostic && projectId is null && EnglishLearningContent.IsEnglishGoal(goal);
+            var proposal = authored ? new CurriculumProposal("English", EnglishLearningContent.Topics(), EnglishLearningContent.ReadingQuestion)
+                : await planner.PlanAsync(new(goal, experience, null, null), token);
             token.ThrowIfCancellationRequested();
             var program = LearningProgram.Create(user, goal, experience, projectId,
                 proposal.Discipline, proposal.Topics, proposal.DiagnosticQuestion);
+            if (authored) program.OfferEnglishDiagnostic();
             store.Add(program);
             await store.SelectAsync(program, token);
             return new CurriculumResult.Program(program);
@@ -135,6 +143,7 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
         if (answer.Length is < 1 or > LearningProgram.MaxDiagnosticAnswerLength) return new CurriculumResult.InvalidInput();
         var program = await store.FindAsync(user, token);
         if (program is null) return new CurriculumResult.NoProgram();
+        if (program.EnglishDiagnostic is not null) return await DiagnoseEnglishAsync(program, answer, token);
         if (!program.DiagnosticPending) return new CurriculumResult.InvalidTransition();
         if (answer.Equals("skip", StringComparison.OrdinalIgnoreCase))
         {
@@ -183,6 +192,7 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
         ValidateUser(user, token);
         var program = target ?? await store.FindAsync(user, token);
         if (program is null) return new CurriculumResult.NoProgram();
+        if (program.EnglishDiagnostic is { Supported: false }) return new CurriculumResult.ProviderUnavailable();
         if (program.DiagnosticPending) return new CurriculumResult.Program(program);
         var active = await lessons.FindActiveAsync(user, token);
         if (active is not null) return new CurriculumResult.Lesson(new LearningResult.Session(active.Topic, active.Question, active.Status)
@@ -224,12 +234,20 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
             var sharedLink = (await knowledge.LinksAsync(program, token)).SingleOrDefault(l => l.TopicCode == topic.Code);
             var shared = sharedLink is not null && status is not null ? new SharedSkillContext(status.Skill.Description, status.State) : null;
             var personalization = await knowledge.PersonalizationAsync(user, token);
-            var material = await teacher.GenerateAsync(new LessonRequest(topic.Title,
+            var authored = program.EnglishDiagnostic is { Supported: true } &&
+                topic.Code == EnglishLearningContent.FirstTopicCode;
+            var scaffold = authored && program.EnglishDiagnostic!.Results.Any(result =>
+                !result.AssessedCorrect || result.Assistance != AnswerAssistance.Independent);
+            var material = authored ? new LessonMaterial(EnglishLearningContent.LessonTheory, EnglishLearningContent.LessonQuestion)
+                : await teacher.GenerateAsync(new LessonRequest(topic.Title,
                 new LessonProgramContext(program.Discipline, program.Goal, program.Experience,
                     program.DiagnosticQuestion, program.DiagnosticAnswer), teaching, SharedSkill: shared,
                 Personalization: personalization.ForGeneration()), token);
+            if (scaffold) material = material with { Theory = material.Theory + "\n\n" + EnglishLearningContent.LessonScaffold };
             token.ThrowIfCancellationRequested();
             var lesson = Lesson.Start(user, topic.Title, material.Theory, material.Question, material.Provenance, material.ExpectedAnswer);
+            if (authored) lesson.SetContent(EnglishLearningContent.FirstLesson);
+            if (scaffold) lesson.AddExplanation(LessonInteractionKind.Clarification, "Опора после диагностики", EnglishLearningContent.LessonScaffold);
             lesson.SetTeaching(new(teaching is null ? PedagogicalStrategy.Standard : AdaptiveTeaching.StrategyFor(teaching.Action),
                 personalization.ExplicitPreferences));
             token.ThrowIfCancellationRequested();

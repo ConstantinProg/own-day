@@ -42,7 +42,7 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
                     if (request.AttemptCount > maxAttempts) return new(null, "attempts_exhausted");
                     if (request.PayloadKind == "learning_text" && request.PayloadVersion == 1 ||
                         request.PayloadKind == "learning_command" && request.PayloadVersion == 3)
-                        return await ExecuteDialogueAsync(services, db, request, session, handler, options.Value.ConsultationEnabled, cancellationToken);
+                        return await ExecuteDialogueAsync(services, db, request, session, handler, options.Value, cancellationToken);
                     if (request.PayloadKind != "learning_command" || request.PayloadVersion is not (1 or 2)) return new(null, "unsupported_payload");
                     LearningCommandInput? input;
                     try { input = JsonSerializer.Deserialize<LearningCommandInput>(request.NormalizedInput, JsonSerializerOptions.Web); }
@@ -128,7 +128,7 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
             services.GetRequiredService<IActionStore>());
 
     private static async Task<LearningRequestExecution> ExecuteDialogueAsync(IServiceProvider services, OwnDayDbContext db,
-        LearningRequest request, LearningProviderSession session, TelegramLearningCommandHandler handler, bool consultationEnabled, CancellationToken token)
+        LearningRequest request, LearningProviderSession session, TelegramLearningCommandHandler handler, LearningRequestProcessingOptions processing, CancellationToken token)
     {
         LearningCommandInput? command = null;
         LearningTextInput? text = null;
@@ -151,13 +151,14 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
             command?.Arguments ?? text!.Text, command?.LessonId ?? text?.LessonId, command?.PromptId ?? text?.PromptId,
             new DateTimeOffset(request.ReceivedAt), now, lesson is null ? null : db.Entry(lesson).Property<uint>("TargetVersion").OriginalValue,
             request.SourceMessageId ?? request.SourceUpdateId);
-        var decision = await new LearningDialogueService(store, session, consultationEnabled || text?.ConsultationAllowed == true)
+        var decision = await new LearningDialogueService(store, session, processing.ConsultationEnabled || text?.ConsultationAllowed == true)
             .DecideAsync(turn, lesson, program, pedagogicalStamp, token);
         var introduce = db.Entry(decision.Context).State == EntityState.Added;
         var audit = decision.Audit is null ? null : JsonSerializer.Serialize(decision.Audit, JsonSerializerOptions.Web);
         if (decision.Creation is { } creation)
         {
-            var result = await CreateCurriculum(services, session).CreateAsync(request.UserId, creation.Goal, creation.Experience, null, token);
+            var result = await CreateCurriculum(services, session).CreateAsync(request.UserId, creation.Goal, creation.Experience, null, token,
+                processing.EnglishDiagnosticEnabled || text?.EnglishDiagnosticAllowed == true);
             session.EnsureComplete();
             var completed = FirstGoalConsultation.CompleteCreation(decision.Context, result, turn);
             return new(null, completed.Audit!.Code)
@@ -168,6 +169,19 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
             session.EnsureComplete();
             return new(null, decision.Audit?.Code ?? "dialogue_reply")
                 { Replies = Introduce(introduce, TelegramDialoguePresenter.Render(decision.Reply ?? new(DialogueReplyKind.Unavailable))), DialogueOutcomeJson = audit };
+        }
+        if (operation == DialogueOperationKind.Diagnose && program?.HasEnglishDiagnostic == true && lesson is null)
+        {
+            var result = await new EnglishDiagnosticDialogue(services.GetRequiredService<ICurriculumStore>(),
+                CreateCurriculum(services, session), session).HandleAsync(decision.Context, turn, decision.Arguments, token);
+            session.EnsureComplete();
+            if (result.Result is CurriculumResult.Lesson)
+            {
+                var current = db.Set<Lesson>().Local.SingleOrDefault(value => value.UserId == request.UserId &&
+                    value.Status is LessonStatus.AwaitingAnswer or LessonStatus.Paused);
+                decision.Context.Synchronize(current, now, turn.SourceOrder);
+            }
+            return new(null, result.Outcome) { Replies = Introduce(introduce, TelegramCurriculumPresenter.Render(result.Result)) };
         }
         var name = operation == DialogueOperationKind.None ? command!.Name : CommandName(operation);
         var replies = await handler.HandleAsync(new(name, decision.Arguments, request.UserId), token);
@@ -190,6 +204,7 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
         "learn_request" or "learn_program" => DialogueOperationKind.CreateProgram,
         "learn_project" => DialogueOperationKind.CreateProjectProgram, "learn_select" => DialogueOperationKind.SelectProgram,
         "learn_confirm" => DialogueOperationKind.Confirm, "cancel" => DialogueOperationKind.Cancel,
+        "learn_diagnose" => DialogueOperationKind.Diagnose,
         _ => DialogueOperationKind.None
     };
     private static string CommandName(DialogueOperationKind operation) => operation switch
@@ -199,7 +214,8 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
         DialogueOperationKind.Resume => "learn_resume", DialogueOperationKind.Finish => "learn_finish",
         DialogueOperationKind.Next => "learn_next", DialogueOperationKind.Progress => "learn_progress",
         DialogueOperationKind.CreateProgram => "learn_request", DialogueOperationKind.CreateProjectProgram => "learn_project",
-        DialogueOperationKind.SelectProgram => "learn_select", _ => throw new InvalidOperationException("Unsupported dialogue action.")
+        DialogueOperationKind.SelectProgram => "learn_select", DialogueOperationKind.Diagnose => "learn_diagnose",
+        _ => throw new InvalidOperationException("Unsupported dialogue action.")
     };
 
     private static async Task SynchronizeTerminalDialogueAsync(IServiceProvider services, LearningRequest request, CancellationToken token)

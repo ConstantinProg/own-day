@@ -8,6 +8,7 @@ public static class TelegramCurriculumPresenter
     public static IReadOnlyList<string> Render(CurriculumResult result) => result switch
     {
         CurriculumResult.Program program => RenderProgram(program.Value),
+        CurriculumResult.Diagnostic diagnostic => RenderDiagnostic(diagnostic),
         CurriculumResult.Progress progress => TelegramProgressPresenter.Render(progress.Value),
         CurriculumResult.NoProgress empty => [empty.Page == 1
             ? "No programs yet. /learn_program <goal> | <experience>. Free lesson skills: /learn_skills"
@@ -25,7 +26,8 @@ public static class TelegramCurriculumPresenter
         CurriculumResult.Linked linked => [RenderLink(linked.Link), "Shared identity confirmed by you. AI evidence and review schedule are reused; this does not complete this program's topics or prove mastery. /learn_links · /learn_next"],
         CurriculumResult.Links links => links.Items.Count == 0 ? ["No confirmed shared skills in this route. /learn_link <topic code> | <skill id from /learn_skills> | <reason>"] :
             [.. links.Items.Select(RenderLink), "/learn_transfer <current topic code> | <other program id from /learn_programs> | <other topic code>. Requires different disciplines and the same confirmed skill."],
-        CurriculumResult.Lesson lesson => TelegramLearningPresenter.Render(lesson.Value),
+        CurriculumResult.Lesson lesson => lesson.Introduction is null ? TelegramLearningPresenter.Render(lesson.Value)
+            : [lesson.Introduction, .. TelegramLearningPresenter.Render(lesson.Value)],
         CurriculumResult.Adapted adapted => ["Teaching adjustment:\n" + adapted.Reason + "\n/learn_route",
             .. TelegramLearningPresenter.Render(adapted.Value)],
         CurriculumResult.NoProgram => ["Create a program: /learn_program <goal> | <experience>"],
@@ -37,6 +39,20 @@ public static class TelegramCurriculumPresenter
         CurriculumResult.ProviderUnavailable => ["The planner is temporarily unavailable or returned an invalid route. Retry the command."],
         _ => throw new ArgumentOutOfRangeException(nameof(result))
     };
+
+    private static IReadOnlyList<string> RenderDiagnostic(CurriculumResult.Diagnostic result)
+    {
+        var diagnostic = result.Value.EnglishDiagnostic!;
+        var notice = result.Notice is null ? "" : result.Notice + "\n\n";
+        if (diagnostic.Status == EnglishDiagnosticStatus.Offered)
+            return [notice + "Предлагаю два коротких задания: чтение и письмо. Это предварительные наблюдения, не оценка уровня. " +
+                "Напишите «начнём диагностику» или «пропустим». Уведомления не включаются."];
+        if (diagnostic.Status != EnglishDiagnosticStatus.Started)
+            return [notice + "Диагностика завершена или пропущена. Ответы сохранены. Напишите «Продолжим»."];
+        var index = diagnostic.Results.Length;
+        return [notice + $"Задание {index + 1} из 2.\n" + EnglishLearningContent.Text(index) + "\n\n" + EnglishLearningContent.Question(index) +
+            "\n\nМожно написать «помощь», «пропустим» или «пауза». Ответы с помощью отмечаются отдельно."];
+    }
 
     private static IReadOnlyList<string> RenderProjectReport(ProjectLearningReport report)
     {

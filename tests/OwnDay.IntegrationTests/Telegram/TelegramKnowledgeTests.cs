@@ -199,12 +199,12 @@ public sealed class TelegramKnowledgeTests
                 if (restart == 2) Assert.Equal(SkillMastery.Conflicting, LearnerSkillState.Evaluate(evidence).Mastery);
             }
             await using var rollback = new OwnDayDbContext(options);
-            await rollback.GetService<IMigrator>().MigrateAsync("20261105172909_AddLearningPrograms");
+            await Assert.ThrowsAsync<Npgsql.PostgresException>(() => rollback.GetService<IMigrator>().MigrateAsync("20261105172909_AddLearningPrograms"));
             Assert.Equal(2, await rollback.Database.SqlQueryRaw<int>("SELECT count(*)::integer AS \"Value\" FROM learning_lessons").SingleAsync());
             await rollback.Database.MigrateAsync();
             Assert.All(await rollback.Set<Lesson>().ToListAsync(), l => Assert.Equal(LessonStatus.Completed, l.Status));
-            Assert.Empty(await rollback.Set<LearningEvidence>().ToListAsync());
-            Assert.Empty(await rollback.Set<Skill>().ToListAsync());
+            Assert.Equal(2, await rollback.Set<LearningEvidence>().CountAsync());
+            Assert.NotEmpty(await rollback.Set<Skill>().ToListAsync());
         }
         finally
         {

@@ -45,6 +45,7 @@ public static class TelegramKnowledgePresenter
             messages.Add($"Observed answer ({evidence.ObservedAt:O})\nLesson / operation: {evidence.LessonId}\n{evidence.Answer}");
             messages.Add($"AI interpretation: {((evidence.AiAssessedCorrect ?? evidence.AssessedCorrect) ? "positive" : "negative")}\n" +
                 TelegramLearningPresenter.RenderAssessment(evidence.AssessmentStatus, evidence.DeterministicIsCorrect) + "\n" +
+                $"Assistance: {evidence.Assistance} (Unknown is not independent).\n" +
                 $"Scheduled review: {evidence.IsReview}\nSkill checked: {evidence.SkillId}\n" +
                 $"Method: {evidence.Method}\nSource: {evidence.AssessmentSource}\nBasis: {evidence.AssessmentFeedback}");
         }

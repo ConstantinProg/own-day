@@ -39,6 +39,11 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
 
         var normalized = Normalize(turn.Text);
         var command = turn.Command;
+        if (lesson is null && program?.HasEnglishDiagnostic == true &&
+            command is null or DialogueOperationKind.Diagnose or DialogueOperationKind.Resume or DialogueOperationKind.Next or DialogueOperationKind.Pause or DialogueOperationKind.Cancel)
+            return new(context, DialogueOperationKind.Diagnose,
+                command == DialogueOperationKind.Resume ? "resume" : command == DialogueOperationKind.Next ? "start" :
+                command is DialogueOperationKind.Pause or DialogueOperationKind.Cancel ? "pause" : turn.Text);
         if (lesson is null && program is null && context.Consultation is { CreatedProgramId: null } &&
             command is DialogueOperationKind.Cancel or DialogueOperationKind.Pause or DialogueOperationKind.Resume)
             return FirstGoalConsultation.Decide(context, turn with { Command = null, Text = command == DialogueOperationKind.Resume ? "resume" : "pause" });

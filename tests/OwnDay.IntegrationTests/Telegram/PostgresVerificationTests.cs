@@ -113,7 +113,7 @@ public sealed class PostgresVerificationTests
             Assert.Equal(1, teacher.Assessed);
             await using var rollback = new OwnDayDbContext(options);
             var error = await Assert.ThrowsAsync<PostgresException>(() => rollback.GetService<IMigrator>().MigrateAsync(previous));
-            Assert.Contains("conflicting assessments", error.MessageText);
+            Assert.Contains("Retain diagnostic results and assistance", error.MessageText);
             Assert.Equal(AnswerAssessmentStatus.Conflict, (await rollback.Set<LearningEvidence>().SingleAsync(e => e.UserId == new UserId(101))).AssessmentStatus);
         }
         finally

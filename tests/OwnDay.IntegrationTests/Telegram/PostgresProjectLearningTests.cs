@@ -106,10 +106,10 @@ public sealed class PostgresProjectLearningTests
             }
             await using (var rollback = new OwnDayDbContext(options))
             {
-                await rollback.GetService<IMigrator>().MigrateAsync(previous);
+                await Assert.ThrowsAsync<Npgsql.PostgresException>(() => rollback.GetService<IMigrator>().MigrateAsync(previous));
                 await rollback.Database.MigrateAsync();
                 var lesson = await rollback.Set<Lesson>().SingleAsync(l => l.UserId == new UserId(101));
-                Assert.Null(lesson.ProjectActionId);
+                Assert.Equal(actionId, lesson.ProjectActionId);
                 Assert.Equal("correct", lesson.Answer);
                 Assert.Single(await rollback.Set<LearningEvidence>().ToListAsync());
                 Assert.Equal(ActionStatus.Active, (await rollback.Actions.SingleAsync(a => a.Id == actionId)).Status);

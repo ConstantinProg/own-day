@@ -125,16 +125,16 @@ public sealed class TelegramCurriculumTests
             Assert.Equal(2, teacher.Generated);
             await using (var rollback = new OwnDayDbContext(options))
             {
-                await rollback.GetService<IMigrator>().MigrateAsync("20261105171329_RemoveLessonContextSummary");
+                await Assert.ThrowsAsync<Npgsql.PostgresException>(() => rollback.GetService<IMigrator>().MigrateAsync("20261105171329_RemoveLessonContextSummary"));
                 var count = await rollback.Database.SqlQueryRaw<int>("""
                     SELECT count(*)::integer AS "Value" FROM learning_lessons
                     """).SingleAsync();
                 Assert.Equal(3, count);
                 await rollback.Database.MigrateAsync();
-                Assert.Empty(await rollback.Set<LearningProgram>().ToListAsync());
+                Assert.Single(await rollback.Set<LearningProgram>().ToListAsync());
+                Assert.Equal(2, await rollback.Set<Lesson>().CountAsync(lesson => lesson.ProgramId != null));
                 Assert.All(await rollback.Set<Lesson>().ToListAsync(), l =>
                 {
-                    Assert.Null(l.ProgramId);
                     Assert.Equal("Question", l.Question);
                 });
             }

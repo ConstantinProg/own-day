@@ -84,6 +84,8 @@ public sealed partial class PostgresLearningProviderTests
         await using (var db = Open())
         {
             id = (await db.Set<Lesson>().SingleAsync()).Id;
+            // This fixture models a legacy lesson with no recorded independence.
+            await db.Database.ExecuteSqlRawAsync("UPDATE learning_lessons SET \"Assistance\" = 0");
             await db.GetService<IMigrator>().MigrateAsync("20261112190000_AddSharedLearningLedger");
             var legacyInput = "{\"name\":\"learn_pause\",\"arguments\":\"\"}";
             await db.Database.ExecuteSqlInterpolatedAsync($"""

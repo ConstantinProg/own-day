@@ -36,6 +36,9 @@ internal static class DialogueModel
             entity.Property(context => context.PendingConfirmation).HasConversion(
                 value => JsonSerializer.Serialize(value, JsonSerializerOptions.Web),
                 value => JsonSerializer.Deserialize<DialogueConfirmation>(value, JsonSerializerOptions.Web)).HasColumnType("jsonb").HasColumnName("pending_confirmation");
+            entity.Property(context => context.DiagnosticTarget).HasConversion(
+                value => JsonSerializer.Serialize(value, JsonSerializerOptions.Web),
+                value => JsonSerializer.Deserialize<DiagnosticPromptTarget>(value, JsonSerializerOptions.Web)).HasColumnType("jsonb").HasColumnName("diagnostic_target");
         });
     }
 }

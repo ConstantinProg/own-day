@@ -10,7 +10,7 @@ public enum DialogueExpectedResponse { None, ConsultationDetail, DiagnosticChoic
 public enum DialogueOperationKind
 {
     None, Answer, Clarify, Explain, Pause, Resume, Finish, Next, Progress,
-    CreateProgram, CreateProjectProgram, SelectProgram, ChangeGoal, Cancel, Confirm
+    CreateProgram, CreateProjectProgram, SelectProgram, ChangeGoal, Cancel, Confirm, Diagnose
 }
 
 public sealed record DialogueClarification(Guid OriginalRequestId, ImmutableArray<DialogueOperationKind> Allowed,
@@ -26,7 +26,7 @@ public sealed record DialogueConfirmation(Guid ProposalId, string Code, Guid Ori
 // for pedagogical state; there are no jobs, provider results or transport types here.
 public sealed partial class DialogueContext
 {
-    public const int CurrentSchemaVersion = 2;
+    public const int CurrentSchemaVersion = 3;
     private DialogueContext() { }
     public UserId UserId { get; private set; }
     public int SchemaVersion { get; private set; } = CurrentSchemaVersion;
@@ -45,6 +45,7 @@ public sealed partial class DialogueContext
     public DialogueClarification? PendingClarification { get; private set; }
     public DialogueConfirmation? PendingConfirmation { get; private set; }
     public ConsultationDraft? Consultation { get; private set; }
+    public DiagnosticPromptTarget? DiagnosticTarget { get; private set; }
 
     public static DialogueContext Create(UserId user, Lesson? lesson, DateTimeOffset now)
     {
@@ -64,6 +65,7 @@ public sealed partial class DialogueContext
         var changed = TargetLessonId != lesson?.Id || QuestionFingerprint != fingerprint;
         var newExpectation = changed || ExpectedResponse != DialogueExpectedResponse.LessonAnswer;
         ClearPending(now);
+        DiagnosticTarget = null;
         TargetLessonId = lesson?.Id;
         QuestionFingerprint = fingerprint;
         PromptId = lesson is null ? Guid.Empty : QuestionPrompt(lesson.Id, fingerprint!);
@@ -78,6 +80,7 @@ public sealed partial class DialogueContext
     public void Interrupt(DateTimeOffset now, long sourceOrder = 0)
     {
         ClearPending(now);
+        DiagnosticTarget = null;
         InterruptedAt = now;
         InterruptedSourceOrder = Math.Max(InterruptedSourceOrder, Math.Max(ResponseAfterSourceOrder, sourceOrder));
         PromptId = Guid.Empty;

@@ -384,6 +384,7 @@ public sealed partial class PostgresLearningProviderTests : IAsyncLifetime
         public LearningIntent Intent { get; init; } = LearningIntent.Answer;
         public System.Collections.Concurrent.ConcurrentQueue<LearningIntentInput> IntentInputs { get; } = new();
         public System.Collections.Concurrent.ConcurrentQueue<string> AssessedAnswers { get; } = new();
+        public System.Collections.Concurrent.ConcurrentQueue<LessonSnapshot> AssessedLessons { get; } = new();
         public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public int Calls;
@@ -437,7 +438,7 @@ public sealed partial class PostgresLearningProviderTests : IAsyncLifetime
             return await teacher.GenerateAsync(request, token);
         }
         public async Task<LessonAssessment> AssessAsync(LessonSnapshot lesson, string answer, CancellationToken token)
-        { probe.AssessedAnswers.Enqueue(answer); await BlockAsync("assess", token); return new("Feedback", true); }
+        { probe.AssessedAnswers.Enqueue(answer); probe.AssessedLessons.Enqueue(lesson); await BlockAsync("assess", token); return new("Feedback", true); }
         public async Task<LearningIntentProposal> ResolveAsync(LearningIntentInput input, CancellationToken token)
         { probe.IntentInputs.Enqueue(input); await BlockAsync("intent", token); return new(probe.Intent); }
         public async Task<LessonExplanation> ExplainAsync(LessonSnapshot lesson, string request, LessonInteractionKind kind, CancellationToken token)

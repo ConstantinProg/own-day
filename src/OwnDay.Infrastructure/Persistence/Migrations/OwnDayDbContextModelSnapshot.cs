@@ -23,7 +23,7 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
         {
             b.Property<long>("UserId").ValueGeneratedNever().HasColumnType("bigint").HasColumnName("user_id");
             b.Property<long>("Revision").IsConcurrencyToken().HasColumnType("bigint").HasColumnName("revision");
-            b.Property<int>("SchemaVersion").ValueGeneratedOnAdd().HasDefaultValue(2).HasColumnType("integer").HasColumnName("schema_version");
+            b.Property<int>("SchemaVersion").ValueGeneratedOnAdd().HasDefaultValue(3).HasColumnType("integer").HasColumnName("schema_version");
             b.Property<int>("Phase").HasColumnType("integer").HasColumnName("phase");
             b.Property<int>("ExpectedResponse").HasColumnType("integer").HasColumnName("expected_response");
             b.Property<Guid>("PromptId").HasColumnType("uuid").HasColumnName("prompt_id");
@@ -1592,6 +1592,18 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
                 t.HasCheckConstraint("CK_learning_provider_steps_result", "result IS NULL OR failure IS NULL");
             }));
 
+        modelBuilder.Entity("OwnDay.Domain.Learning.LearningProgram", b =>
+            b.Property<string>("EnglishDiagnostic").HasColumnType("jsonb"));
+        modelBuilder.Entity("OwnDay.Domain.Dialogue.DialogueContext", b =>
+            b.Property<string>("DiagnosticTarget").HasColumnType("jsonb").HasColumnName("diagnostic_target"));
+        foreach (var target in new[] { "OwnDay.Domain.Learning.Lesson", "OwnDay.Domain.Learning.LearningEvidence" })
+        {
+            modelBuilder.Entity(target, b =>
+            {
+                b.Property<int>("Assistance").HasColumnType("integer");
+                b.Property<string>("Content").HasColumnType("jsonb");
+            });
+        }
 #pragma warning restore 612, 618
     }
 }

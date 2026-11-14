@@ -20,11 +20,11 @@ public sealed class EfDialogueStore(OwnDayDbContext db) : IDialogueStore
     public Task<DialogueProgramSnapshot?> ReadProgramAsync(UserId user, CancellationToken token) =>
         (from context in db.Set<LearningContext>() join program in db.Set<LearningProgram>() on context.ProgramId equals program.Id
          where context.UserId == user && program.UserId == user
-         select new DialogueProgramSnapshot(program.Id, program.Goal, program.Discipline, program.Routes.Max(route => route.Version), EF.Property<uint>(program, "TargetVersion")))
+         select new DialogueProgramSnapshot(program.Id, program.Goal, program.Discipline, program.Routes.Max(route => route.Version), EF.Property<uint>(program, "TargetVersion"), program.EnglishDiagnostic != null))
         .SingleOrDefaultAsync(token);
     public Task<DialogueProgramSnapshot?> ReadProgramByIdAsync(UserId user, Guid programId, CancellationToken token) =>
         db.Set<LearningProgram>().Where(program => program.UserId == user && program.Id == programId)
-            .Select(program => new DialogueProgramSnapshot(program.Id, program.Goal, program.Discipline, program.Routes.Max(route => route.Version), EF.Property<uint>(program, "TargetVersion")))
+            .Select(program => new DialogueProgramSnapshot(program.Id, program.Goal, program.Discipline, program.Routes.Max(route => route.Version), EF.Property<uint>(program, "TargetVersion"), program.EnglishDiagnostic != null))
             .SingleOrDefaultAsync(token);
     public async Task<DialogueOriginalInput?> ReadOriginalAsync(UserId user, Guid requestId, CancellationToken token)
     {

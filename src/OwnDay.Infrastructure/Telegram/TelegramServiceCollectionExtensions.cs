@@ -30,6 +30,8 @@ public static class TelegramServiceCollectionExtensions
                 "Learning dialogue requires durable ingress and the compatible worker.")
             .Validate(settings => !settings.ConsultationEnabled || settings.DialogueEnabled,
                 "First-goal consultation requires learning dialogue.")
+            .Validate(settings => !settings.EnglishDiagnosticEnabled || settings.ConsultationEnabled,
+                "English diagnostic enrollment requires first-goal consultation.")
             .Validate(settings => settings.MaxQueueAgeSeconds is >= 30 and <= 86400,
                 "Learning queue age must be between 30 seconds and one day.")
             .ValidateOnStart();

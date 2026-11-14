@@ -11,6 +11,7 @@ public static class FirstGoalConsultation
         if (result is CurriculumResult.Program created)
         {
             context.CompleteConsultation(created.Value, turn.Now, turn.SourceOrder);
+            if (created.Value.EnglishDiagnostic is not null) context.BindDiagnostic(created.Value, turn.Now, turn.SourceOrder);
             return new(context, null, "", new(DialogueReplyKind.FirstProgramReady,
                 [created.Value.Goal, context.Consultation!.PracticalUse!]), new("first_program_created"));
         }

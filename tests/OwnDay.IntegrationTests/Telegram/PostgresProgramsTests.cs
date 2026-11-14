@@ -40,7 +40,14 @@ public sealed class PostgresProgramsTests
             await using (var setup = new OwnDayDbContext(options))
             {
                 await setup.GetService<IMigrator>().MigrateAsync(previous);
-                setup.AddRange(source, skill);
+                var topics = System.Text.Json.JsonSerializer.Serialize(source.CurrentRoute.Topics);
+                await setup.Database.ExecuteSqlInterpolatedAsync($"""
+                    INSERT INTO learning_programs ("Id", "UserId", "Goal", "Experience", "Discipline", "DiagnosticPending", "Priority")
+                    VALUES ({source.Id}, 101, {source.Goal}, {source.Experience}, {source.Discipline}, false, 1);
+                    INSERT INTO learning_routes ("Id", "ProgramId", "Version", "Reason", "Topics")
+                    VALUES ({source.CurrentRoute.Id}, {source.Id}, 1, {source.CurrentRoute.Reason}, CAST({topics} AS jsonb));
+                    """);
+                setup.Add(skill);
                 await setup.SaveChangesAsync();
                 // Seed historical columns explicitly; the current model includes newer verification metadata.
                 await setup.Database.ExecuteSqlInterpolatedAsync($"""
@@ -114,7 +121,9 @@ public sealed class PostgresProgramsTests
                 Assert.All(await db.TelegramOutboxMessages.ToListAsync(), m => Assert.Null(m.SentAt));
                 if (restart == 1)
                 {
-                    Assert.Equal(SkillMastery.Demonstrated, LearnerSkillState.Evaluate(observations).Mastery);
+                    Assert.Equal(SkillMastery.Developing, LearnerSkillState.Evaluate(observations).Mastery);
+                    Assert.Equal(AnswerAssistance.Unknown, observations.Single(item => item.LessonId == initial.Id).Assistance);
+                    Assert.Equal(2, LearnerSkillState.Evaluate(observations).PositiveAssessments);
                     Assert.Equal(2, target.Routes.Count);
                     Assert.Equal(1, target.CurrentRoute.ProgressVersion);
                     Assert.Equal(12, await db.ProcessedTelegramUpdates.CountAsync());
@@ -136,9 +145,9 @@ public sealed class PostgresProgramsTests
                 UPDATE learning_program_skill_links SET "SkillId" = {foreign.Id}
                 """));
             Assert.Equal(PostgresErrorCodes.ForeignKeyViolation, skillFailure.SqlState);
-            // Restoring the old unique owner index must fail atomically rather than deleting programs.
+            // New evidence metadata must prevent an unsafe downgrade before old indexes are restored.
             var rollbackFailure = await Assert.ThrowsAsync<PostgresException>(() => constraints.GetService<IMigrator>().MigrateAsync(previous));
-            Assert.Equal(PostgresErrorCodes.UniqueViolation, rollbackFailure.SqlState);
+            Assert.Contains("Retain diagnostic results and assistance", rollbackFailure.MessageText);
             Assert.Equal(2, await constraints.Set<LearningProgram>().CountAsync());
             Assert.Single(await constraints.Set<LearningContext>().ToListAsync());
             Assert.Equal(skill.Id, (await constraints.Set<ProgramSkillLink>().SingleAsync()).SkillId);

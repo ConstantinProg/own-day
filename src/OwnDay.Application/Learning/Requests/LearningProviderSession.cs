@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using OwnDay.Domain;
 using OwnDay.Domain.Learning;
 using OwnDay.Application.Dialogue;
@@ -10,10 +11,11 @@ namespace OwnDay.Application.Learning.Requests;
 // Concrete snapshots for the five existing Learning provider operations. No Domain
 // entity or service scope is retained by a durable step or sent to a provider.
 public sealed record LessonSnapshot(Guid Id, UserId UserId, string Topic, string Theory, string Question,
-    LessonStatus Status, LessonTeaching? Teaching, InterdisciplinaryPractice? Transfer)
+    LessonStatus Status, LessonTeaching? Teaching, InterdisciplinaryPractice? Transfer,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] LearningContent? Content = null)
 {
     public static LessonSnapshot From(Lesson lesson) => new(lesson.Id, lesson.UserId, lesson.Topic,
-        lesson.Theory, lesson.Question, lesson.Status, lesson.Teaching, lesson.Transfer);
+        lesson.Theory, lesson.Question, lesson.Status, lesson.Teaching, lesson.Transfer, lesson.Content);
 }
 
 public sealed record LessonAssessmentInput(LessonSnapshot Lesson, string Answer);
@@ -74,6 +76,9 @@ public sealed class LearningProviderSession(IReadOnlyList<LearningProviderStep> 
 
     public Task<LessonAssessment> AssessAsync(Lesson lesson, string answer, CancellationToken token) =>
         ConsumeAsync<LessonAssessment>("assess", new LessonAssessmentInput(LessonSnapshot.From(lesson), answer), token);
+
+    public Task<LessonAssessment> AssessAsync(LessonSnapshot lesson, string answer, CancellationToken token) =>
+        ConsumeAsync<LessonAssessment>("assess", new LessonAssessmentInput(lesson, answer), token);
 
     public Task<LessonExplanation> ExplainAsync(Lesson lesson, string request, LessonInteractionKind kind, CancellationToken token) =>
         ConsumeAsync<LessonExplanation>("explain", new LessonExplanationInput(LessonSnapshot.From(lesson), request, kind), token);

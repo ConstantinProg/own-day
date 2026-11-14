@@ -47,6 +47,8 @@ internal static class KnowledgeModel
         });
         modelBuilder.Entity<Lesson>(entity =>
         {
+            entity.Property(l => l.Content).HasConversion(value => SerializeContent(value!), value => DeserializeContent(value))
+                .HasColumnType("jsonb");
             entity.Property(l => l.Teaching).HasConversion(value => SerializeTeaching(value!), value => DeserializeTeaching(value))
                 .HasColumnType("jsonb");
             entity.Property(l => l.Transfer).HasConversion(value => SerializeTransfer(value!), value => DeserializeTransfer(value))
@@ -60,6 +62,8 @@ internal static class KnowledgeModel
         });
         modelBuilder.Entity<LearningEvidence>(entity =>
         {
+            entity.Property(e => e.Content).HasConversion(value => SerializeContent(value!), value => DeserializeContent(value))
+                .HasColumnType("jsonb");
             entity.ToTable("learning_evidence");
             entity.HasKey(e => e.LessonId);
             entity.Property(e => e.LessonId).ValueGeneratedNever();
@@ -83,4 +87,6 @@ internal static class KnowledgeModel
     private static LessonTeaching DeserializeTeaching(string json) => JsonSerializer.Deserialize<LessonTeaching>(json)!;
     private static string SerializeTransfer(InterdisciplinaryPractice value) => JsonSerializer.Serialize(value);
     private static InterdisciplinaryPractice DeserializeTransfer(string json) => JsonSerializer.Deserialize<InterdisciplinaryPractice>(json)!;
+    private static string SerializeContent(LearningContent value) => JsonSerializer.Serialize(value);
+    private static LearningContent DeserializeContent(string json) => JsonSerializer.Deserialize<LearningContent>(json)!;
 }

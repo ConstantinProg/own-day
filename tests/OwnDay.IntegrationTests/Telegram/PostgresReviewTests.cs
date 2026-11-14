@@ -100,7 +100,9 @@ public sealed class PostgresReviewTests
                 if (restart == 0) Assert.Equal(LessonStatus.Paused, (await db.Set<Lesson>().SingleAsync(l => l.IsReview)).Status);
                 if (restart == 2)
                 {
-                    Assert.Equal(SkillMastery.Demonstrated, LearnerSkillState.Evaluate(evidence).Mastery);
+                    Assert.Equal(SkillMastery.Developing, LearnerSkillState.Evaluate(evidence).Mastery);
+                    Assert.Equal(AnswerAssistance.Unknown, evidence.Single(item => item.LessonId == lessonId).Assistance);
+                    Assert.Equal(2, LearnerSkillState.Evaluate(evidence).PositiveAssessments);
                     Assert.Equal(8, await db.ProcessedTelegramUpdates.CountAsync());
                 }
                 Assert.All(await db.TelegramOutboxMessages.ToListAsync(), message => Assert.Null(message.SentAt));
@@ -109,14 +111,14 @@ public sealed class PostgresReviewTests
             Assert.All(teacher.Requests, r => Assert.True(r.IsReview));
             Assert.Equal(2, teacher.Assessed);
             await using var rollback = new OwnDayDbContext(options);
-            await rollback.GetService<IMigrator>().MigrateAsync(previous);
+            await Assert.ThrowsAsync<Npgsql.PostgresException>(() => rollback.GetService<IMigrator>().MigrateAsync(previous));
             Assert.Equal(3, await rollback.Set<Lesson>().CountAsync());
             Assert.Equal(3, await rollback.Set<LearningEvidence>().CountAsync());
             await rollback.Database.MigrateAsync();
             var restored = await rollback.Set<ReviewSchedule>().SingleAsync();
-            Assert.Equal(clock.Now.AddDays(1), restored.DueAt);
-            Assert.Equal(0, restored.SuccessfulReviews);
-            Assert.All(await rollback.Set<LearningEvidence>().ToListAsync(), e => Assert.False(e.IsReview));
+            Assert.Equal(clock.Now.AddDays(7), restored.DueAt);
+            Assert.Equal(2, restored.SuccessfulReviews);
+            Assert.Equal(2, await rollback.Set<LearningEvidence>().CountAsync(e => e.IsReview));
         }
         finally
         {

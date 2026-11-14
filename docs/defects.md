@@ -1,5 +1,23 @@
 # Confirmed defects
 
+## Local untracked legacy-migration fixture uses the current EF model
+
+Severity: P2 (test fixture only). Observed during English diagnostic verification
+on 2026-11-14. The pre-existing, untracked file
+`tests/OwnDay.IntegrationTests/Telegram/PostgresLearningRequestTests.cs` is outside
+the committed test suite and was preserved unchanged.
+
+Reproduce with a PostgreSQL test connection and filter
+`FullyQualifiedName~Migrate_PopulatedLegacySchema_PreservesRowsWithoutInventingRequests`.
+The test migrates to the prior schema and then inserts `Lesson.Start` through the
+current EF model. PostgreSQL rejects the insert with SQLSTATE 42703, missing
+`Assistance` (the old schema also has no `Content`). This fails in fixture setup,
+before testing preservation. Seed historical columns with SQL, then upgrade before
+using current tracked entities. Equivalent preservation checks are maintained in
+the tracked receipt/English diagnostic migration tests. The four cases from this
+untracked class are explicitly excluded from repository regression; the complete
+working-tree test suite is not claimed green.
+
 ## Learning queue health queries an unsupported provider — fixed locally
 
 Severity: P2. Introduced by `bb46aed`, discovered during S2 regression on 2026-11-12.

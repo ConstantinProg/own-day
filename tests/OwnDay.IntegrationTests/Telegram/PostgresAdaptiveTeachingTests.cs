@@ -108,12 +108,13 @@ public sealed class PostgresAdaptiveTeachingTests
             Assert.Single(planner.Requests);
             Assert.Equal(4, teacher.Requests.Count);
             await using var rollback = new OwnDayDbContext(options);
-            await rollback.GetService<IMigrator>().MigrateAsync(previousMigration);
+            var versions = await rollback.Set<CurriculumRoute>().OrderBy(route => route.Version).Select(route => route.ProgressVersion).ToListAsync();
+            await Assert.ThrowsAsync<Npgsql.PostgresException>(() => rollback.GetService<IMigrator>().MigrateAsync(previousMigration));
             Assert.Equal(2, await rollback.Database.SqlQueryRaw<int>("""SELECT count(*)::integer AS "Value" FROM learning_routes""").SingleAsync());
             Assert.Equal(3, await rollback.Set<LearningEvidence>().CountAsync());
             Assert.Equal(4, await rollback.Set<Lesson>().CountAsync());
             await rollback.Database.MigrateAsync();
-            Assert.All(await rollback.Set<CurriculumRoute>().ToListAsync(), r => Assert.Null(r.ProgressVersion));
+            Assert.Equal(versions, await rollback.Set<CurriculumRoute>().OrderBy(route => route.Version).Select(route => route.ProgressVersion).ToListAsync());
         }
         finally
         {
