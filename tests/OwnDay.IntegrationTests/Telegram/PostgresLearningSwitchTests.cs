@@ -88,7 +88,7 @@ public sealed partial class PostgresLearningProviderTests
             await SendEnglishAsync(client, 6, "выбрать программу " + source);
             returnCode = await SwitchCodeAsync();
         }
-        using (var host = DialogueHost(probe, enabled: false))
+        using (var host = DialogueHost(probe))
         using (var client = host.CreateClient())
         {
             await SendEnglishAsync(client, 7, "подтверждаю " + returnCode);
@@ -256,7 +256,7 @@ public sealed partial class PostgresLearningProviderTests
             using var accepted = await PostPublicAsync(client, 1, "/learn_select " + target);
             accepted.EnsureSuccessStatusCode();
         }
-        using var restarted = DialogueHost(probe, enabled: false);
+        using var restarted = DialogueHost(probe);
         using var restartedClient = restarted.CreateClient();
         await WaitAllPublicAsync(1);
         await using var result = Open();
@@ -330,7 +330,7 @@ public sealed partial class PostgresLearningProviderTests
             Assert.NotNull((await db.Set<DialogueContext>().SingleAsync()).PendingConfirmation);
             await db.Database.ExecuteSqlRawAsync("UPDATE learning_requests SET lease_until = clock_timestamp() - interval '1 second' WHERE status = 2");
         }
-        using var restarted = DialogueHost(probe, enabled: false);
+        using var restarted = DialogueHost(probe);
         using var restartedClient = restarted.CreateClient();
         await WaitAllPublicAsync(2);
         await using var result = Open();

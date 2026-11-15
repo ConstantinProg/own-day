@@ -350,7 +350,6 @@ public sealed partial class PostgresLearningProviderTests : IAsyncLifetime
         Action<LearningRequestProcessingOptions>? configure = null, IInterceptor? interceptor = null,
         bool publicIngress = false) => new OwnDayHostFactory().WithWebHostBuilder(builder =>
     {
-        builder.UseSetting("Learning:Processing:DurableIngressEnabled", publicIngress.ToString());
         builder.ConfigureServices(services =>
         {
             services.RemoveAll<DbContextOptions<OwnDayDbContext>>();
@@ -366,7 +365,8 @@ public sealed partial class PostgresLearningProviderTests : IAsyncLifetime
             services.Replace(ServiceDescriptor.Scoped<ITeachingPlanner>(provider => new Provider(probe, provider.GetRequiredService<OwnDayDbContext>(), provider.GetRequiredService<LearningProviderUsage>())));
             services.Replace(ServiceDescriptor.Scoped<ILearningIntentResolver>(provider => new Provider(probe, provider.GetRequiredService<OwnDayDbContext>(), provider.GetRequiredService<LearningProviderUsage>())));
             if (!publicIngress) services.Replace(ServiceDescriptor.Scoped<ITelegramUpdateHandler, TestIngress>());
-            services.Configure<LearningRequestProcessingOptions>(options => { options.Enabled = worker; options.PollMilliseconds = 20; });
+            // Keep startup configuration valid; worker controls hosted execution so tests can process manually.
+            services.Configure<LearningRequestProcessingOptions>(options => { options.Enabled = true; options.PollMilliseconds = 20; });
             if (configure is not null) services.Configure(configure);
             if (worker) services.AddHostedService<LearningRequestWorker>();
         });

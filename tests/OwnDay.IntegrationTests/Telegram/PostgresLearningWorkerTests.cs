@@ -325,7 +325,8 @@ public sealed class PostgresLearningWorkerTests : IAsyncLifetime
                 if (interceptor is not null) options.AddInterceptors(interceptor);
             });
             services.Replace(ServiceDescriptor.Singleton<ILessonTeacher>(new NoProviderTeacher()));
-            services.Configure<LearningRequestProcessingOptions>(options => { options.Enabled = worker; options.PollMilliseconds = 20; });
+            // Keep startup configuration valid; worker controls hosted execution so tests can process manually.
+            services.Configure<LearningRequestProcessingOptions>(options => { options.Enabled = true; options.PollMilliseconds = 20; });
             if (worker) services.AddHostedService<LearningRequestWorker>();
             if (testIngress) services.Replace(ServiceDescriptor.Scoped<ITelegramUpdateHandler, TestIngress>());
         }));

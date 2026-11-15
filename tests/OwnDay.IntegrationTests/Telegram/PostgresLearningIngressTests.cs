@@ -49,7 +49,7 @@ public sealed partial class PostgresLearningProviderTests
     }
 
     [Fact]
-    public async Task Post_DisabledProducerWithPendingWork_RejectsSynchronousBypass()
+    public async Task Start_DisabledProducerWithPendingWork_RejectsConfiguration()
     {
         await EnqueueAsync("learn", "English");
         var probe = new Probe("");
@@ -58,13 +58,11 @@ public sealed partial class PostgresLearningProviderTests
             options.Enabled = false;
             options.DurableIngressEnabled = false;
         });
-        using var client = host.CreateClient();
-        using var response = await PostPublicAsync(client, 2, "/learn_pause");
-        Assert.False(response.IsSuccessStatusCode);
+        Assert.Throws<OptionsValidationException>(() => host.CreateClient());
         await using var observer = Open();
-        Assert.Single(await observer.Set<LearningRequest>().ToListAsync());
         Assert.Empty(await observer.ProcessedTelegramUpdates.ToListAsync());
-        Assert.Empty(await observer.TelegramOutboxMessages.ToListAsync());
+        Assert.Single(await observer.Set<LearningRequest>().ToListAsync());
+        Assert.Equal(0, probe.Calls);
     }
 
     [Fact]
@@ -94,7 +92,7 @@ public sealed partial class PostgresLearningProviderTests
     public void Configure_DurableIngressWithoutEnabledWorker_RejectsOptions()
     {
         var probe = new Probe("");
-        using var host = Host(probe, worker: false, publicIngress: true);
+        using var host = Host(probe, worker: false, publicIngress: true, configure: options => options.Enabled = false);
         Assert.Throws<OptionsValidationException>(() => host.Services.GetRequiredService<IOptions<LearningRequestProcessingOptions>>().Value);
     }
 

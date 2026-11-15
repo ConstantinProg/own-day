@@ -74,14 +74,14 @@ public sealed partial class PostgresLearningProviderTests
             await SendEnglishAsync(client, 3, "Начинаю с нуля");
             await SendEnglishAsync(client, 4, "начнём диагностику");
         }
-        using (var host = DialogueHost(probe, enabled: false))
+        using (var host = DialogueHost(probe))
         using (var client = host.CreateClient())
         {
             await SendEnglishAsync(client, 5, "Продолжим");
             await SendEnglishAsync(client, 6, "помощь");
             await SendEnglishAsync(client, 7, "B");
         }
-        using (var host = DialogueHost(probe, enabled: false))
+        using (var host = DialogueHost(probe))
         using (var client = host.CreateClient())
         {
             await SendEnglishAsync(client, 8, "Продолжим");
@@ -127,7 +127,7 @@ public sealed partial class PostgresLearningProviderTests
             Assert.Empty(await db.Set<Lesson>().ToListAsync());
         }
         var retry = new Probe("");
-        using (var host = DialogueHost(retry, enabled: false))
+        using (var host = DialogueHost(retry))
         using (var client = host.CreateClient())
         {
             await SendEnglishAsync(client, 7, "Продолжим");
@@ -166,7 +166,7 @@ public sealed partial class PostgresLearningProviderTests
             using var early = await PostPublicAsync(client, 6, "ответ: I can send the list today.");
             early.EnsureSuccessStatusCode();
         }
-        using var restarted = DialogueHost(probe, enabled: false);
+        using var restarted = DialogueHost(probe);
         using var restartClient = restarted.CreateClient();
         await WaitAllPublicAsync(6);
         await using var db = Open();
@@ -211,7 +211,7 @@ public sealed partial class PostgresLearningProviderTests
             Assert.NotNull((await db.Set<LearningProviderStep>().SingleAsync()).Result);
             await db.Database.ExecuteSqlRawAsync("UPDATE learning_requests SET lease_until = clock_timestamp() - interval '1 second' WHERE status = 2");
         }
-        using var restarted = DialogueHost(probe, enabled: false);
+        using var restarted = DialogueHost(probe);
         using var restartClient = restarted.CreateClient();
         await WaitAllPublicAsync(6);
         await using var result = Open();

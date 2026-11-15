@@ -63,7 +63,7 @@ public sealed partial class PostgresLearningProviderTests
             Assert.Empty(await db.Set<LearningProgram>().ToListAsync());
             Assert.Contains(await db.TelegramOutboxMessages.ToListAsync(), message => message.Text.Contains("/capture", StringComparison.Ordinal));
         }
-        using (var host = DialogueHost(probe, enabled: false))
+        using (var host = DialogueHost(probe))
         using (var client = host.CreateClient())
         {
             using var input = await PostPublicAsync(client, 2, "Продолжим");
@@ -242,7 +242,7 @@ public sealed partial class PostgresLearningProviderTests
             using var premature = await PostPublicAsync(client, 2, "ответ");
             premature.EnsureSuccessStatusCode();
         }
-        using var restarted = DialogueHost(probe, enabled: false);
+        using var restarted = DialogueHost(probe);
         using var restartClient = restarted.CreateClient();
         await WaitAllPublicAsync(2);
         Assert.False(probe.KindCalls.ContainsKey("assess"));
@@ -365,7 +365,7 @@ public sealed partial class PostgresLearningProviderTests
             pause.EnsureSuccessStatusCode();
             await WaitAllPublicAsync(3);
         }
-        using (var host = DialogueHost(probe, enabled: false))
+        using (var host = DialogueHost(probe))
         using (var client = host.CreateClient())
         {
             using var stale = await PostPublicAsync(client, 4, "подтверждаю " + oldCode);
@@ -379,7 +379,7 @@ public sealed partial class PostgresLearningProviderTests
         string current;
         await using (var db = Open()) current = (await db.Set<DialogueContext>().SingleAsync()).PendingConfirmation!.Code;
         Assert.NotEqual(oldCode, current);
-        using (var host = DialogueHost(probe, enabled: false))
+        using (var host = DialogueHost(probe))
         using (var client = host.CreateClient())
         {
             using var confirm = await PostPublicAsync(client, 6, "/learn_confirm " + current);
@@ -423,9 +423,9 @@ public sealed partial class PostgresLearningProviderTests
         Assert.Equal(0, probe.Calls);
     }
 
-    private Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> DialogueHost(Probe probe, bool enabled = true) =>
+    private Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> DialogueHost(Probe probe) =>
         Host(probe, worker: true, publicIngress: true).WithWebHostBuilder(builder =>
-            builder.UseSetting("Learning:Processing:DialogueEnabled", enabled.ToString()));
+            builder.UseSetting("Learning:Processing:DialogueEnabled", "true"));
 
     [Fact]
     public async Task Post_NaturalClarification_PreservesQuestionWithoutAssessmentOrInboxCapture()

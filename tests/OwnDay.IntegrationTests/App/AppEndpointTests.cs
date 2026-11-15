@@ -14,13 +14,13 @@ public sealed class AppEndpointTests : IClassFixture<OwnDayHostFactory>
     }
 
     [Fact]
-    public async Task Health_ReturnsOk()
+    public async Task Health_SqliteWithLearningEnabled_ReturnsServiceUnavailable()
     {
         using var client = _factory.CreateClient();
 
         using var response = await client.GetAsync("/health");
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
     }
 
     [Fact]
@@ -34,13 +34,13 @@ public sealed class AppEndpointTests : IClassFixture<OwnDayHostFactory>
     }
 
     [Fact]
-    public async Task HealthReady_ReturnsOk()
+    public async Task HealthReady_SqliteWithLearningEnabled_ReturnsServiceUnavailable()
     {
         using var client = _factory.CreateClient();
 
         using var response = await client.GetAsync("/health/ready");
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
     }
 
     [Fact]

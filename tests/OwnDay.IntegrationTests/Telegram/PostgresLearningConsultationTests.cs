@@ -65,7 +65,7 @@ public sealed partial class PostgresLearningProviderTests
             using var premature = await PostPublicAsync(client, 2, "Преждевременный ответ");
             premature.EnsureSuccessStatusCode();
         }
-        using var restarted = DialogueHost(probe, enabled: false);
+        using var restarted = DialogueHost(probe);
         using var restartClient = restarted.CreateClient();
         await WaitAllPublicAsync(2);
         await using var result = Open();
@@ -154,7 +154,7 @@ public sealed partial class PostgresLearningProviderTests
             using var capture = await PostPublicAsync(client, 3, "/capture A separate note");
             capture.EnsureSuccessStatusCode();
         }
-        using (var host = DialogueHost(probe, enabled: false))
+        using (var host = DialogueHost(probe))
         using (var client = host.CreateClient())
         {
             using var resume = await PostPublicAsync(client, 4, "Продолжим");

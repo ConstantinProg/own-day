@@ -69,7 +69,7 @@ public sealed partial class PostgresLearningProviderTests
             original = (await db.Set<Lesson>().SingleAsync()).Id;
             Assert.Equal(LearningPracticeStatus.Paused, (await db.Set<LearningContext>().SingleAsync()).Practice!.Status);
         }
-        using (var host = DialogueHost(probe, enabled: false))
+        using (var host = DialogueHost(probe))
         using (var client = host.CreateClient())
         {
             await SendEnglishAsync(client, 7, "Продолжим");
@@ -193,7 +193,7 @@ public sealed partial class PostgresLearningProviderTests
             using var receipt = await PostPublicAsync(client, 5, "давай два упражнения");
             receipt.EnsureSuccessStatusCode();
         }
-        using (var host = DialogueHost(probe, enabled: false))
+        using (var host = DialogueHost(probe))
         using (var client = host.CreateClient()) await WaitAllPublicAsync(5);
         await using var result = Open();
         var practice = (await result.Set<LearningContext>().SingleAsync()).Practice!;
