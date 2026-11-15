@@ -190,6 +190,16 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
             {
                 var databaseNow = await EnsureLearningAcceptanceAsync(cancellationToken);
                 var lessonId = await CurrentLessonIdAsync(user, cancellationToken);
+                if (TelegramStudyCommandHandler.ParseText(ordinary.Value, user) is { } study)
+                {
+                    // Explicit study phrases use the same durable command lane and Application
+                    // guards as slash commands; they never become an assessed lesson answer.
+                    await AddReceiptAsync(update, user, chatId,
+                        new LearningCommandInput(study.Name, study.Arguments, lessonId, dialogue?.PromptId, dialogue?.Revision),
+                        "learning_command", 3, databaseNow, ready: true, cancellationToken);
+                    await CommitReceiptAsync(databaseNow);
+                    return;
+                }
                 await AddReceiptAsync(update, user, chatId, new LearningTextInput(ordinary.Value, lessonId,
                     dialogue?.PromptId, dialogue?.Revision, _processing.ConsultationEnabled || dialogue?.Consultation is not null,
                     _processing.EnglishDiagnosticEnabled, _processing.PracticeEnabled, _processing.ProgramSwitchEnabled),

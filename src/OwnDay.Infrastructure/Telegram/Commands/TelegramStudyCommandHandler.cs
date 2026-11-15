@@ -7,8 +7,36 @@ namespace OwnDay.Infrastructure.Telegram.Commands;
 
 public sealed class TelegramStudyCommandHandler(StudyService service)
 {
+    public static ProcessIncomingCommand? ParseText(string text, OwnDay.Domain.UserId user)
+    {
+        var value = text.Trim();
+        var name = value.ToLowerInvariant() switch
+        {
+            "расписание занятий" => "learn_schedule",
+            "не присылай приглашения" => "learn_notify_pause",
+            "возобнови приглашения" => "learn_notify_resume",
+            "покажи повторения" => "learn_reviews",
+            _ => null
+        };
+        if (name is not null) return new(name, "", user);
+        (string Prefix, string Command)[] prefixes =
+        [
+            ("напоминай мне ", "learn_schedule"),
+            ("начать приглашение ", "learn_invite_start"),
+            ("отложить приглашение ", "learn_invite_later"),
+            ("пропустить приглашение ", "learn_invite_skip")
+        ];
+        foreach (var (prefix, command) in prefixes)
+            if (value.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                return new(command, value[prefix.Length..].Trim(), user);
+        return null;
+    }
+
     private const string Usage = "Use /learn_schedule <time zone> | <every 1-30 days> | <HH:mm-HH:mm>[,HH:mm-HH:mm] (up to 4 windows).\n" +
-        "Example: /learn_schedule Europe/Moscow | 1 | 18:00-20:00\n/learn_notify_pause · /learn_notify_resume";
+        "Example: /learn_schedule Europe/Moscow | 1 | 18:00-20:00\n/learn_notify_pause · /learn_notify_resume\n" +
+        "В учебном диалоге: «напоминай мне Europe/Moscow | 1 | 18:00-20:00», «расписание занятий», " +
+        "«не присылай приглашения», «возобнови приглашения», «покажи повторения». " +
+        "Для приглашения: «начать приглашение <код>», «отложить приглашение <код>», «пропустить приглашение <код>».";
     private const string Expired = "Invitation expired or already handled. /learn_schedule · /learn_next · /learn_reviews";
 
     public bool Handles(string name) => name is "learn_schedule" or "learn_notify_pause" or "learn_notify_resume" or
