@@ -8,6 +8,13 @@ services:
     env_file:
       - .env
 
+    environment:
+      InboxAnalysis__Background__Enabled: "false"
+      Learning__Processing__Enabled: "true"
+      Learning__Processing__DurableIngressEnabled: "true"
+      Learning__Processing__DialogueEnabled: "true"
+      Learning__Processing__ConsultationEnabled: "true"
+
     ports:
       - "127.0.0.1:8080:8080"
 

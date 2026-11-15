@@ -550,8 +550,6 @@ public sealed class TelegramUpdateHandlerTests
                 new StructuredItemService(new EfStructuredItemStore(dbContext), timeProvider), knowledge, teacher, new EfActionStore(dbContext));
             var handler = new TelegramUpdateHandler(
                 router,
-                new TelegramActionCommandHandler(new ActionService(new EfActionStore(dbContext), timeProvider)),
-                new TelegramStructuredCommandHandler(new StructuredItemService(new EfStructuredItemStore(dbContext), timeProvider)),
                 new TelegramInboxFlow(
                     new InboxDraftService(new EfInboxDraftStore(dbContext),
                         new InboxCaptureService(new EfInboxItemStore(dbContext), timeProvider),
@@ -567,7 +565,6 @@ public sealed class TelegramUpdateHandlerTests
                         new InboxProcessingService(new EfInboxProcessingStore(dbContext), new EfActionStore(dbContext),
                             new EfStructuredItemStore(dbContext), timeProvider), timeProvider)),
                 new TelegramLanguageFlow(dbContext, timeProvider),
-                new TelegramStatisticsCommandHandler(new InboxStatisticsService(new EfInboxStatisticsStore(dbContext), timeProvider)),
                 dbContext,
                 timeProvider,
                 cleaner,

@@ -4,7 +4,7 @@ namespace OwnDay.Infrastructure.Telegram.Commands;
 
 public static class TelegramDialoguePresenter
 {
-    public const string Introduction = "Для учебного диалога пишите обычным текстом, для заметок в Inbox — /capture <текст>. Учебные команды тоже доступны.";
+    public const string Introduction = "Пишите обычным текстом: расскажите, чему хотите научиться, ответьте на задание или задайте вопрос.";
 
     public static IReadOnlyList<string> Help(bool introduce, bool consultation = false, OwnDay.Domain.Dialogue.DialogueContext? context = null,
         Guid? selectedProgramId = null)
@@ -23,7 +23,7 @@ public static class TelegramDialoguePresenter
         }
         const string help = "Для текущего упражнения напишите «Продолжим», затем ответьте или задайте вопрос обычным текстом. " +
             "Завершение упражнения и смена программы требуют отдельного кода подтверждения. " +
-            "Новая программа: /learn_request <цель> | <опыт>. Все команды: /help commands.";
+            "Новая программа: /learn_request <цель> | <опыт>. Для возврата к диалогу напишите «Продолжим».";
         return introduce ? [Introduction, help] : [help];
     }
 
@@ -58,7 +58,7 @@ public static class TelegramDialoguePresenter
             DialogueReplyKind.ChoiceUnbound => "Выбор не относится к текущему уточнению. Прочитайте последний вопрос и выберите ответ после него.",
             DialogueReplyKind.ChoiceExpired => "Уточнение устарело или выбор поступил до вопроса. Проверьте текущий урок и повторите выбор после этого сообщения.",
             DialogueReplyKind.OriginalStale => "Исходная реплика больше не относится к текущему упражнению. Ничего не оценено.",
-            DialogueReplyKind.NoActiveLesson => "Сейчас нет активного упражнения. Для существующей программы: /learn_next. Новая программа: /learn_request <цель> | <опыт>. Для заметки в Inbox: /capture <текст>.",
+            DialogueReplyKind.NoActiveLesson => "Сейчас нет активного упражнения. Для существующей программы: /learn_next. Новая программа: /learn_request <цель> | <опыт>.",
             DialogueReplyKind.Paused => "Упражнение на паузе. Напишите «Продолжим», чтобы вернуться к тому же вопросу.",
             DialogueReplyKind.NeedBinding => "Вопрос неактуален или занятие на паузе. Напишите «Продолжим» и повторите реплику. Ничего не оценено.",
             DialogueReplyKind.NeedActualInput => "Сейчас нет ожидающего выбора. Отправьте сам ответ или вопрос по упражнению; ничего не оценено.",

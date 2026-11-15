@@ -473,7 +473,7 @@ public sealed partial class PostgresLearningProviderTests
             Assert.Equal(LessonStatus.Paused, paused.Status);
             Assert.Equal(DialogueExpectedResponse.None, (await db.Set<DialogueContext>().SingleAsync()).ExpectedResponse);
         }
-        using var host = DialogueHost(probe, enabled: false);
+        using var host = DialogueHost(probe);
         using var client = host.CreateClient();
         using var response = await PostPublicAsync(client, 2, "Продолжим");
         response.EnsureSuccessStatusCode();

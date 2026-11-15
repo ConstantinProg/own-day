@@ -1,5 +1,26 @@
 # Telegram UX consolidation
 
+## Current interface: learning dialogue only
+
+Telegram now opens learning dialogue for every user, including users without a
+DialogueContext. Ordinary text is committed as a durable Learning request; it
+never falls back to Inbox. Old Inbox and language editors are closed before
+acceptance. Old productivity commands and callback buttons show dialogue help
+without executing their former actions. Start/help have no Inbox keyboard.
+Existing Inbox records are retained.
+Background Inbox analysis is disabled in Host defaults and production Compose;
+existing Inbox jobs remain stored. Previously committed outbox messages still
+drain through the shared deliverer.
+
+Learning processing, durable ingress, dialogue and first-goal consultation are
+enabled by default. The production Compose application explicitly enables these
+settings, overriding historical disabled values in its runtime env file. Startup
+rejects disabled dialogue/consultation; pause acceptance with AcceptancePaused
+instead of switching to Inbox. Apply migrations before starting the new image;
+keep a single outbox deliverer. Updating source does not update a running bot.
+
+The inventory and target model below describe the historical Inbox interface.
+
 ## Audit and target model (recorded before implementation)
 
 Source of truth: Telegram Commands, Routing, Handling, Localization, Delivery and Cleanup code,

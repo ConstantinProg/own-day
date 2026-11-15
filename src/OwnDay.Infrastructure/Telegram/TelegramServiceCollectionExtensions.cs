@@ -20,6 +20,8 @@ public static class TelegramServiceCollectionExtensions
         services.TryAddSingleton<TimeProvider>(TimeProvider.System);
         services.AddOptions<OwnDay.Infrastructure.Learning.LearningRequestProcessingOptions>()
             .BindConfiguration("Learning:Processing")
+            .Validate(settings => settings.DialogueEnabled && settings.ConsultationEnabled,
+                "Telegram supports only learning dialogue with first-goal consultation. Remove legacy disabled-mode overrides.")
             .Validate(settings => settings.Parallelism is >= 1 and <= 8 && settings.PollMilliseconds is >= 20 and <= 60000 &&
                 settings.LeaseSeconds is >= 1 and <= 300 && settings.MaxAttempts is >= 1 and <= 5 &&
                 settings.ProviderTimeoutSeconds is >= 1 and <= 120 && settings.MaxProviderAttempts is >= 1 and <= 3,
