@@ -36,12 +36,14 @@ public static class TelegramDialoguePresenter
                 ? "Упражнение на паузе. Напишите «Продолжим», чтобы вернуться к этому вопросу."
                 : "Напишите ответ или вопрос по упражнению. «Пауза» сохраняет вопрос, «помощь» показывает текущую точку возврата.")];
         if (reply.Kind is DialogueReplyKind.ConfirmFinish or DialogueReplyKind.ConfirmProgramSelection or
-            DialogueReplyKind.ConfirmProgramCreation or DialogueReplyKind.ConfirmGoalIntent)
+            DialogueReplyKind.ConfirmProgramCreation or DialogueReplyKind.ConfirmGoalIntent or DialogueReplyKind.ConfirmProgramSwitch or DialogueReplyKind.ConfirmGoalSwitch)
         {
             var summary = reply.Kind switch
             {
                 DialogueReplyKind.ConfirmFinish => "Завершить упражнение «" + values[0] + "» без оценки, сохранив историю?",
                 DialogueReplyKind.ConfirmProgramSelection => "Выбрать программу «" + values[0] + "» вместо текущей?",
+                DialogueReplyKind.ConfirmProgramSwitch => "Выбрать программу «" + values[0] + "»? Текущий вопрос и помощь сохраним для возврата. Ограниченную практику остановим; ответы и история сохранятся.",
+                DialogueReplyKind.ConfirmGoalSwitch => "Создать и выбрать программу по новой цели «" + values[0] + "»? Текущий вопрос и помощь сохраним для возврата, ограниченную практику остановим. Старую цель и её результаты сохраним.",
                 DialogueReplyKind.ConfirmGoalIntent => "Сохранить намерение сменить цель: «" + values[0] + "»? Текущее упражнение и программа сохранятся.",
                 _ => "Создать и выбрать новую программу по запросу «" + values[0] + "»? История прежней программы сохранится."
             };
@@ -64,6 +66,8 @@ public static class TelegramDialoguePresenter
             DialogueReplyKind.MustEndPractice => "Сначала завершите текущую ограниченную практику или напишите «хватит практики». Её ответы сохранятся; затем можно начать другое упражнение.",
             DialogueReplyKind.ProgramUnavailable => "Программа недоступна. /learn_programs",
             DialogueReplyKind.GoalDeferred => "Намерение сменить цель сохранено. Текущее упражнение и программа сохранены; переключение сейчас недоступно.",
+            DialogueReplyKind.AskNewGoal => "Какую цель выбрать? Напишите «сменить цель на <ваша цель>». Перед сменой покажу, что изменится, и попрошу отдельное подтверждение.",
+            DialogueReplyKind.GoalChanged => "Новая цель: «" + values[0] + "». Прежняя программа и вопрос сохранены; вернуться можно через список программ. Напишите «Продолжим», чтобы начать новую цель.",
             DialogueReplyKind.ChooseAnswerOrQuestion => "Это ваш ответ на упражнение или вопрос по нему? Напишите «ответ» или «вопрос». До выбора ничего не оценивается; при выборе ответа будет оценён исходный текст.",
             DialogueReplyKind.ChooseQuestionOrGoal => "Это вопрос в рамках текущего урока или желание сменить учебную цель? Напишите «вопрос» или «цель». Учебное состояние пока не изменено.",
             DialogueReplyKind.ChoosePauseOrResume => "Уточните одно действие: «пауза» или «продолжить». Учебное состояние пока не изменено.",

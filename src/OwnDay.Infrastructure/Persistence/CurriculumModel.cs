@@ -74,6 +74,12 @@ internal static class CurriculumModel
         });
         modelBuilder.Entity<Lesson>(entity =>
         {
+            entity.ToTable("learning_lessons", table => table.HasCheckConstraint("CK_learning_lessons_suspension",
+                "(\"Status\" = 4 AND \"SuspendedFrom\" IN (0, 1) AND \"SuspendedFrom\" IS NOT NULL AND \"SuspendedForProgramId\" IS NOT NULL) OR (\"Status\" <> 4 AND \"SuspendedFrom\" IS NULL AND \"SuspendedForProgramId\" IS NULL)"));
+            entity.HasIndex(lesson => new { lesson.UserId, lesson.SuspendedForProgramId }).IsUnique().HasFilter("\"Status\" = 4");
+            entity.HasOne<LearningProgram>().WithMany().HasForeignKey(lesson => new { lesson.SuspendedForProgramId, lesson.UserId })
+                .HasPrincipalKey(program => new { program.Id, program.UserId }).OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("FK_learning_lessons_suspended_program");
             entity.ToTable("learning_lessons", table => table.HasCheckConstraint(
                 "CK_learning_lessons_project_action", "\"ProjectActionId\" IS NULL OR \"ProgramId\" IS NOT NULL"));
             entity.HasOne<OwnDay.Domain.Actions.Action>().WithMany().HasForeignKey(l => new { l.ProjectActionId, l.UserId })

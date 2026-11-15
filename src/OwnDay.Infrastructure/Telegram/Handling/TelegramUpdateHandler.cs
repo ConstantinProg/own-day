@@ -192,7 +192,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
                 var lessonId = await CurrentLessonIdAsync(user, cancellationToken);
                 await AddReceiptAsync(update, user, chatId, new LearningTextInput(ordinary.Value, lessonId,
                     dialogue?.PromptId, dialogue?.Revision, _processing.ConsultationEnabled || dialogue?.Consultation is not null,
-                    _processing.EnglishDiagnosticEnabled, _processing.PracticeEnabled),
+                    _processing.EnglishDiagnosticEnabled, _processing.PracticeEnabled, _processing.ProgramSwitchEnabled),
                     "learning_text", 1, databaseNow, ready: true, cancellationToken);
                 await CommitReceiptAsync(databaseNow);
                 return;
@@ -378,7 +378,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         if (ready && (dialogueMode || command.Name is "answer" or "learn_ask" or "learn_explain"))
             lessonId = await CurrentLessonIdAsync(command.UserId, token);
         return await AddReceiptAsync(update, command.UserId, dispatch.ChatId,
-            new LearningCommandInput(command.Name, command.Arguments, lessonId, dialogue?.PromptId, dialogue?.Revision),
+            new LearningCommandInput(command.Name, command.Arguments, lessonId, dialogue?.PromptId, dialogue?.Revision, _processing.ProgramSwitchEnabled),
             "learning_command", ready ? dialogueMode ? 3 : 2 : 1, receivedAt, ready, token);
     }
 

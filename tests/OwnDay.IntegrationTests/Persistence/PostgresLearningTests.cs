@@ -28,7 +28,9 @@ public sealed class PostgresLearningTests
             var migrator = db.GetService<IMigrator>();
             const string previousMigration = "20261105164833_AddLessonDialogue";
             await migrator.MigrateAsync(previousMigration);
-            foreach (var status in Enum.GetValues<LessonStatus>())
+            // Only these states existed in the historical schema being seeded.
+            LessonStatus[] historicalStatuses = [LessonStatus.AwaitingAnswer, LessonStatus.Paused, LessonStatus.Completed, LessonStatus.Finished];
+            foreach (var status in historicalStatuses)
             {
                 var lesson = Lesson.Start(new UserId(101 + (int)status), "Algebra", "Theory", "Question");
                 lesson.AddExplanation(LessonInteractionKind.Clarification, "Request", "Explanation");

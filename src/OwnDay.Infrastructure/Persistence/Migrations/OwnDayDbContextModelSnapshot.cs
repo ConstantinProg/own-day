@@ -23,7 +23,7 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
         {
             b.Property<long>("UserId").ValueGeneratedNever().HasColumnType("bigint").HasColumnName("user_id");
             b.Property<long>("Revision").IsConcurrencyToken().HasColumnType("bigint").HasColumnName("revision");
-            b.Property<int>("SchemaVersion").ValueGeneratedOnAdd().HasDefaultValue(4).HasColumnType("integer").HasColumnName("schema_version");
+            b.Property<int>("SchemaVersion").ValueGeneratedOnAdd().HasDefaultValue(5).HasColumnType("integer").HasColumnName("schema_version");
             b.Property<int>("Phase").HasColumnType("integer").HasColumnName("phase");
             b.Property<int>("ExpectedResponse").HasColumnType("integer").HasColumnName("expected_response");
             b.Property<Guid>("PromptId").HasColumnType("uuid").HasColumnName("prompt_id");
@@ -1605,6 +1605,18 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
             });
         }
         modelBuilder.Entity("OwnDay.Domain.Learning.LearningContext", b => b.Property<string>("Practice").HasColumnType("jsonb"));
+        modelBuilder.Entity("OwnDay.Domain.Learning.Lesson", b =>
+        {
+            b.Property<int?>("SuspendedFrom").HasColumnType("integer");
+            b.Property<Guid?>("SuspendedForProgramId").HasColumnType("uuid");
+            b.HasIndex("UserId", "SuspendedForProgramId").IsUnique().HasFilter("\"Status\" = 4");
+            b.HasIndex("SuspendedForProgramId", "UserId");
+            b.HasOne("OwnDay.Domain.Learning.LearningProgram", null).WithMany()
+                .HasForeignKey("SuspendedForProgramId", "UserId").HasPrincipalKey("Id", "UserId").OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("FK_learning_lessons_suspended_program");
+            b.ToTable("learning_lessons", null, t => t.HasCheckConstraint("CK_learning_lessons_suspension",
+                "(\"Status\" = 4 AND \"SuspendedFrom\" IN (0, 1) AND \"SuspendedFrom\" IS NOT NULL AND \"SuspendedForProgramId\" IS NOT NULL) OR (\"Status\" <> 4 AND \"SuspendedFrom\" IS NULL AND \"SuspendedForProgramId\" IS NULL)"));
+        });
 #pragma warning restore 612, 618
     }
 }

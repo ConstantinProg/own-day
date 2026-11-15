@@ -157,7 +157,8 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
             new DateTimeOffset(request.ReceivedAt), now, lesson is null ? null : db.Entry(lesson).Property<uint>("TargetVersion").OriginalValue,
             request.SourceMessageId ?? request.SourceUpdateId);
         var decision = await new LearningDialogueService(store, session, processing.ConsultationEnabled || text?.ConsultationAllowed == true,
-            processing.PracticeEnabled || text?.PracticeAllowed == true)
+            processing.PracticeEnabled || text?.PracticeAllowed == true,
+            processing.ProgramSwitchEnabled || text?.ProgramSwitchAllowed == true || command?.ProgramSwitchAllowed == true)
             .DecideAsync(turn, lesson, program, pedagogicalStamp, token);
         var introduce = db.Entry(decision.Context).State == EntityState.Added;
         var audit = decision.Audit is null ? null : JsonSerializer.Serialize(decision.Audit, JsonSerializerOptions.Web);
@@ -188,6 +189,32 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
                 decision.Context.Synchronize(current, now, turn.SourceOrder);
             }
             return new(null, result.Outcome) { Replies = Introduce(introduce, TelegramCurriculumPresenter.Render(result.Result)) };
+        }
+        if (operation is DialogueOperationKind.SwitchProgram or DialogueOperationKind.SwitchGoal or
+            DialogueOperationKind.SwitchCreateProgram or DialogueOperationKind.SwitchCreateProjectProgram)
+        {
+            IReadOnlyList<string> switched;
+            if (operation == DialogueOperationKind.SwitchGoal)
+            {
+                var result = await CreateCurriculum(services, session).CreateAsync(request.UserId, decision.Arguments,
+                    "Опыт по новой цели не уточнён", null, token,
+                    englishDiagnostic: processing.EnglishDiagnosticEnabled || text?.EnglishDiagnosticAllowed == true || program?.HasEnglishDiagnostic == true,
+                    suspendCurrent: true);
+                var reply = LearningGoalChange.Complete(decision.Context, result, turn);
+                switched = result is CurriculumResult.Program ? TelegramDialoguePresenter.Render(reply) : TelegramCurriculumPresenter.Render(result);
+            }
+            else
+            {
+                var switchName = operation == DialogueOperationKind.SwitchProgram ? "learn_select" :
+                    operation == DialogueOperationKind.SwitchCreateProgram ? "learn_request" : "learn_project";
+                switched = await new TelegramCurriculumCommandHandler(CreateCurriculum(services, session))
+                    .HandleAsync(new(switchName, decision.Arguments, request.UserId), token, suspendCurrent: true);
+            }
+            session.EnsureComplete();
+            var restored = await services.GetRequiredService<ILessonStore>().FindActiveAsync(request.UserId, token);
+            if (decision.Context.DiagnosticTarget is null) decision.Context.Synchronize(restored, now, turn.SourceOrder);
+            if (restored is not null) switched = [.. switched, .. TelegramLearningPresenter.Render(LearningService.Session(restored))];
+            return new(null, decision.Audit?.Code ?? "program_switched") { Replies = switched, DialogueOutcomeJson = audit };
         }
         if (operation is DialogueOperationKind.BeginPractice or DialogueOperationKind.NextPractice or DialogueOperationKind.PausePractice or
             DialogueOperationKind.ResumePractice or DialogueOperationKind.StopPractice or DialogueOperationKind.PracticeInfo)

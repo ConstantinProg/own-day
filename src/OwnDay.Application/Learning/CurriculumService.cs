@@ -10,6 +10,9 @@ public interface ICurriculumStore
     Task<LearningContext?> FindContextAsync(UserId user, CancellationToken token);
     Task<Lesson?> FindPracticeLessonAsync(UserId user, Guid lessonId, CancellationToken token);
     Task<Lesson?> FindLastProgramLessonAsync(UserId user, Guid programId, CancellationToken token);
+    Task<Lesson?> FindSuspendedLessonAsync(UserId user, Guid programId, CancellationToken token);
+    // Flush within the caller's transaction, never commit or invoke providers.
+    Task FlushAsync(CancellationToken token);
     Task<LearningProgram?> FindAsync(UserId user, CancellationToken token);
     Task<LearningProgram?> FindAsync(UserId user, Guid programId, CancellationToken token);
     Task<IReadOnlyList<LearningProgram>> ListAsync(UserId user, int offset, int limit, CancellationToken token);
@@ -63,7 +66,7 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
     public const int MaxPageNumber = int.MaxValue / PageSize;
 
     public async Task<CurriculumResult> CreateAsync(UserId user, string goal, string experience, long? projectId, CancellationToken token,
-        bool englishDiagnostic = false)
+        bool englishDiagnostic = false, bool suspendCurrent = false)
     {
         ValidateUser(user, token);
         goal = goal.Trim();
@@ -76,10 +79,13 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
             goal = project.Title;
         }
         if (goal.Length is < 1 or > LearningProgram.MaxGoalLength) return new CurriculumResult.InvalidInput();
-        if (await lessons.FindActiveAsync(user, token) is not null) return new CurriculumResult.LessonInProgress();
+        var active = await lessons.FindActiveAsync(user, token);
+        if (!suspendCurrent && active is not null) return new CurriculumResult.LessonInProgress();
         var currentContext = await store.FindContextAsync(user, token);
         if (currentContext?.Practice is { Supported: false }) return new CurriculumResult.InvalidTransition();
-        if (currentContext?.Practice is { Active: true }) return new CurriculumResult.LessonInProgress();
+        if (!suspendCurrent && currentContext?.Practice is { Active: true }) return new CurriculumResult.LessonInProgress();
+        var current = await store.FindAsync(user, token);
+        if (suspendCurrent && !await CanSuspendAsync(user, current, active, token)) return new CurriculumResult.InvalidTransition();
         try
         {
             var authored = englishDiagnostic && projectId is null && EnglishLearningContent.IsEnglishGoal(goal);
@@ -89,6 +95,7 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
             var program = LearningProgram.Create(user, goal, experience, projectId,
                 proposal.Discipline, proposal.Topics, proposal.DiagnosticQuestion);
             if (authored) program.OfferEnglishDiagnostic();
+            if (suspendCurrent) await SuspendAsync(current, currentContext, active, token);
             store.Add(program);
             await store.SelectAsync(program, token);
             return new CurriculumResult.Program(program);
@@ -107,20 +114,42 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
         return new CurriculumResult.Programs(items.Take(PageSize).ToArray(), page, items.Count > PageSize);
     }
 
-    public async Task<CurriculumResult> SelectAsync(UserId user, Guid programId, CancellationToken token)
+    public async Task<CurriculumResult> SelectAsync(UserId user, Guid programId, CancellationToken token, bool suspendCurrent = false)
     {
         ValidateUser(user, token);
         var program = await store.FindAsync(user, programId, token);
         if (program is null) return new CurriculumResult.ProgramNotFound();
         var current = await store.FindAsync(user, token);
-        if (current?.Id != program.Id && await lessons.FindActiveAsync(user, token) is not null)
+        var active = await lessons.FindActiveAsync(user, token);
+        if (!suspendCurrent && current?.Id != program.Id && active is not null)
             return new CurriculumResult.LessonInProgress();
         var context = await store.FindContextAsync(user, token);
         if (context?.Practice is { Supported: false }) return new CurriculumResult.InvalidTransition();
-        if (current?.Id != program.Id && context?.Practice is { Active: true })
+        if (!suspendCurrent && current?.Id != program.Id && context?.Practice is { Active: true })
             return new CurriculumResult.LessonInProgress();
+        var suspended = await store.FindSuspendedLessonAsync(user, program.Id, token);
+        if (current?.Id != program.Id && suspendCurrent)
+        {
+            if (!await CanSuspendAsync(user, current, active, token)) return new CurriculumResult.InvalidTransition();
+            await SuspendAsync(current, context, active, token);
+        }
+        else if (active is not null && suspended is not null) return new CurriculumResult.LessonInProgress();
         await store.SelectAsync(program, token);
+        suspended?.RestoreForProgram(program);
         return new CurriculumResult.Program(program);
+    }
+
+    private async Task<bool> CanSuspendAsync(UserId user, LearningProgram? current, Lesson? active, CancellationToken token) =>
+        active is null || current is not null && (active.ProgramId is null || active.ProgramId == current.Id) &&
+            await store.FindSuspendedLessonAsync(user, current.Id, token) is null;
+
+    private async Task SuspendAsync(LearningProgram? current, LearningContext? context, Lesson? active, CancellationToken token)
+    {
+        if (active is not null) active.SuspendForProgramSwitch(current!);
+        if (context?.Practice is { Active: true }) context.StopPractice();
+        // Any required provider snapshot has already been obtained before mutation.
+        // Apply owns this flush and the final selection/reply checkpoint atomically.
+        await store.FlushAsync(token);
     }
 
     public async Task<CurriculumResult> LinkAsync(UserId user, string topicCode, Guid skillId, string reason, CancellationToken token)
@@ -209,6 +238,12 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
         {
             Provenance = active.Provenance, ProjectActionId = active.ProjectActionId, Transfer = active.Transfer
         });
+        var suspended = await store.FindSuspendedLessonAsync(user, program.Id, token);
+        if (suspended is not null)
+        {
+            suspended.RestoreForProgram(program);
+            return new CurriculumResult.Lesson(LearningService.Session(suspended));
+        }
         var completed = await store.CompletedTopicsAsync(user, program.Id, program.CurrentRoute.Version, token);
         var topic = program.NextTopic(completed);
         if (selection == LessonSelection.Focus)

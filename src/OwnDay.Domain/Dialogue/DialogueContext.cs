@@ -11,7 +11,8 @@ public enum DialogueOperationKind
 {
     None, Answer, Clarify, Explain, Pause, Resume, Finish, Next, Progress,
     CreateProgram, CreateProjectProgram, SelectProgram, ChangeGoal, Cancel, Confirm, Diagnose,
-    BeginPractice, NextPractice, PausePractice, ResumePractice, StopPractice, PracticeInfo, StartOtherLesson
+    BeginPractice, NextPractice, PausePractice, ResumePractice, StopPractice, PracticeInfo, StartOtherLesson,
+    SwitchProgram, SwitchGoal, SwitchCreateProgram, SwitchCreateProjectProgram
 }
 
 public sealed record DialogueClarification(Guid OriginalRequestId, ImmutableArray<DialogueOperationKind> Allowed,
@@ -27,7 +28,7 @@ public sealed record DialogueConfirmation(Guid ProposalId, string Code, Guid Ori
 // for pedagogical state; there are no jobs, provider results or transport types here.
 public sealed partial class DialogueContext
 {
-    public const int CurrentSchemaVersion = 4;
+    public const int CurrentSchemaVersion = 5;
     private DialogueContext() { }
     public UserId UserId { get; private set; }
     public int SchemaVersion { get; private set; } = CurrentSchemaVersion;
@@ -127,7 +128,9 @@ public sealed partial class DialogueContext
     {
         if (originalRequestId == Guid.Empty || !Enum.IsDefined(operation) || operation is not
             (DialogueOperationKind.Finish or DialogueOperationKind.SelectProgram or DialogueOperationKind.CreateProgram or
-             DialogueOperationKind.CreateProjectProgram or DialogueOperationKind.ChangeGoal) || arguments.Length > 4000 || label?.Length > 500)
+             DialogueOperationKind.CreateProjectProgram or DialogueOperationKind.ChangeGoal or DialogueOperationKind.SwitchProgram or
+             DialogueOperationKind.SwitchGoal or DialogueOperationKind.SwitchCreateProgram or DialogueOperationKind.SwitchCreateProjectProgram) ||
+            arguments.Length > 4000 || label?.Length > 500)
             throw new ArgumentException("Invalid consequential proposal.", nameof(operation));
         ValidateStamp(stamp);
         ClearPending(now);

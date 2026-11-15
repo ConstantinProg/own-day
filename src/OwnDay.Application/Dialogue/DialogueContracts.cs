@@ -32,9 +32,10 @@ public interface ILearningIntentResolver
 }
 
 public sealed record LearningTextInput(string Text, Guid? LessonId, Guid? PromptId, long? DialogueRevision, bool ConsultationAllowed = false,
-    bool EnglishDiagnosticAllowed = false, bool PracticeAllowed = false);
+    bool EnglishDiagnosticAllowed = false, bool PracticeAllowed = false, bool ProgramSwitchAllowed = false);
 public sealed record DialogueProgramSnapshot(Guid Id, string Goal, string Discipline, int RouteVersion, uint Version = 0,
-    bool HasEnglishDiagnostic = false, LearningPracticeStatus? PracticeStatus = null);
+    bool HasEnglishDiagnostic = false, LearningPracticeStatus? PracticeStatus = null,
+    Guid? SuspendedLessonId = null, uint? SuspendedLessonVersion = null);
 public sealed record DialogueOriginalInput(string Text, Guid? LessonId, Guid? PromptId);
 public interface IDialogueStore
 {
@@ -55,7 +56,8 @@ public enum DialogueReplyKind
     NoActiveLesson, Paused, NeedBinding, NeedActualInput, Recap, MustFinishLesson, ProgramUnavailable,
     GoalDeferred, ChooseAnswerOrQuestion, ChooseQuestionOrGoal, ChoosePauseOrResume, ConfirmFinish,
     ConfirmProgramSelection, ConfirmProgramCreation, ConfirmGoalIntent,
-    AskGoal, AskPracticalUse, AskExperience, ConsultationRetry, ConsultationUnavailable, FirstProgramReady, ConsultationPaused, MustEndPractice
+    AskGoal, AskPracticalUse, AskExperience, ConsultationRetry, ConsultationUnavailable, FirstProgramReady, ConsultationPaused, MustEndPractice,
+    AskNewGoal, ConfirmProgramSwitch, ConfirmGoalSwitch, GoalChanged
 }
 public sealed record DialogueReply(DialogueReplyKind Kind, IReadOnlyList<string>? Values = null);
 public sealed record DialogueDecision(DialogueContext Context, DialogueOperationKind? Execute, string Arguments,

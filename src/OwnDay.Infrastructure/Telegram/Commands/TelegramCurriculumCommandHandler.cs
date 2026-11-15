@@ -8,7 +8,7 @@ public sealed class TelegramCurriculumCommandHandler(CurriculumService service)
     public bool Handles(string name) => name is "learn_request" or "learn_program" or "learn_project" or "learn_diagnose" or "learn_route" or "learn_next" or "learn_adapt" or "learn_focus"
         or "learn_programs" or "learn_select" or "learn_link" or "learn_links" or "learn_project_report" or "learn_project_practice" or "learn_transfer" or "learn_progress";
 
-    public async Task<IReadOnlyList<string>> HandleAsync(ProcessIncomingCommand command, CancellationToken token)
+    public async Task<IReadOnlyList<string>> HandleAsync(ProcessIncomingCommand command, CancellationToken token, bool suspendCurrent = false)
     {
         CurriculumResult result;
         if (command.Name == "learn_progress")
@@ -46,7 +46,7 @@ public sealed class TelegramCurriculumCommandHandler(CurriculumService service)
         else if (command.Name == "learn_select")
         {
             if (!Guid.TryParse(command.Arguments.Trim(), out var id)) return TelegramCurriculumPresenter.Render(new CurriculumResult.InvalidInput());
-            result = await service.SelectAsync(command.UserId, id, token);
+            result = await service.SelectAsync(command.UserId, id, token, suspendCurrent);
         }
         else if (command.Name == "learn_link")
         {
@@ -64,7 +64,7 @@ public sealed class TelegramCurriculumCommandHandler(CurriculumService service)
                 if (!long.TryParse(parts[0], out var id) || id <= 0) return TelegramCurriculumPresenter.Render(new CurriculumResult.InvalidInput());
                 projectId = id;
             }
-            result = await service.CreateAsync(command.UserId, parts[0], parts[1], projectId, token);
+            result = await service.CreateAsync(command.UserId, parts[0], parts[1], projectId, token, suspendCurrent: suspendCurrent);
         }
         else if (command.Name == "learn_diagnose")
         {

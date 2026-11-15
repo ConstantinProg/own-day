@@ -11,7 +11,7 @@ public enum LearningRequestStatus
 }
 
 public sealed record LearningCommandInput(string Name, string Arguments, Guid? LessonId = null,
-    Guid? PromptId = null, long? DialogueRevision = null);
+    Guid? PromptId = null, long? DialogueRevision = null, bool ProgramSwitchAllowed = false);
 
 public sealed class LearningRequest
 {

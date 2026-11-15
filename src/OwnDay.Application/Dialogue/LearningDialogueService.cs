@@ -7,7 +7,7 @@ using System.Text.Json;
 namespace OwnDay.Application.Dialogue;
 
 public sealed class LearningDialogueService(IDialogueStore store, ILearningIntentResolver resolver, bool consultationEnabled = false,
-    bool practiceEnabled = false)
+    bool practiceEnabled = false, bool programSwitchEnabled = false)
 {
     public async Task<DialogueDecision> DecideAsync(DialogueTurn turn, Lesson? lesson, DialogueProgramSnapshot? program,
         string stamp, CancellationToken token)
@@ -31,7 +31,7 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
             context.Synchronize(lesson, turn.Now, turn.SourceOrder);
 
         var pendingConfirmation = context.PendingConfirmation;
-        var currentConfirmationStamp = pendingConfirmation?.Operation == DialogueOperationKind.SelectProgram &&
+        var currentConfirmationStamp = pendingConfirmation?.Operation is DialogueOperationKind.SelectProgram or DialogueOperationKind.SwitchProgram &&
             Guid.TryParse(pendingConfirmation.Arguments, out var pendingProgramId)
             ? WithProgramTarget(stamp, await store.ReadProgramByIdAsync(turn.UserId, pendingProgramId, token)) : stamp;
         if (pendingConfirmation is not null && (turn.Now >= pendingConfirmation.ExpiresAt || currentConfirmationStamp != pendingConfirmation.TargetStamp) ||
@@ -76,6 +76,8 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
             return resolved with { Audit = new("confirmation_resolved", Confirmation: confirmedProposal,
                 OriginalRequestId: confirmedProposal.OriginalRequestId, ChosenAction: confirmedProposal.Operation) };
         }
+        if (context.PendingConfirmation is not null && command is null && Deterministic(normalized) is DialogueOperationKind.Pause or DialogueOperationKind.Resume)
+            context.Synchronize(lesson, turn.Now);
         if (context.PendingConfirmation is { } confirmation && command is null)
             return ConfirmationReply(context, confirmation);
 
@@ -103,6 +105,21 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
             return ChoiceReply(context, context.PendingClarification.Allowed);
         if (command is not null && (context.PendingClarification is not null || context.PendingConfirmation is not null))
             context.Synchronize(lesson, turn.Now, turn.SourceOrder);
+
+        if (programSwitchEnabled && program is not null && command is null)
+        {
+            const string prefix = "сменить цель на ";
+            const string selectPrefix = "выбрать программу ";
+            if (normalized.StartsWith(prefix, StringComparison.Ordinal))
+            {
+                var goal = turn.Text.Trim()[prefix.Length..].Trim();
+                if (goal.Length is < 1 or > LearningProgram.MaxGoalLength) return Reply(context, DialogueReplyKind.AskNewGoal);
+                return await DecideActionAsync(context, turn, DialogueOperationKind.SwitchGoal, goal, lesson, program, stamp, false, true, token);
+            }
+            if (normalized.StartsWith(selectPrefix, StringComparison.Ordinal))
+                return await DecideActionAsync(context, turn, DialogueOperationKind.SelectProgram, turn.Text.Trim()[selectPrefix.Length..].Trim(),
+                    lesson, program, stamp, false, true, token);
+        }
 
         if (practiceEnabled || program?.PracticeStatus is not null)
         {
@@ -213,24 +230,39 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
             program?.PracticeStatus is LearningPracticeStatus.Running or LearningPracticeStatus.Paused)
             return Reply(context, DialogueReplyKind.MustEndPractice);
         DialogueProgramSnapshot? selectedProgram = null;
-        if (action is DialogueOperationKind.CreateProgram or DialogueOperationKind.CreateProjectProgram or DialogueOperationKind.SelectProgram)
+        if (!confirmed && programSwitchEnabled && program is not null)
+            action = action switch
+            {
+                DialogueOperationKind.SelectProgram => DialogueOperationKind.SwitchProgram,
+                DialogueOperationKind.CreateProgram => DialogueOperationKind.SwitchCreateProgram,
+                DialogueOperationKind.CreateProjectProgram => DialogueOperationKind.SwitchCreateProjectProgram,
+                _ => action
+            };
+        if (action is DialogueOperationKind.SwitchProgram or DialogueOperationKind.SwitchGoal or
+            DialogueOperationKind.SwitchCreateProgram or DialogueOperationKind.SwitchCreateProjectProgram)
         {
-            if (lesson is not null) return Reply(context, DialogueReplyKind.MustFinishLesson);
-            if (action == DialogueOperationKind.SelectProgram)
+            if (!confirmed && turn.SourceOrder <= context.ResponseAfterSourceOrder) return Reply(context, DialogueReplyKind.NeedBinding);
+        }
+        if (action is DialogueOperationKind.CreateProgram or DialogueOperationKind.CreateProjectProgram or DialogueOperationKind.SelectProgram or DialogueOperationKind.SwitchProgram)
+        {
+            if (lesson is not null && action != DialogueOperationKind.SwitchProgram) return Reply(context, DialogueReplyKind.MustFinishLesson);
+            if (action is DialogueOperationKind.SelectProgram or DialogueOperationKind.SwitchProgram)
             {
                 if (Guid.TryParse(arguments.Trim(), out var target)) selectedProgram = await store.ReadProgramByIdAsync(turn.UserId, target, token);
                 if (selectedProgram is null) return Reply(context, DialogueReplyKind.ProgramUnavailable);
             }
         }
+        if (action == DialogueOperationKind.ChangeGoal && programSwitchEnabled) return Reply(context, DialogueReplyKind.AskNewGoal);
         var consequential = action == DialogueOperationKind.Finish && lesson is not null || action == DialogueOperationKind.ChangeGoal ||
             action is DialogueOperationKind.CreateProgram or DialogueOperationKind.CreateProjectProgram && program is not null ||
-            action == DialogueOperationKind.SelectProgram && Guid.TryParse(arguments.Trim(), out var selected) && selected != program?.Id;
+            action == DialogueOperationKind.SelectProgram && Guid.TryParse(arguments.Trim(), out var selected) && selected != program?.Id ||
+            action is DialogueOperationKind.SwitchProgram or DialogueOperationKind.SwitchGoal or DialogueOperationKind.SwitchCreateProgram or DialogueOperationKind.SwitchCreateProjectProgram;
         if (consequential && !confirmed)
         {
             var targetProgram = selectedProgram ?? program;
-            if (action == DialogueOperationKind.SelectProgram && targetProgram is null) return Reply(context, DialogueReplyKind.ProgramUnavailable);
-            var confirmationStamp = action == DialogueOperationKind.SelectProgram ? WithProgramTarget(stamp, targetProgram) : stamp;
-            var label = action == DialogueOperationKind.SelectProgram ? Bounded(targetProgram!.Goal)
+            if (action is DialogueOperationKind.SelectProgram or DialogueOperationKind.SwitchProgram && targetProgram is null) return Reply(context, DialogueReplyKind.ProgramUnavailable);
+            var confirmationStamp = action is DialogueOperationKind.SelectProgram or DialogueOperationKind.SwitchProgram ? WithProgramTarget(stamp, targetProgram) : stamp;
+            var label = action is DialogueOperationKind.SelectProgram or DialogueOperationKind.SwitchProgram ? Bounded(targetProgram!.Goal)
                 : action == DialogueOperationKind.Finish ? Bounded(lesson!.Topic) : Bounded(arguments);
             context.OpenConfirmation(turn.RequestId, action, arguments, confirmationStamp, turn.Now,
                 new(targetProgram?.Id, targetProgram?.RouteVersion, lesson?.Id, context.QuestionFingerprint,
@@ -240,6 +272,7 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
         }
         if (action == DialogueOperationKind.ChangeGoal)
         {
+            if (programSwitchEnabled) return Reply(context, DialogueReplyKind.AskNewGoal);
             context.DeferGoal(turn.RequestId, turn.Now);
             context.Synchronize(lesson, turn.Now, turn.SourceOrder);
             return Reply(context, DialogueReplyKind.GoalDeferred);
@@ -264,6 +297,8 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
         {
             DialogueOperationKind.Finish => DialogueReplyKind.ConfirmFinish,
             DialogueOperationKind.SelectProgram => DialogueReplyKind.ConfirmProgramSelection,
+            DialogueOperationKind.SwitchProgram => DialogueReplyKind.ConfirmProgramSwitch,
+            DialogueOperationKind.SwitchGoal or DialogueOperationKind.SwitchCreateProgram or DialogueOperationKind.SwitchCreateProjectProgram => DialogueReplyKind.ConfirmGoalSwitch,
             DialogueOperationKind.ChangeGoal => DialogueReplyKind.ConfirmGoalIntent,
             _ => DialogueReplyKind.ConfirmProgramCreation
         }, [proposal.Label ?? "", proposal.Code]));

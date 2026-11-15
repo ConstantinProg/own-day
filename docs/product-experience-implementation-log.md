@@ -456,3 +456,7 @@ Focused regression/re-review follows before closing the milestone.
 P2 fix validation: clean Release build, ten integration and 30 unit/model tests
 passed. The result policy now resides in Application and is directly exercised
 without persistence/transport. No behavior or public Telegram command changed.
+
+Fix `a82385d` re-reviewed against `408df32`; no confirmed remaining P0/P1/P2/P3.
+S4 is complete locally. The next dependent implementation is S5: bounded authored
+English diagnostic, first lesson and conservative assistance/evidence handling.

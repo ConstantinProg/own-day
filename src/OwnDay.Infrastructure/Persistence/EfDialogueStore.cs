@@ -25,10 +25,16 @@ public sealed class EfDialogueStore(OwnDayDbContext db) : IDialogueStore
         .SingleOrDefaultAsync(token);
         return selected is null ? null : selected.Snapshot with { PracticeStatus = selected.Practice?.Status };
     }
-    public Task<DialogueProgramSnapshot?> ReadProgramByIdAsync(UserId user, Guid programId, CancellationToken token) =>
-        db.Set<LearningProgram>().Where(program => program.UserId == user && program.Id == programId)
+    public async Task<DialogueProgramSnapshot?> ReadProgramByIdAsync(UserId user, Guid programId, CancellationToken token)
+    {
+        var program = await db.Set<LearningProgram>().Where(program => program.UserId == user && program.Id == programId)
             .Select(program => new DialogueProgramSnapshot(program.Id, program.Goal, program.Discipline, program.Routes.Max(route => route.Version), EF.Property<uint>(program, "TargetVersion"), program.EnglishDiagnostic != null))
             .SingleOrDefaultAsync(token);
+        if (program is null) return null;
+        var suspended = await db.Set<Lesson>().Where(lesson => lesson.UserId == user && lesson.SuspendedForProgramId == programId && lesson.Status == LessonStatus.Suspended)
+            .Select(lesson => new { lesson.Id, Version = EF.Property<uint>(lesson, "TargetVersion") }).SingleOrDefaultAsync(token);
+        return program with { SuspendedLessonId = suspended?.Id, SuspendedLessonVersion = suspended?.Version };
+    }
     public async Task<DialogueOriginalInput?> ReadOriginalAsync(UserId user, Guid requestId, CancellationToken token)
     {
         var json = await db.Set<LearningRequest>().Where(request => request.Id == requestId && request.UserId == user &&

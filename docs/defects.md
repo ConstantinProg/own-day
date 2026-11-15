@@ -2,6 +2,15 @@
 
 ## Local untracked legacy-migration fixture uses the current EF model
 
+Update 2026-11-15: reproduced again after program suspension with SQLSTATE 42703
+for `SuspendedForProgramId`. Fixed the fixture by pinning the actual predecessor
+of LearningRequest (`20261106183140_AddLearningPersonalization`) and inserting
+historical Lesson columns through SQL before upgrading. The focused preservation
+test now passes on PostgreSQL 18. Also updated the action rollback fixture to
+remove the suspension FK first, and pinned historical presentation fixture states
+to the four states supported by its source schema. All three targeted tests pass;
+full regression results are recorded in the S8 execution log.
+
 Update during bounded-practice verification: the class contains six cases, not
 four as earlier reported. The actual filter excluded the whole class; the wrong
 count came from comparing totals while other cases were being added. All six now

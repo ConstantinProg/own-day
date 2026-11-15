@@ -7,6 +7,17 @@ namespace OwnDay.Infrastructure.Persistence;
 
 public sealed class EfCurriculumStore(OwnDayDbContext db) : ICurriculumStore
 {
+    public Task<Lesson?> FindSuspendedLessonAsync(UserId user, Guid programId, CancellationToken token) =>
+        db.Set<Lesson>().Include(lesson => lesson.Interactions.OrderByDescending(interaction => interaction.Id).Take(10))
+            .SingleOrDefaultAsync(lesson => lesson.UserId == user && lesson.SuspendedForProgramId == programId &&
+                lesson.Status == LessonStatus.Suspended, token);
+
+    public async Task FlushAsync(CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
+        if (db.Database.CurrentTransaction is null) throw new InvalidOperationException("Program suspension requires the caller's atomic transaction.");
+        await db.SaveChangesAsync(token);
+    }
     public Task<LearningContext?> FindContextAsync(UserId user, CancellationToken token) =>
         db.Set<LearningContext>().SingleOrDefaultAsync(context => context.UserId == user, token);
 

@@ -20,6 +20,8 @@ public sealed class Lesson
     public string? ExpectedAnswer { get; private set; }
     public LessonProvenance? Provenance { get; private set; }
     public LessonStatus Status { get; private set; }
+    public LessonStatus? SuspendedFrom { get; private set; }
+    public Guid? SuspendedForProgramId { get; private set; }
     public Guid? ProgramId { get; private set; }
     public int? RouteVersion { get; private set; }
     public string? TopicCode { get; private set; }
@@ -126,6 +128,26 @@ public sealed class Lesson
     {
         if (Status != LessonStatus.Paused) throw new InvalidOperationException("Lesson is not paused.");
         Status = LessonStatus.AwaitingAnswer;
+    }
+
+    public void SuspendForProgramSwitch(LearningProgram current)
+    {
+        if (current.UserId != UserId || ProgramId is { } programId && programId != current.Id ||
+            Status is not (LessonStatus.AwaitingAnswer or LessonStatus.Paused) || SuspendedForProgramId is not null)
+            throw new InvalidOperationException("Only the current owned question can be suspended.");
+        SuspendedFrom = Status;
+        SuspendedForProgramId = current.Id;
+        Status = LessonStatus.Suspended;
+    }
+
+    public void RestoreForProgram(LearningProgram selected)
+    {
+        if (selected.UserId != UserId || SuspendedForProgramId != selected.Id || Status != LessonStatus.Suspended ||
+            SuspendedFrom is not (LessonStatus.AwaitingAnswer or LessonStatus.Paused))
+            throw new InvalidOperationException("The selected program does not own this return point.");
+        Status = SuspendedFrom.Value;
+        SuspendedFrom = null;
+        SuspendedForProgramId = null;
     }
 
     public void MarkAsReview()

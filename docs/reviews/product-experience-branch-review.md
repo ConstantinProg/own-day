@@ -117,3 +117,8 @@ prompt/source binding, no selected-program replacement, failure/explicit retry,
 atomic publication, sticky capability and schema/draft rollback safety. Runtime
 flags remain off. Existing program/lesson use cases and Domain invariants remain
 authoritative; no broad redesign or additional dependency is justified.
+
+P2 corrected in `a82385d`; reviewed that commit against `408df32`. Result-to-phase
+policy and typed reply selection are now in Application. Ten integration and 30
+unit/model checks passed with a clean Release build, including direct Application
+success/failure tests. Re-review found no confirmed remaining P0/P1/P2/P3 findings.
