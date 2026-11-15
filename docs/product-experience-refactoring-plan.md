@@ -1,5 +1,21 @@
 # OwnDay — Product Experience Refactoring: Architecture Review & Implementation Plan
 
+> 2026-11-15: S9 engineering завершён (`2daacd9`), обязательное post-commit review
+> без подтверждённых P0–P3. Полный прогон до последней узкой правки маршрутизации:
+> 680 integration passed / 2 live skipped, 782 unit passed. После правки:
+> Release build 0 warnings/errors, 134 unit и 29 integration passed.
+> [Журнал S9](product-experience-s9-log.md), [review](reviews/study-dialogue-review.md).
+> Single outbox deliverer сохраняется; claim/lease migration обязательна до scale-out.
+>
+> S10 не завершён: сопоставимые end-reading и структурированные writing-rubric
+> результаты отсутствуют, текущие diagnostic/lesson задания имеют разные критерии.
+> Минимальные альтернативы сравнения изучены; критическую сопоставимость
+> подтвердить нельзя. S11 требует отсутствующих в изученных источниках данных
+> экспертного opt-in pilot и согласованных метрик. Запрошен источник материалов;
+> дальнейшая реализация сравнительных утверждений остановлена до их получения
+> или проверки сопоставимого набора. Требования не изменены, synthetic fixtures
+> не объявляются pilot. [Обоснование и следующие действия](product-experience-comparison-readiness.md).
+
 > S8 engineering завершён: `ed71a8b`, post-commit review относительно `e46894e`
 > без подтверждённых P0/P1/P2/P3. Полный прогон: 677 integration passed / 2 live
 > skipped, 770 unit passed; Release build без warnings/errors. Внешние release gates
