@@ -1,5 +1,10 @@
 # OwnDay — Product Experience Refactoring: Architecture Review & Implementation Plan
 
+> S8 engineering завершён: `ed71a8b`, post-commit review относительно `e46894e`
+> без подтверждённых P0/P1/P2/P3. Полный прогон: 677 integration passed / 2 live
+> skipped, 770 unit passed; Release build без warnings/errors. Внешние release gates
+> открыты. Следующий этап S9. [Review S8](reviews/confirmed-program-switch-review.md).
+
 > Повторная проверка 2026-11-15: локальная блокировка тестирования S8 снята.
 > После исправления трёх исторических migration fixtures полный нефильтрованный
 > Release-прогон: 677 integration passed / 2 live skipped, 770 unit passed;

@@ -70,3 +70,11 @@ changes preserve the original assertions and require no production-code changes.
 The local verification blocker above is resolved. This records testing only:
 implementation commits and mandatory post-commit review remain outstanding.
 Live model, Telegram/NVDA, and production topology checks remain unverified.
+
+## Engineering completion
+
+Implementation committed as `ed71a8b`; mandatory post-commit review against
+`e46894e` found no confirmed P0/P1/P2/P3 findings. See
+[review](reviews/confirmed-program-switch-review.md). S8 is engineering-complete;
+external release gates remain open and default-off capability is unchanged.
+Proceed to S9 using the existing Study/ReviewSchedule/Dispatcher boundaries.
