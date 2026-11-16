@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using OwnDay.Application.Learning;
+using OwnDay.Application.Learning.Requests;
 using OwnDay.Domain;
 using OwnDay.Domain.Learning;
 using OwnDay.Domain.Projects;
@@ -16,7 +17,7 @@ public sealed class PostgresLearningAcceptanceTests
 {
     [Fact]
     [Trait("Requires", "PostgreSQL via OWNDAY_TEST_POSTGRES_CONNECTION")]
-    public async Task Post_FullLearningJourneyAcrossRestart_PreservesEvidenceAndExplainsProgressWithoutChangingWork()
+    public async Task Process_FullLearningJourneyAcrossRestart_PreservesEvidenceAndExplainsProgressWithoutChangingWork()
     {
         var connection = Environment.GetEnvironmentVariable("OWNDAY_TEST_POSTGRES_CONNECTION") ??
             throw new InvalidOperationException("OWNDAY_TEST_POSTGRES_CONNECTION is required.");
@@ -30,10 +31,10 @@ public sealed class PostgresLearningAcceptanceTests
             var scopedConnection = connection + ";Search Path=" + schema;
             var options = new DbContextOptionsBuilder<OwnDayDbContext>().UseNpgsql(scopedConnection).Options;
             await using (var setup = new OwnDayDbContext(options)) await setup.Database.MigrateAsync();
-            var clock = new TelegramReviewTests.Clock { Now = new(2026, 11, 6, 15, 0, 0, TimeSpan.Zero) };
+            var clock = new TelegramReviewFixture.Clock { Now = new(2026, 11, 6, 15, 0, 0, TimeSpan.Zero) };
             var teacher = new Teacher();
-            var planner = new TelegramCurriculumTests.Planner();
-            var teaching = new TelegramAdaptiveTeachingTests.Planner();
+            var planner = new TelegramCurriculumFixture.Planner();
+            var teaching = new TelegramAdaptiveTeachingFixture.Planner();
             var sender = new Sender();
             Guid original = default;
             Guid skill = default;
@@ -56,10 +57,10 @@ public sealed class PostgresLearningAcceptanceTests
                     services.Replace(ServiceDescriptor.Singleton<ITelegramMessageSender>(sender));
                 }));
                 using var client = host.CreateClient();
-                Task Post(string command) => TelegramCurriculumTests.PostAsync(client, ++update, 101, command);
+                Task Post(string command) => LearningWorkerFixture.ProcessAsync(host.Services, ++update, 101, command);
                 if (restart == 0)
                 {
-                    (projectId, actionId) = await TelegramProjectLearningTests.SeedAsync(host.Services, 101, "Build algebra tool", "Implement equation input");
+                    (projectId, actionId) = await TelegramProjectLearningFixture.SeedAsync(host.Services, 101, "Build algebra tool", "Implement equation input");
                     await Post($"/learn_project {projectId} | Beginner");
                     await Post("/learn_diagnose x is 2");
                     teacher.Fail = true;
@@ -70,7 +71,7 @@ public sealed class PostgresLearningAcceptanceTests
                     await Post("/learn_next");
                     await Post("/learn_ask Why does this work?");
                     await Post("/answer incorrect");
-                    await TelegramCurriculumTests.PostAsync(client, update, 101, "/answer incorrect");
+                    await LearningWorkerFixture.ProcessAsync(host.Services, update, 101, "/answer incorrect");
                     await Post("/learn_adapt");
                     await Post("/learn_pause");
                     using var scope = host.Services.CreateScope();
@@ -83,7 +84,7 @@ public sealed class PostgresLearningAcceptanceTests
                 }
                 else
                 {
-                    await TelegramCurriculumTests.PostAsync(client, update, 101, "/learn_pause");
+                    await LearningWorkerFixture.ProcessAsync(host.Services, update, 101, "/learn_pause");
                     await Post("/learn_resume");
                     await Post("/answer correct");
                     await Post($"/learn_status {skill}");
@@ -114,8 +115,8 @@ public sealed class PostgresLearningAcceptanceTests
                     await Post("/learn_project_report");
                     await Post("/learn_progress");
                     await Post("/learn_progress 2");
-                    await TelegramCurriculumTests.PostAsync(client, update, 101, "/learn_progress 2");
-                    await TelegramCurriculumTests.PostAsync(client, ++update, 202, "/learn_progress");
+                    await LearningWorkerFixture.ProcessAsync(host.Services, update, 101, "/learn_progress 2");
+                    await LearningWorkerFixture.ProcessAsync(host.Services, ++update, 202, "/learn_progress");
                     using var scope2 = host.Services.CreateScope();
                     var context = scope2.ServiceProvider.GetRequiredService<OwnDayDbContext>();
                     var evidence = await context.Set<LearningEvidence>().ToListAsync();
@@ -147,7 +148,7 @@ public sealed class PostgresLearningAcceptanceTests
                     Assert.Contains("answers do not prove delivery", text);
                     Assert.All(replies, r => Assert.InRange(r.Text.Length, 1, 4096));
                     Assert.All(replies.Where(r => r.ChatId == 202), r => Assert.DoesNotContain("Build algebra tool", r.Text));
-                    Assert.Equal(update, await context.ProcessedTelegramUpdates.CountAsync());
+                    Assert.Equal(update, await context.Set<OwnDay.Application.Learning.Requests.LearningRequest>().CountAsync());
                     Assert.All(replies, r => Assert.Equal(OutboxMessageStatus.Pending, r.Status));
                     // Delivery fails independently of the committed learning state, then recovers.
                     var delivery = scope2.ServiceProvider.GetRequiredService<TelegramOutboxDeliveryService>();
@@ -188,7 +189,19 @@ public sealed class PostgresLearningAcceptanceTests
             token.ThrowIfCancellationRequested();
             return Task.FromResult(new LessonAssessment("Criterion: match the reference; this is a provisional assessment.", answer == "correct") { Source = "test-model" });
         }
+
+        public Task<LessonAssessment> AssessAsync(LessonSnapshot lesson, string answer, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            return Task.FromResult(new LessonAssessment("Criterion: match the reference; this is a provisional assessment.", answer == "correct") { Source = "test-model" });
+        }
         public Task<LessonExplanation> ExplainAsync(Lesson lesson, string request, LessonInteractionKind kind, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            return Task.FromResult(new LessonExplanation("An alternative example, then return to the question."));
+        }
+
+        public Task<LessonExplanation> ExplainAsync(LessonSnapshot lesson, string request, LessonInteractionKind kind, CancellationToken token)
         {
             token.ThrowIfCancellationRequested();
             return Task.FromResult(new LessonExplanation("An alternative example, then return to the question."));

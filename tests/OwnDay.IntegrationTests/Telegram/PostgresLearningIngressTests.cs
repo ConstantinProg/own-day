@@ -99,30 +99,39 @@ public sealed partial class PostgresLearningProviderTests
     [Fact]
     public async Task Post_QueuedAnswerForReplacedLesson_DoesNotAssessNewQuestion()
     {
+        Guid oldLessonId;
         await using (var db = Open())
         {
-            db.Add(Lesson.Start(_user, "Old topic", "Old theory", "Old question"));
+            var old = Lesson.Start(_user, "Old topic", "Old theory", "Old question");
+            oldLessonId = old.Id;
+            db.Add(old);
             await db.SaveChangesAsync();
         }
-        var probe = new Probe("generate");
-        probe.Release.TrySetResult();
-        using (var host = Host(probe, worker: false, publicIngress: true, configure: options => options.Enabled = true))
+        var probe = new Probe("");
+        using (var host = Host(probe, worker: false, publicIngress: true))
         using (var client = host.CreateClient())
         {
-            foreach (var (id, command) in new[] { (1, "/learn_finish"), (2, "/learn New topic"), (3, "/answer old answer") })
-            {
-                using var response = await PostPublicAsync(client, id, command);
-                response.EnsureSuccessStatusCode();
-            }
+            using var accepted = await PostPublicAsync(client, 1, "/answer old answer");
+            accepted.EnsureSuccessStatusCode();
+        }
+        // Replace the bound question after durable receipt and before execution.
+        await using (var db = Open())
+        {
+            (await db.Set<Lesson>().SingleAsync()).Finish();
+            db.Add(Lesson.Start(_user, "New topic", "New theory", "New question"));
+            await db.SaveChangesAsync();
         }
         using var restarted = Host(probe, worker: true, publicIngress: true);
         using var restartClient = restarted.CreateClient();
-        await WaitAllPublicAsync(3);
+        await WaitAllPublicAsync(1);
         await using var observer = Open();
         Assert.Empty(await observer.Set<LearningEvidence>().ToListAsync());
-        Assert.Equal(1, probe.Calls);
-        Assert.Equal("New topic", (await observer.Set<Lesson>().SingleAsync(l => l.Status == LessonStatus.AwaitingAnswer)).Topic);
-        Assert.Equal("stale_target", (await observer.Set<LearningRequest>().SingleAsync(r => r.SourceUpdateId == 3)).Outcome);
+        Assert.Equal(0, probe.Calls);
+        Assert.Equal("New topic", (await observer.Set<Lesson>().SingleAsync(lesson => lesson.Status == LessonStatus.AwaitingAnswer)).Topic);
+        var request = await observer.Set<LearningRequest>().SingleAsync();
+        Assert.Equal("dialogue_reply", request.Outcome);
+        using var input = System.Text.Json.JsonDocument.Parse(request.NormalizedInput);
+        Assert.Equal(oldLessonId, input.RootElement.GetProperty("lessonId").GetGuid());
     }
 
     [Fact]

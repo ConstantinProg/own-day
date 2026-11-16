@@ -1,11 +1,14 @@
-﻿using System.Net;
+using System.Net;
 using System.Text;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using OwnDay.Application.Learning.Requests;
+using OwnDay.Domain.Dialogue;
 using OwnDay.Infrastructure.Persistence;
+using OwnDay.Infrastructure.Telegram.Commands;
 using OwnDay.Infrastructure.Telegram.Cleanup;
 using OwnDay.Infrastructure.Telegram.Delivery;
 using Xunit;
@@ -25,7 +28,7 @@ public sealed class TelegramWebhookPingIntegrationTests
     private const long ChatId = 123456789;
 
     [Fact]
-    public async Task Post_PingWithValidSecret_QueuesPongWithoutDirectDelivery()
+    public async Task Post_PingWithValidSecret_QueuesDialogueWithoutDirectDelivery()
     {
         var messageSender = new RecordingTelegramMessageSender();
         var cleaner = new RecordingTelegramMessageCleaner();
@@ -48,17 +51,22 @@ public sealed class TelegramWebhookPingIntegrationTests
 
         using var scope = factory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
-        var reply = Assert.Single(await dbContext.TelegramOutboxMessages.ToListAsync());
-        Assert.Equal(ChatId, reply.ChatId);
-        Assert.Equal("pong", reply.Text);
-        Assert.Equal(OutboxMessageStatus.Pending, reply.Status);
+        var replies = await dbContext.TelegramOutboxMessages.OrderBy(reply => reply.CreatedAt).ToListAsync();
+        Assert.Equal(2, replies.Count);
+        Assert.Equal(TelegramDialoguePresenter.Introduction, replies[0].Text);
+        Assert.All(replies, reply =>
+        {
+            Assert.Equal(ChatId, reply.ChatId);
+            Assert.Equal(OutboxMessageStatus.Pending, reply.Status);
+        });
+        Assert.Single(await dbContext.Set<DialogueContext>().ToListAsync());
         var processed = Assert.Single(await dbContext.ProcessedTelegramUpdates.ToListAsync());
         Assert.Equal(100001, processed.UpdateId);
         Assert.NotNull(processed.ProcessedAt);
     }
 
     [Fact]
-    public async Task Post_PrivateText_CapturesAndPreservesSourceMessage()
+    public async Task Post_PrivateText_QueuesDialogueRequestAndPreservesSourceMessage()
     {
         var cleaner = new RecordingTelegramMessageCleaner();
         using var host = new OwnDayHostFactory();
@@ -72,12 +80,15 @@ public sealed class TelegramWebhookPingIntegrationTests
         Assert.Empty(cleaner.Deletions);
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
-        Assert.Single(await db.InboxItems.ToListAsync());
-        Assert.Single(await db.TelegramOutboxMessages.ToListAsync());
+        Assert.Empty(await db.InboxItems.ToListAsync());
+        Assert.Empty(await db.TelegramOutboxMessages.ToListAsync());
+        var receipt = Assert.Single(await db.Set<LearningRequest>().ToListAsync());
+        Assert.Equal("learning_text", receipt.PayloadKind);
+        Assert.Equal(LearningRequestStatus.Ready, receipt.Status);
     }
 
     [Fact]
-    public async Task Post_CommandDeletionFails_ReturnsOkWithCommittedTaskAndReply()
+    public async Task Post_CommandDeletionFails_ReturnsOkWithCommittedDialogueAndReplies()
     {
         var cleaner = new RecordingTelegramMessageCleaner
         {
@@ -94,13 +105,15 @@ public sealed class TelegramWebhookPingIntegrationTests
         Assert.Equal((ChatId, 42), Assert.Single(cleaner.Deletions));
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
-        Assert.Equal("Buy milk", Assert.Single(await db.Actions.ToListAsync()).Title);
+        Assert.Empty(await db.Actions.ToListAsync());
+        Assert.Single(await db.Set<DialogueContext>().ToListAsync());
         Assert.NotNull(Assert.Single(await db.ProcessedTelegramUpdates.ToListAsync()).ProcessedAt);
-        Assert.Equal(OutboxMessageStatus.Pending, Assert.Single(await db.TelegramOutboxMessages.ToListAsync()).Status);
+        Assert.Equal(2, await db.TelegramOutboxMessages.CountAsync());
+        Assert.All(await db.TelegramOutboxMessages.ToListAsync(), reply => Assert.Equal(OutboxMessageStatus.Pending, reply.Status));
     }
 
     [Fact]
-    public async Task Post_LanguageDialog_UsesTelegramLanguageThenPersistsSelectedLanguage()
+    public async Task Post_LegacyLanguageCommand_DoesNotConsumeTextAsLanguageSelection()
     {
         using var host = new OwnDayHostFactory();
         using var factory = CreateFactory(host, new RecordingTelegramMessageSender());
@@ -119,11 +132,13 @@ public sealed class TelegramWebhookPingIntegrationTests
 
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
-        Assert.Equal("en", Assert.Single(await db.TelegramUserLanguages.ToListAsync()).Locale);
+        Assert.Empty(await db.TelegramUserLanguages.ToListAsync());
         var replies = await db.TelegramOutboxMessages.ToListAsync();
-        Assert.Contains(replies, reply => reply.Text.StartsWith("Выберите язык:", StringComparison.Ordinal));
-        Assert.Contains(replies, reply => reply.Text == "Language changed to English.");
-        Assert.Contains(replies, reply => reply.Text.StartsWith("Send text", StringComparison.Ordinal));
+        Assert.Equal(3, replies.Count);
+        Assert.Single(replies, reply => reply.Text == TelegramDialoguePresenter.Introduction);
+        var receipt = Assert.Single(await db.Set<LearningRequest>().ToListAsync());
+        Assert.Equal("learning_text", receipt.PayloadKind);
+        Assert.Equal(LearningRequestStatus.Ready, receipt.Status);
         Assert.Empty(await db.InboxItems.ToListAsync());
     }
 

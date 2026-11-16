@@ -19,6 +19,30 @@ rejects disabled dialogue/consultation; pause acceptance with AcceptancePaused
 instead of switching to Inbox. Apply migrations before starting the new image;
 keep a single outbox deliverer. Updating source does not update a running bot.
 
+### Regression coverage
+
+`TelegramUpdateHandlerTests`, `TelegramWebhookPingIntegrationTests`, and
+`TelegramDialogueOnlyTests` verify the current transport contract: the initial
+introduction and prompt are ordered, redelivery is idempotent, retired commands
+and buttons cannot mutate productivity records, and text commits a Learning
+receipt rather than an Inbox item. `PostgresTelegramRestartIntegrationTests`
+checks the same contract across host restarts with existing Inbox, task, language,
+and editor state.
+
+Historical synchronous Telegram journeys are no longer acceptance tests for the
+public webhook. Learning migration and persistence journeys use
+`LearningWorkerFixture` to replay persisted v1 command payloads through the real
+request store and processor. Their route, skill, evidence, review, personalization,
+owner constraint, rollback, and pending-delivery assertions remain at that worker
+boundary. Current dialogue, confirmation, provider isolation, cancellation, and
+worker recovery scenarios remain in `PostgresLearningProviderTests` and its
+partial files. Inbox processing and Undo remain covered by their Application and
+PostgreSQL persistence tests; removed Inbox navigation is covered by the retired
+command/button matrix instead of asserting the old UI still executes actions.
+
+Run the entire solution without test exclusions. PostgreSQL integration tests
+require `OWNDAY_TEST_POSTGRES_CONNECTION`; the CI Test job supplies PostgreSQL 18.
+
 The inventory and target model below describe the historical Inbox interface.
 
 ## Audit and target model (recorded before implementation)

@@ -15,7 +15,7 @@ public sealed class PostgresAdaptiveTeachingTests
 {
     [Fact]
     [Trait("Requires", "PostgreSQL via OWNDAY_TEST_POSTGRES_CONNECTION")]
-    public async Task Post_AdaptationAcrossHostRestarts_PreservesMigratedRouteEvidenceProgressAndOutbox()
+    public async Task Process_AdaptationAcrossHostRestarts_PreservesMigratedRouteEvidenceProgressAndOutbox()
     {
         var connection = Environment.GetEnvironmentVariable("OWNDAY_TEST_POSTGRES_CONNECTION") ??
             throw new InvalidOperationException("OWNDAY_TEST_POSTGRES_CONNECTION is required.");
@@ -47,8 +47,8 @@ public sealed class PostgresAdaptiveTeachingTests
                 await setup.Database.MigrateAsync();
                 Assert.Null((await setup.Set<CurriculumRoute>().SingleAsync()).ProgressVersion);
             }
-            var planner = new TelegramAdaptiveTeachingTests.Planner();
-            var teacher = new TelegramAdaptiveTeachingTests.Teacher();
+            var planner = new TelegramAdaptiveTeachingFixture.Planner();
+            var teacher = new TelegramAdaptiveTeachingFixture.Teacher();
             Guid? skillId = null;
             for (var restart = 0; restart < 3; restart++)
             {
@@ -58,29 +58,29 @@ public sealed class PostgresAdaptiveTeachingTests
                     services.RemoveAll<DbContextOptions<OwnDayDbContext>>();
                     services.RemoveAll<IDbContextOptionsConfiguration<OwnDayDbContext>>();
                     services.AddDbContext<OwnDayDbContext>(builder => builder.UseNpgsql(scopedConnection));
-                    TelegramAdaptiveTeachingTests.Configure(services, planner, teacher);
+                    TelegramAdaptiveTeachingFixture.Configure(services, planner, teacher);
                 }));
                 using var client = host.CreateClient();
                 if (restart == 0)
                 {
-                    await Post(client, 1, "/learn_next");
-                    await Post(client, 2, "/answer wrong");
-                    await Post(client, 3, "/learn_next");
-                    await Post(client, 4, "/answer wrong again");
-                    await Post(client, 5, "/learn_next");
+                    await Post(host.Services, 1, "/learn_next");
+                    await Post(host.Services, 2, "/answer wrong");
+                    await Post(host.Services, 3, "/learn_next");
+                    await Post(host.Services, 4, "/answer wrong again");
+                    await Post(host.Services, 5, "/learn_next");
                 }
                 else if (restart == 1)
                 {
-                    await Post(client, 5, "/learn_next");
-                    await Post(client, 6, "/learn_pause");
-                    await Post(client, 7, "/learn_resume");
-                    await Post(client, 8, "/answer correct");
+                    await Post(host.Services, 5, "/learn_next");
+                    await Post(host.Services, 6, "/learn_pause");
+                    await Post(host.Services, 7, "/learn_resume");
+                    await Post(host.Services, 8, "/answer correct");
                 }
                 else
                 {
-                    await Post(client, 9, "/learn_next");
-                    await Post(client, 9, "/learn_next");
-                    await TelegramCurriculumTests.PostAsync(client, 10, 202, "/learn_adapt");
+                    await Post(host.Services, 9, "/learn_next");
+                    await Post(host.Services, 9, "/learn_next");
+                    await LearningWorkerFixture.ProcessAsync(host.Services, 10, 202, "/learn_adapt");
                 }
                 using var scope = host.Services.CreateScope();
                 var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
@@ -102,7 +102,7 @@ public sealed class PostgresAdaptiveTeachingTests
                     var active = await db.Set<Lesson>().SingleAsync(l => l.Status == LessonStatus.AwaitingAnswer);
                     Assert.Equal("advanced", active.TopicCode);
                     Assert.Equal(2, active.RouteVersion);
-                    Assert.Equal(10, await db.ProcessedTelegramUpdates.CountAsync());
+                    Assert.Equal(10, await db.Set<OwnDay.Application.Learning.Requests.LearningRequest>().CountAsync());
                 }
             }
             Assert.Single(planner.Requests);
@@ -124,5 +124,5 @@ public sealed class PostgresAdaptiveTeachingTests
         }
     }
 
-    private static Task Post(HttpClient client, int id, string text) => TelegramCurriculumTests.PostAsync(client, id, 101, text);
+    private static Task Post(IServiceProvider services, int id, string text) => LearningWorkerFixture.ProcessAsync(services, id, 101, text);
 }

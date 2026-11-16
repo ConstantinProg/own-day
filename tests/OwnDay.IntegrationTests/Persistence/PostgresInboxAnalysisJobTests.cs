@@ -87,7 +87,7 @@ public sealed class PostgresInboxAnalysisJobTests : IAsyncLifetime
     [InlineData(true, false, true)]
     [InlineData(false, true, true)]
     [InlineData(true, true, false)]
-    public async Task Post_DisabledOrMissingKey_CapturesOnceWithoutAnalyzer(bool enabled, bool key, bool background)
+    public async Task Post_OrdinaryText_QueuesLearningWithoutSchedulingInboxAnalyzer(bool enabled, bool key, bool background)
     {
         var ai = new FakeAnalyzer((_, _) => throw new InvalidOperationException("No provider calls allowed"));
         using var host = new HostFactory(_connection, ai, enabled, key, background);
@@ -95,16 +95,16 @@ public sealed class PostgresInboxAnalysisJobTests : IAsyncLifetime
         await PostAsync(client);
         await PostAsync(client);
         await using var db = Db();
-        Assert.Single(await db.InboxItems.ToListAsync(Token));
-        var job = Assert.Single(await db.InboxAnalysisJobs.ToListAsync(Token));
-        Assert.Equal(InboxAnalysisJobStatus.Ready, job.Status);
+        Assert.Empty(await db.InboxItems.ToListAsync(Token));
+        Assert.Empty(await db.InboxAnalysisJobs.ToListAsync(Token));
         Assert.Equal(0, ai.Calls);
         Assert.Single(await db.ProcessedTelegramUpdates.ToListAsync(Token));
-        Assert.Single(await db.TelegramOutboxMessages.ToListAsync(Token));
+        Assert.Single(await db.Set<OwnDay.Application.Learning.Requests.LearningRequest>().ToListAsync(Token));
+        Assert.Empty(await db.TelegramOutboxMessages.ToListAsync(Token));
     }
 
     [Fact]
-    public async Task Post_HostStopsDuringAnalysis_RestartRecoversSameVersionWithoutBlockingWebhook()
+    public async Task Process_ExistingInboxJobAcrossHostRestart_RecoversSameVersion()
     {
         var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var ai = new FakeAnalyzer(async (_, token) =>
@@ -116,7 +116,7 @@ public sealed class PostgresInboxAnalysisJobTests : IAsyncLifetime
         using (var host = new HostFactory(_connection, ai))
         using (var client = host.CreateClient())
         {
-            await PostAsync(client); // Would time out if the webhook awaited the provider.
+            await CaptureAsync(); // Existing Inbox work remains recoverable independently of Telegram ingress.
             await started.Task.WaitAsync(Token);
         }
 

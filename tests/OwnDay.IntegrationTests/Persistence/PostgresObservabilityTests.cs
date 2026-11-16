@@ -87,7 +87,7 @@ public sealed partial class PostgresObservabilityTests : IAsyncLifetime
     [Theory]
     [InlineData(1)]
     [InlineData(4)]
-    public async Task Post_ConcurrentDuplicateStatistics_CommitsOneReportWithoutExhaustingPool(int poolSize)
+    public async Task Post_ConcurrentLegacyCommand_CommitsOneDialogueReplyPairWithoutExhaustingPool(int poolSize)
     {
         var connection = new NpgsqlConnectionStringBuilder(_connectionString)
         {
@@ -118,8 +118,10 @@ public sealed partial class PostgresObservabilityTests : IAsyncLifetime
             await Task.WhenAll(Enumerable.Range(0, 4).Select(_ => PostAsync()));
             using var scope = factory.Services.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
-            var report = await db.TelegramOutboxMessages.SingleAsync();
-            Assert.Contains("Received: 1.", report.Text, StringComparison.Ordinal);
+            var replies = await db.TelegramOutboxMessages.OrderBy(reply => reply.CreatedAt).ToListAsync();
+            Assert.Equal(2, replies.Count);
+            Assert.Equal(OwnDay.Infrastructure.Telegram.Commands.TelegramDialoguePresenter.Introduction, replies[0].Text);
+            Assert.Single(await db.Set<OwnDay.Domain.Dialogue.DialogueContext>().ToListAsync());
             Assert.Single(await db.ProcessedTelegramUpdates.ToListAsync());
         }
         finally

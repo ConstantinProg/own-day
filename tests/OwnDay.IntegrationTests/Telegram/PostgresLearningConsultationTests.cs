@@ -140,7 +140,7 @@ public sealed partial class PostgresLearningProviderTests
     }
 
     [Fact]
-    public async Task Post_StartAndExplicitCaptureDuringConsultation_KeepsDraftAndResumesWithFlagDisabled()
+    public async Task Post_StartAndLegacyCaptureDuringConsultation_PreservesDraftAcrossRestart()
     {
         var probe = new Probe("");
         using (var host = ConsultationHost(probe))
@@ -168,7 +168,7 @@ public sealed partial class PostgresLearningProviderTests
         var draft = (await result.Set<DialogueContext>().SingleAsync()).Consultation!;
         Assert.Equal("Хочу читать и писать на английском", draft.OriginalGoal);
         Assert.Null(draft.PracticalUse);
-        Assert.Single(await result.InboxItems.ToListAsync());
+        Assert.Empty(await result.InboxItems.ToListAsync());
         Assert.Empty(await result.Set<LearningProgram>().ToListAsync());
         Assert.Equal(1, await result.TelegramOutboxMessages.CountAsync(message => message.Text == OwnDay.Infrastructure.Telegram.Commands.TelegramDialoguePresenter.Introduction));
         Assert.Equal(0, probe.Calls);
@@ -228,7 +228,7 @@ public sealed partial class PostgresLearningProviderTests
         Assert.Empty(await result.InboxItems.ToListAsync());
         Assert.Empty(await result.Projects.ToListAsync());
         Assert.Empty(await result.Actions.ToListAsync());
-        Assert.Equal(1, probe.KindCalls["plan"]);
+        Assert.Equal(0, probe.Calls);
     }
 
     private WebApplicationFactory<Program> ConsultationHost(Probe probe) => DialogueHost(probe).WithWebHostBuilder(builder =>

@@ -46,74 +46,55 @@ public sealed class PostgresLearningRequestTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Post_LearningAndRedeliveryAcrossRestart_CommitsOneTerminalRequestWithOrderedReplies()
+    public async Task Post_LearningAndRedeliveryAcrossRestart_RetainsOneReadyRequestPerSource()
     {
-        var teacher = new TelegramCurriculumTests.Teacher();
+        var teacher = new TelegramCurriculumFixture.Teacher();
         for (var restart = 0; restart < 2; restart++)
         {
             using var factory = Host(teacher);
             using var client = factory.CreateClient();
-            await TelegramCurriculumTests.PostAsync(client, 1, 101, "/learn algebra");
+            await TelegramCurriculumFixture.PostAsync(client, 1, 101, "/learn algebra");
             if (restart == 0)
             {
-                await TelegramCurriculumTests.PostAsync(client, 2, 101, "/learn_pause");
-                await TelegramCurriculumTests.PostAsync(client, 3, 202, "/learn geometry");
-                await TelegramCurriculumTests.PostAsync(client, 4, 101, "/ping");
+                await TelegramCurriculumFixture.PostAsync(client, 2, 101, "/learn_pause");
+                await TelegramCurriculumFixture.PostAsync(client, 3, 202, "/learn geometry");
+                await TelegramCurriculumFixture.PostAsync(client, 4, 101, "/ping");
             }
         }
         await using var db = Open();
-        Assert.Equal(3, await CountRequests(db));
-        Assert.Equal(2, await db.Set<Lesson>().CountAsync());
-        Assert.Equal(2, teacher.Generated);
+        var requests = await db.Set<OwnDay.Application.Learning.Requests.LearningRequest>().OrderBy(request => request.SourceUpdateId).ToListAsync();
+        Assert.Equal(3, requests.Count);
+        Assert.All(requests, request =>
+        {
+            Assert.Equal(OwnDay.Application.Learning.Requests.LearningRequestStatus.Ready, request.Status);
+            Assert.Equal(3, request.PayloadVersion);
+            Assert.Null(request.CompletedAt);
+        });
+        Assert.Equal(new long[] { 1, 2 }, requests.Where(request => request.UserId.Value == 101).Select(request => request.Sequence));
+        Assert.Empty(await db.Set<Lesson>().ToListAsync());
+        Assert.Equal(0, teacher.Generated);
         Assert.Equal(4, await db.ProcessedTelegramUpdates.CountAsync());
-        Assert.Equal(3, await db.Database.SqlQueryRaw<long>("""
-            SELECT count(*) AS "Value" FROM learning_requests
-            WHERE status = 0 AND outcome = 'reply_committed' AND completed_at >= received_at
-            """).SingleAsync());
-        Assert.Equal(new long[] { 1, 2 }, await db.Database.SqlQueryRaw<long>("""
-            SELECT sequence AS "Value" FROM learning_requests WHERE user_id = 101 ORDER BY sequence
-            """).ToArrayAsync());
-        var payload = await db.Database.SqlQueryRaw<string>("""
-            SELECT normalized_input::text AS "Value" FROM learning_requests WHERE source_key = 'telegram:update:1'
-            """).SingleAsync();
-        using var json = JsonDocument.Parse(payload);
+        Assert.Equal(2, await db.TelegramOutboxMessages.CountAsync());
+        using var json = JsonDocument.Parse(requests[0].NormalizedInput);
         Assert.Equal("learn", json.RootElement.GetProperty("name").GetString());
         Assert.Equal("algebra", json.RootElement.GetProperty("arguments").GetString());
-        Assert.Equal(0, await db.Database.SqlQueryRaw<long>("""
-            SELECT count(*) AS "Value" FROM (
-                SELECT r.id FROM learning_requests r
-                LEFT JOIN telegram_outbox_messages m ON m.learning_request_id = r.id
-                GROUP BY r.id HAVING count(m.id) = 0 OR min(m.reply_ordinal) <> 0
-                    OR max(m.reply_ordinal) <> count(m.id) - 1
-            ) invalid
-            """).SingleAsync());
     }
 
     [Fact]
-    public async Task Post_BlockedTeacher_DoesNotAcknowledgeOrExposePartialRequest()
+    public async Task Post_UnavailableTeacher_AcknowledgesDurableReceiptWithoutCallingProvider()
     {
         var teacher = new BlockingTeacher();
         using var factory = Host(teacher);
         using var client = factory.CreateClient();
-        var pending = TelegramCurriculumTests.PostAsync(client, 1, 101, "/learn algebra");
-        try
-        {
-            await teacher.Started.Task.WaitAsync(TimeSpan.FromSeconds(15));
-            Assert.False(pending.IsCompleted);
-            await using var db = Open();
-            Assert.Equal(0, await CountRequests(db));
-            Assert.Empty(await db.Set<Lesson>().ToListAsync());
-            Assert.Empty(await db.ProcessedTelegramUpdates.ToListAsync());
-            Assert.Empty(await db.TelegramOutboxMessages.ToListAsync());
-        }
-        finally
-        {
-            teacher.Release.TrySetResult();
-            await pending.WaitAsync(TimeSpan.FromSeconds(15));
-        }
-        await using var committed = Open();
-        Assert.Equal(1, await CountRequests(committed));
-        Assert.Single(await committed.Set<Lesson>().ToListAsync());
+
+        await TelegramCurriculumFixture.PostAsync(client, 1, 101, "/learn algebra");
+
+        Assert.False(teacher.Started.Task.IsCompleted);
+        await using var db = Open();
+        Assert.Equal(1, await CountRequests(db));
+        Assert.Empty(await db.Set<Lesson>().ToListAsync());
+        Assert.NotNull((await db.ProcessedTelegramUpdates.SingleAsync()).ProcessedAt);
+        Assert.Empty(await db.TelegramOutboxMessages.ToListAsync());
     }
 
     [Theory]
@@ -122,7 +103,7 @@ public sealed class PostgresLearningRequestTests : IAsyncLifetime
     public async Task Post_PersistenceFailureOrFailureAfterWrites_RollsBackEverythingAndAllowsRedelivery(bool afterWrites)
     {
         IInterceptor interceptor = afterWrites ? new RejectCommit() : new RejectSave();
-        using (var factory = Host(new TelegramCurriculumTests.Teacher(), interceptor))
+        using (var factory = Host(new TelegramCurriculumFixture.Teacher(), interceptor))
         using (var client = factory.CreateClient())
         {
             using var request = Request(1, "/learn algebra");
@@ -130,19 +111,20 @@ public sealed class PostgresLearningRequestTests : IAsyncLifetime
             Assert.Equal(HttpStatusCode.InternalServerError, failure.StatusCode);
         }
         await AssertEmptyAsync();
-        using var recovered = Host(new TelegramCurriculumTests.Teacher());
+        using var recovered = Host(new TelegramCurriculumFixture.Teacher());
         using var recoveredClient = recovered.CreateClient();
-        await TelegramCurriculumTests.PostAsync(recoveredClient, 1, 101, "/learn algebra");
+        await TelegramCurriculumFixture.PostAsync(recoveredClient, 1, 101, "/learn algebra");
         await using var db = Open();
         Assert.Equal(1, await CountRequests(db));
-        Assert.Single(await db.Set<Lesson>().ToListAsync());
+        Assert.Empty(await db.Set<Lesson>().ToListAsync());
     }
 
     [Fact]
-    public async Task Handle_CancellationAfterProvider_RollsBackReceiptEffectAndReply()
+    public async Task Handle_CancelledBeforeReceipt_LeavesSourceAvailableForRedelivery()
     {
         using var cancellation = new CancellationTokenSource();
-        var teacher = new TelegramCurriculumTests.Teacher { CancelAfterGenerate = cancellation };
+        var teacher = new TelegramCurriculumFixture.Teacher();
+        cancellation.Cancel();
         using (var factory = Host(teacher))
         {
             using var scope = factory.Services.CreateScope();
@@ -158,11 +140,11 @@ public sealed class PostgresLearningRequestTests : IAsyncLifetime
             };
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => handler.HandleAsync(update, cancellation.Token));
         }
-        Assert.True(teacher.ReceivedToken.IsCancellationRequested);
+        Assert.Equal(0, teacher.Generated);
         await AssertEmptyAsync();
-        using var recovered = Host(new TelegramCurriculumTests.Teacher());
+        using var recovered = Host(new TelegramCurriculumFixture.Teacher());
         using var client = recovered.CreateClient();
-        await TelegramCurriculumTests.PostAsync(client, 1, 101, "/learn algebra");
+        await TelegramCurriculumFixture.PostAsync(client, 1, 101, "/learn algebra");
         await using var db = Open();
         Assert.Equal(1, await CountRequests(db));
     }
@@ -189,9 +171,9 @@ public sealed class PostgresLearningRequestTests : IAsyncLifetime
         Assert.Equal("Legacy algebra", (await db.Set<Lesson>().SingleAsync()).Topic);
         Assert.Equal("Legacy pending reply", (await db.TelegramOutboxMessages.SingleAsync()).Text);
         Assert.Equal(50, (await db.ProcessedTelegramUpdates.SingleAsync()).UpdateId);
-        using var factory = Host(new TelegramCurriculumTests.Teacher());
+        using var factory = Host(new TelegramCurriculumFixture.Teacher());
         using var client = factory.CreateClient();
-        await TelegramCurriculumTests.PostAsync(client, 50, 101, "/learn algebra");
+        await TelegramCurriculumFixture.PostAsync(client, 50, 101, "/learn algebra");
         Assert.Equal(0, await CountRequests(db));
     }
 

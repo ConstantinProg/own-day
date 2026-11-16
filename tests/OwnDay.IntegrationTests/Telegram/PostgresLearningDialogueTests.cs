@@ -50,7 +50,7 @@ public sealed partial class PostgresLearningProviderTests
     }
 
     [Fact]
-    public async Task Post_StartAnnouncesMode_EnrolledUserKeepsDialogueWhileOtherUserKeepsInbox()
+    public async Task Post_StartAnnouncesDialogue_NewOwnerAlsoEntersLearning()
     {
         var probe = new Probe("");
         using (var host = DialogueHost(probe))
@@ -61,7 +61,7 @@ public sealed partial class PostgresLearningProviderTests
             await using var db = Open();
             Assert.Single(await db.Set<DialogueContext>().ToListAsync());
             Assert.Empty(await db.Set<LearningProgram>().ToListAsync());
-            Assert.Contains(await db.TelegramOutboxMessages.ToListAsync(), message => message.Text.Contains("/capture", StringComparison.Ordinal));
+            Assert.DoesNotContain(await db.TelegramOutboxMessages.ToListAsync(), message => message.Text.Contains("/capture", StringComparison.Ordinal));
         }
         using (var host = DialogueHost(probe))
         using (var client = host.CreateClient())
@@ -69,10 +69,12 @@ public sealed partial class PostgresLearningProviderTests
             using var input = await PostPublicAsync(client, 2, "Продолжим");
             input.EnsureSuccessStatusCode();
             await WaitAllPublicAsync(1);
-            await TelegramCurriculumTests.PostAsync(client, 3, 202, "A separate Inbox note");
+            await TelegramCurriculumFixture.PostAsync(client, 3, 202, "A separate learning message");
+            await WaitAllPublicAsync(2);
         }
         await using var result = Open();
-        Assert.Equal(202, (await result.InboxItems.SingleAsync()).UserId.Value);
+        Assert.Empty(await result.InboxItems.ToListAsync());
+        Assert.Contains(await result.Set<DialogueContext>().ToListAsync(), context => context.UserId.Value == 202);
         Assert.Equal(0, probe.Calls);
     }
 
@@ -136,7 +138,7 @@ public sealed partial class PostgresLearningProviderTests
     }
 
     [Fact]
-    public async Task Post_InterruptedDuringBlockedClassifier_ReleasesUserLockAndDoesNotAssessLateResult()
+    public async Task Post_LegacyHelpDuringBlockedClassifier_ReleasesUserLockAndDoesNotAssessLateResult()
     {
         await SeedAsync("learn_ask");
         var probe = new Probe("intent");
@@ -161,8 +163,9 @@ public sealed partial class PostgresLearningProviderTests
         await WaitAllPublicAsync(1);
         await using var result = Open();
         Assert.Equal("stale_target", (await result.Set<LearningRequest>().SingleAsync()).Outcome);
-        Assert.Equal(DialogueExpectedResponse.None, (await result.Set<DialogueContext>().SingleAsync()).ExpectedResponse);
-        Assert.Equal("Keep this note", (await result.InboxItems.SingleAsync()).OriginalText);
+        Assert.Equal(DialogueExpectedResponse.LessonAnswer, (await result.Set<DialogueContext>().SingleAsync()).ExpectedResponse);
+        Assert.Empty(await result.InboxItems.ToListAsync());
+        Assert.Equal(LessonStatus.AwaitingAnswer, (await result.Set<Lesson>().SingleAsync()).Status);
         Assert.False(probe.KindCalls.ContainsKey("assess"));
         Assert.True((await result.OpenAIRequestAttempts.SingleAsync()).ChargedUsd > 0);
     }
@@ -255,7 +258,7 @@ public sealed partial class PostgresLearningProviderTests
     }
 
     [Fact]
-    public async Task Post_ExplicitInboxMode_InvalidatesPendingConfirmationAndPreservesCapturedNote()
+    public async Task Post_LegacyCapture_PreservesPendingConfirmationWithoutCapturingNote()
     {
         await SeedAsync("learn_ask");
         var probe = new Probe("");
@@ -272,8 +275,8 @@ public sealed partial class PostgresLearningProviderTests
         stale.EnsureSuccessStatusCode();
         await WaitAllPublicAsync(2);
         await using var result = Open();
-        Assert.Equal("Preserve this note", (await result.InboxItems.SingleAsync()).OriginalText);
-        Assert.Equal(LessonStatus.AwaitingAnswer, (await result.Set<Lesson>().SingleAsync()).Status);
+        Assert.Empty(await result.InboxItems.ToListAsync());
+        Assert.Equal(LessonStatus.Finished, (await result.Set<Lesson>().SingleAsync()).Status);
         Assert.Null((await result.Set<DialogueContext>().SingleAsync()).PendingConfirmation);
         Assert.Equal(0, probe.Calls);
     }

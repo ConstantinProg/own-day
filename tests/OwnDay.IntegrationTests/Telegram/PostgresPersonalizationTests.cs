@@ -15,7 +15,7 @@ public sealed class PostgresPersonalizationTests
 {
     [Fact]
     [Trait("Requires", "PostgreSQL via OWNDAY_TEST_POSTGRES_CONNECTION")]
-    public async Task Post_PersonalizationAcrossMigrationAndRestarts_PreservesPreferencesEvidenceAndTransferBasis()
+    public async Task Process_PersonalizationAcrossMigrationAndRestarts_PreservesPreferencesEvidenceAndTransferBasis()
     {
         var connection = Environment.GetEnvironmentVariable("OWNDAY_TEST_POSTGRES_CONNECTION") ??
             throw new InvalidOperationException("OWNDAY_TEST_POSTGRES_CONNECTION is required.");
@@ -43,7 +43,7 @@ public sealed class PostgresPersonalizationTests
                 Assert.Empty(await setup.Set<LearningPreference>().ToListAsync());
             }
             Guid source = default, target = default, skill = default;
-            var teacher = new TelegramCurriculumTests.Teacher();
+            var teacher = new TelegramCurriculumFixture.Teacher();
             for (var restart = 0; restart < 3; restart++)
             {
                 using var factory = new OwnDayHostFactory();
@@ -57,30 +57,30 @@ public sealed class PostgresPersonalizationTests
                 using var client = host.CreateClient();
                 if (restart == 0)
                 {
-                    (source, target, skill) = await TelegramPersonalizationTests.SeedTransferAsync(host.Services);
-                    await Post(client, 1, "/learn_preference format | dialogue");
-                    await Post(client, 2, "/learn_preference depth | detailed");
-                    await Post(client, 3, "/learn_preference pace | one step at a time");
-                    await Post(client, 4, "/learn_preference examples | music");
-                    await Post(client, 5, $"/learn_link basics | {skill} | Algebra applies to mechanics");
-                    await Post(client, 6, $"/learn_transfer basics | {source} | basics");
-                    await Post(client, 7, "/learn_pause");
+                    (source, target, skill) = await TelegramPersonalizationFixture.SeedTransferAsync(host.Services);
+                    await Post(host.Services, 1, "/learn_preference format | dialogue");
+                    await Post(host.Services, 2, "/learn_preference depth | detailed");
+                    await Post(host.Services, 3, "/learn_preference pace | one step at a time");
+                    await Post(host.Services, 4, "/learn_preference examples | music");
+                    await Post(host.Services, 5, $"/learn_link basics | {skill} | Algebra applies to mechanics");
+                    await Post(host.Services, 6, $"/learn_transfer basics | {source} | basics");
+                    await Post(host.Services, 7, "/learn_pause");
                 }
                 else if (restart == 1)
                 {
-                    await Post(client, 6, $"/learn_transfer basics | {source} | basics");
-                    await Post(client, 8, "/learn_resume");
-                    await Post(client, 9, "/answer correct");
-                    await Post(client, 9, "/answer correct");
-                    await Post(client, 10, "/learn_preferences");
+                    await Post(host.Services, 6, $"/learn_transfer basics | {source} | basics");
+                    await Post(host.Services, 8, "/learn_resume");
+                    await Post(host.Services, 9, "/answer correct");
+                    await Post(host.Services, 9, "/answer correct");
+                    await Post(host.Services, 10, "/learn_preferences");
                 }
                 else
                 {
-                    await Post(client, 11, "/learn_preferences");
-                    await Post(client, 12, "/learn_preference depth | brief");
-                    await Post(client, 13, $"/learn_practice {skill}");
-                    await Post(client, 14, "/answer correct");
-                    await Post(client, 15, "/learn_preferences");
+                    await Post(host.Services, 11, "/learn_preferences");
+                    await Post(host.Services, 12, "/learn_preference depth | brief");
+                    await Post(host.Services, 13, $"/learn_practice {skill}");
+                    await Post(host.Services, 14, "/answer correct");
+                    await Post(host.Services, 15, "/learn_preferences");
                 }
                 using var scope = host.Services.CreateScope();
                 var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
@@ -122,5 +122,5 @@ public sealed class PostgresPersonalizationTests
         }
     }
 
-    private static Task Post(HttpClient client, int id, string command) => TelegramCurriculumTests.PostAsync(client, id, 101, command);
+    private static Task Post(IServiceProvider services, int id, string command) => LearningWorkerFixture.ProcessAsync(services, id, 101, command);
 }

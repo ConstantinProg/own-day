@@ -17,7 +17,7 @@ public sealed class PostgresProjectLearningTests
 {
     [Fact]
     [Trait("Requires", "PostgreSQL via OWNDAY_TEST_POSTGRES_CONNECTION")]
-    public async Task Post_ProjectPracticeAcrossMigrationAndRestarts_PreservesTaskLinkWithoutCompletingRealWork()
+    public async Task Process_ProjectPracticeAcrossMigrationAndRestarts_PreservesTaskLinkWithoutCompletingRealWork()
     {
         var connection = Environment.GetEnvironmentVariable("OWNDAY_TEST_POSTGRES_CONNECTION") ??
             throw new InvalidOperationException("OWNDAY_TEST_POSTGRES_CONNECTION is required.");
@@ -42,7 +42,7 @@ public sealed class PostgresProjectLearningTests
                 Assert.Null((await setup.Set<Lesson>().SingleAsync()).ProjectActionId);
             }
             long projectId = 0, actionId = 0, foreignActionId = 0;
-            var teacher = new TelegramCurriculumTests.Teacher();
+            var teacher = new TelegramCurriculumFixture.Teacher();
             for (var restart = 0; restart < 3; restart++)
             {
                 using var factory = new OwnDayHostFactory();
@@ -51,29 +51,29 @@ public sealed class PostgresProjectLearningTests
                     services.RemoveAll<DbContextOptions<OwnDayDbContext>>();
                     services.RemoveAll<IDbContextOptionsConfiguration<OwnDayDbContext>>();
                     services.AddDbContext<OwnDayDbContext>(builder => builder.UseNpgsql(scopedConnection));
-                    services.Replace(ServiceDescriptor.Singleton<ICurriculumPlanner>(new TelegramCurriculumTests.Planner { NoQuestion = true }));
+                    services.Replace(ServiceDescriptor.Singleton<ICurriculumPlanner>(new TelegramCurriculumFixture.Planner { NoQuestion = true }));
                     services.Replace(ServiceDescriptor.Singleton<ILessonTeacher>(teacher));
                 }));
                 using var client = host.CreateClient();
                 if (restart == 0)
                 {
-                    (projectId, actionId) = await TelegramProjectLearningTests.SeedAsync(host.Services, 101, "Website", "Calculate page size");
-                    (_, foreignActionId) = await TelegramProjectLearningTests.SeedAsync(host.Services, 202, "Foreign", "Private task");
-                    await Post(client, 1, $"/learn_project {projectId} | Beginner");
-                    await Post(client, 2, $"/learn_project_practice basics | {actionId}");
-                    await Post(client, 3, "/learn_pause");
+                    (projectId, actionId) = await TelegramProjectLearningFixture.SeedAsync(host.Services, 101, "Website", "Calculate page size");
+                    (_, foreignActionId) = await TelegramProjectLearningFixture.SeedAsync(host.Services, 202, "Foreign", "Private task");
+                    await Post(host.Services, 1, $"/learn_project {projectId} | Beginner");
+                    await Post(host.Services, 2, $"/learn_project_practice basics | {actionId}");
+                    await Post(host.Services, 3, "/learn_pause");
                 }
                 else if (restart == 1)
                 {
-                    await Post(client, 2, $"/learn_project_practice basics | {actionId}");
-                    await Post(client, 4, "/learn_resume");
-                    await Post(client, 5, "/answer correct");
-                    await Post(client, 5, "/answer correct");
+                    await Post(host.Services, 2, $"/learn_project_practice basics | {actionId}");
+                    await Post(host.Services, 4, "/learn_resume");
+                    await Post(host.Services, 5, "/answer correct");
+                    await Post(host.Services, 5, "/answer correct");
                 }
                 else
                 {
-                    await Post(client, 6, "/learn_project_report");
-                    await Post(client, 6, "/learn_project_report");
+                    await Post(host.Services, 6, "/learn_project_report");
+                    await Post(host.Services, 6, "/learn_project_report");
                 }
                 using var scope = host.Services.CreateScope();
                 var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
@@ -88,7 +88,7 @@ public sealed class PostgresProjectLearningTests
                 Assert.Contains(replies, r => r.Text.Contains($"task #{actionId}", StringComparison.Ordinal));
                 if (restart == 2)
                 {
-                    Assert.Equal(6, await db.ProcessedTelegramUpdates.CountAsync());
+                    Assert.Equal(6, await db.Set<OwnDay.Application.Learning.Requests.LearningRequest>().CountAsync());
                     Assert.Contains(replies, r => r.Text.Contains("1 positive, 0 negative", StringComparison.Ordinal));
                 }
             }
@@ -123,5 +123,5 @@ public sealed class PostgresProjectLearningTests
         }
     }
 
-    private static Task Post(HttpClient client, int id, string command) => TelegramCurriculumTests.PostAsync(client, id, 101, command);
+    private static Task Post(IServiceProvider services, int id, string command) => LearningWorkerFixture.ProcessAsync(services, id, 101, command);
 }

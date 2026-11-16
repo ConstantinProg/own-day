@@ -46,20 +46,20 @@ public sealed class PostgresLearningReceiptTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Post_ConcurrentDuplicate_CommitsOneEffectAndOneReceipt()
+    public async Task Post_ConcurrentDuplicate_CommitsOneReadyRequestAndOneReceipt()
     {
-        var teacher = new TelegramCurriculumTests.Teacher();
+        var teacher = new TelegramCurriculumFixture.Teacher();
         using var first = Host(teacher);
         using var second = Host(teacher);
         using var firstClient = first.CreateClient();
         using var secondClient = second.CreateClient();
         await Task.WhenAll(
-            TelegramCurriculumTests.PostAsync(firstClient, 1, 101, "/learn algebra"),
-            TelegramCurriculumTests.PostAsync(secondClient, 1, 101, "/learn algebra"));
+            TelegramCurriculumFixture.PostAsync(firstClient, 1, 101, "/learn algebra"),
+            TelegramCurriculumFixture.PostAsync(secondClient, 1, 101, "/learn algebra"));
 
         await using var db = Open();
-        Assert.Single(await db.Set<Lesson>().ToListAsync());
-        Assert.Equal(1, teacher.Generated);
+        Assert.Empty(await db.Set<Lesson>().ToListAsync());
+        Assert.Equal(0, teacher.Generated);
         Assert.Equal(1, await db.Database.SqlQueryRaw<long>(
             "SELECT count(*) AS \"Value\" FROM learning_requests").SingleAsync());
         Assert.Equal(0, await db.Database.SqlQueryRaw<long>("""
@@ -70,27 +70,27 @@ public sealed class PostgresLearningReceiptTests : IAsyncLifetime
     [Fact]
     public async Task Post_ConcurrentCommandsForOneOwner_AssignsDistinctContiguousSequences()
     {
-        var teacher = new TelegramCurriculumTests.Teacher();
+        var teacher = new TelegramCurriculumFixture.Teacher();
         using var first = Host(teacher);
         using var second = Host(teacher);
         using var firstClient = first.CreateClient();
         using var secondClient = second.CreateClient();
         await Task.WhenAll(
-            TelegramCurriculumTests.PostAsync(firstClient, 1, 101, "/learn algebra"),
-            TelegramCurriculumTests.PostAsync(secondClient, 2, 101, "/learn geometry"));
+            TelegramCurriculumFixture.PostAsync(firstClient, 1, 101, "/learn algebra"),
+            TelegramCurriculumFixture.PostAsync(secondClient, 2, 101, "/learn geometry"));
 
         await using var db = Open();
         Assert.Equal(new long[] { 1, 2 }, await db.Database.SqlQueryRaw<long>("""
             SELECT sequence AS "Value" FROM learning_requests WHERE user_id = 101 ORDER BY sequence
             """).ToArrayAsync());
-        Assert.Single(await db.Set<Lesson>().ToListAsync());
-        Assert.Equal(1, teacher.Generated);
+        Assert.Empty(await db.Set<Lesson>().ToListAsync());
+        Assert.Equal(0, teacher.Generated);
     }
 
     [Fact]
     public async Task Post_CommitFailure_RollsBackEffectReceiptAndRepliesBeforeSuccessfulRedelivery()
     {
-        using (var failed = Host(new TelegramCurriculumTests.Teacher(), new RejectCommit()))
+        using (var failed = Host(new TelegramCurriculumFixture.Teacher(), new RejectCommit()))
         using (var client = failed.CreateClient())
         using (var request = new HttpRequestMessage(HttpMethod.Post, "/telegram/webhook"))
         {
@@ -112,13 +112,13 @@ public sealed class PostgresLearningReceiptTests : IAsyncLifetime
         Assert.Equal(0, await db.Database.SqlQueryRaw<long>(
             "SELECT count(*) AS \"Value\" FROM learning_requests").SingleAsync());
 
-        using var recovered = Host(new TelegramCurriculumTests.Teacher());
+        using var recovered = Host(new TelegramCurriculumFixture.Teacher());
         using var recoveredClient = recovered.CreateClient();
-        await TelegramCurriculumTests.PostAsync(recoveredClient, 1, 101, "/learn algebra");
-        Assert.Single(await db.Set<Lesson>().ToListAsync());
+        await TelegramCurriculumFixture.PostAsync(recoveredClient, 1, 101, "/learn algebra");
+        Assert.Empty(await db.Set<Lesson>().ToListAsync());
         Assert.Equal(1, await db.Database.SqlQueryRaw<long>("""
             SELECT count(*) AS "Value" FROM learning_requests
-            WHERE status = 0 AND outcome = 'reply_committed' AND completed_at >= received_at
+            WHERE status = 1 AND completed_at IS NULL
             """).SingleAsync());
         Assert.All(await db.TelegramOutboxMessages.ToListAsync(), message =>
         {
@@ -148,9 +148,9 @@ public sealed class PostgresLearningReceiptTests : IAsyncLifetime
         await db.Database.MigrateAsync();
         db.ChangeTracker.Clear();
 
-        using var host = Host(new TelegramCurriculumTests.Teacher());
+        using var host = Host(new TelegramCurriculumFixture.Teacher());
         using var client = host.CreateClient();
-        await TelegramCurriculumTests.PostAsync(client, 77, 101, "/learn algebra");
+        await TelegramCurriculumFixture.PostAsync(client, 77, 101, "/learn algebra");
         Assert.Equal("Legacy", (await db.Set<Lesson>().SingleAsync()).Topic);
         var message = await db.TelegramOutboxMessages.SingleAsync();
         Assert.Equal("Pending legacy material", message.Text);
@@ -160,38 +160,30 @@ public sealed class PostgresLearningReceiptTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Post_ProviderBlocked_HttpSuccessWaitsForDurableCompletion()
+    public async Task Post_ProviderUnavailable_AcknowledgesReceiptBeforeWorkerExecution()
     {
         var teacher = new WaitingTeacher();
         using var host = Host(teacher);
         using var client = host.CreateClient();
-        var http = TelegramCurriculumTests.PostAsync(client, 1, 101, "/learn algebra");
-        try
-        {
-            await teacher.Started.Task.WaitAsync(TimeSpan.FromSeconds(15));
-            Assert.False(http.IsCompleted);
-            await using var observer = Open();
-            Assert.Empty(await observer.ProcessedTelegramUpdates.ToListAsync());
-            Assert.Empty(await observer.TelegramOutboxMessages.ToListAsync());
-            Assert.Equal(0, await observer.Database.SqlQueryRaw<long>(
-                "SELECT count(*) AS \"Value\" FROM learning_requests").SingleAsync());
-        }
-        finally
-        {
-            teacher.Release.TrySetResult();
-            await http.WaitAsync(TimeSpan.FromSeconds(15));
-        }
+
+        await TelegramCurriculumFixture.PostAsync(client, 1, 101, "/learn algebra");
+
+        Assert.False(teacher.Started.Task.IsCompleted);
         await using var db = Open();
-        Assert.Single(await db.Set<Lesson>().ToListAsync());
-        Assert.Equal(new int?[] { 0, 1 }, await db.TelegramOutboxMessages.OrderBy(message => message.ReplyOrdinal)
-            .Select(message => message.ReplyOrdinal).ToArrayAsync());
+        Assert.Empty(await db.Set<Lesson>().ToListAsync());
+        Assert.Empty(await db.TelegramOutboxMessages.ToListAsync());
+        Assert.NotNull((await db.ProcessedTelegramUpdates.SingleAsync()).ProcessedAt);
+        var receipt = await db.Set<OwnDay.Application.Learning.Requests.LearningRequest>().SingleAsync();
+        Assert.Equal(OwnDay.Application.Learning.Requests.LearningRequestStatus.Ready, receipt.Status);
+        Assert.Null(receipt.CompletedAt);
     }
 
     [Fact]
-    public async Task Handle_CancelAfterGeneration_LeavesSourceAvailableForRedelivery()
+    public async Task Handle_CancelBeforeReceipt_LeavesSourceAvailableForRedelivery()
     {
         using var cancellation = new CancellationTokenSource();
-        using (var host = Host(new TelegramCurriculumTests.Teacher { CancelAfterGenerate = cancellation }))
+        cancellation.Cancel();
+        using (var host = Host(new TelegramCurriculumFixture.Teacher { CancelAfterGenerate = cancellation }))
         {
             using var scope = host.Services.CreateScope();
             var update = new Update
@@ -209,10 +201,10 @@ public sealed class PostgresLearningReceiptTests : IAsyncLifetime
         Assert.Empty(await db.TelegramOutboxMessages.ToListAsync());
         Assert.Equal(0, await db.Database.SqlQueryRaw<long>(
             "SELECT count(*) AS \"Value\" FROM learning_requests").SingleAsync());
-        using var recovered = Host(new TelegramCurriculumTests.Teacher());
+        using var recovered = Host(new TelegramCurriculumFixture.Teacher());
         using var client = recovered.CreateClient();
-        await TelegramCurriculumTests.PostAsync(client, 1, 101, "/learn algebra");
-        Assert.Single(await db.Set<Lesson>().ToListAsync());
+        await TelegramCurriculumFixture.PostAsync(client, 1, 101, "/learn algebra");
+        Assert.Empty(await db.Set<Lesson>().ToListAsync());
     }
 
     private WebApplicationFactory<Program> Host(ILessonTeacher teacher, IInterceptor? interceptor = null) =>

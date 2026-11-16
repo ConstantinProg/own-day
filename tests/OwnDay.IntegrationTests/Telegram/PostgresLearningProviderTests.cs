@@ -77,11 +77,11 @@ public sealed partial class PostgresLearningProviderTests : IAsyncLifetime
     [InlineData("learn_project_practice", "generate")]
     [InlineData("learn_transfer", "generate")]
     [InlineData("learn_invite_start", "generate")]
-    public async Task Post_EachProviderPath_ReleasesTargetsTransactionAndConnectionBeforeExternalWork(string command, string blockedKind)
+    public async Task Process_EachProviderPath_ReleasesTargetsTransactionAndConnectionBeforeExternalWork(string command, string blockedKind)
     {
         var arguments = await SeedAsync(command);
         var probe = new Probe(blockedKind);
-        using var host = Host(probe, worker: true, publicIngress: true);
+        using var host = Host(probe, worker: true);
         using var client = host.CreateClient();
         client.DefaultRequestHeaders.Add("X-Telegram-Bot-Api-Secret-Token", "integration-test-webhook-secret");
         var response = await client.PostAsJsonAsync("/telegram/webhook", new

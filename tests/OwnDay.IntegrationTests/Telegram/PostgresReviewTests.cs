@@ -16,7 +16,7 @@ public sealed class PostgresReviewTests
     [InlineData(3, 8)]
     [InlineData(11, 1)]
     [Trait("Requires", "PostgreSQL via OWNDAY_TEST_POSTGRES_CONNECTION")]
-    public async Task Post_ReviewsAcrossMigrationAndRestarts_PreservesDeadlinesEvidenceAndPendingDelivery(int month, int day)
+    public async Task Process_ReviewsAcrossMigrationAndRestarts_PreservesDeadlinesEvidenceAndPendingDelivery(int month, int day)
     {
         var connection = Environment.GetEnvironmentVariable("OWNDAY_TEST_POSTGRES_CONNECTION") ??
             throw new InvalidOperationException("OWNDAY_TEST_POSTGRES_CONNECTION is required.");
@@ -30,8 +30,8 @@ public sealed class PostgresReviewTests
             const string previous = "20261106114130_AddAdaptiveTeaching";
             var scopedConnection = connection + ";Search Path=" + schema + ";Timezone=America/New_York";
             var options = new DbContextOptionsBuilder<OwnDayDbContext>().UseNpgsql(scopedConnection).Options;
-            var clock = new TelegramReviewTests.Clock { Now = new DateTimeOffset(2026, month, day, 12, 0, 0, TimeSpan.Zero) };
-            var teacher = new TelegramReviewTests.Teacher();
+            var clock = new TelegramReviewFixture.Clock { Now = new DateTimeOffset(2026, month, day, 12, 0, 0, TimeSpan.Zero) };
+            var teacher = new TelegramReviewFixture.Teacher();
             var skill = Skill.Create(new UserId(101), "Fractions", "Apply fractions in a concrete setting");
             var lessonId = Guid.NewGuid();
             var observed = clock.Now.AddDays(-1);
@@ -66,27 +66,27 @@ public sealed class PostgresReviewTests
                     services.RemoveAll<DbContextOptions<OwnDayDbContext>>();
                     services.RemoveAll<IDbContextOptionsConfiguration<OwnDayDbContext>>();
                     services.AddDbContext<OwnDayDbContext>(builder => builder.UseNpgsql(scopedConnection));
-                    TelegramReviewTests.Configure(services, clock, teacher);
+                    TelegramReviewFixture.Configure(services, clock, teacher);
                 }));
                 using var client = host.CreateClient();
                 if (restart == 0)
                 {
-                    await Post(client, 1, "/learn_reviews");
-                    await Post(client, 2, $"/learn_review {skill.Id}");
-                    await Post(client, 3, "/learn_pause");
+                    await Post(host.Services, 1, "/learn_reviews");
+                    await Post(host.Services, 2, $"/learn_review {skill.Id}");
+                    await Post(host.Services, 3, "/learn_pause");
                 }
                 else if (restart == 1)
                 {
-                    await Post(client, 2, $"/learn_review {skill.Id}");
-                    await Post(client, 4, "/learn_resume");
-                    await Post(client, 5, "/answer correct");
-                    await Post(client, 5, "/answer correct");
+                    await Post(host.Services, 2, $"/learn_review {skill.Id}");
+                    await Post(host.Services, 4, "/learn_resume");
+                    await Post(host.Services, 5, "/answer correct");
+                    await Post(host.Services, 5, "/answer correct");
                 }
                 else
                 {
-                    await Post(client, 6, $"/learn_review {skill.Id}");
-                    await Post(client, 7, "/answer correct");
-                    await Post(client, 8, $"/learn_status {skill.Id}");
+                    await Post(host.Services, 6, $"/learn_review {skill.Id}");
+                    await Post(host.Services, 7, "/answer correct");
+                    await Post(host.Services, 8, $"/learn_status {skill.Id}");
                 }
                 using var inspection = host.Services.CreateScope();
                 var db = inspection.ServiceProvider.GetRequiredService<OwnDayDbContext>();
@@ -103,7 +103,7 @@ public sealed class PostgresReviewTests
                     Assert.Equal(SkillMastery.Developing, LearnerSkillState.Evaluate(evidence).Mastery);
                     Assert.Equal(AnswerAssistance.Unknown, evidence.Single(item => item.LessonId == lessonId).Assistance);
                     Assert.Equal(2, LearnerSkillState.Evaluate(evidence).PositiveAssessments);
-                    Assert.Equal(8, await db.ProcessedTelegramUpdates.CountAsync());
+                    Assert.Equal(8, await db.Set<OwnDay.Application.Learning.Requests.LearningRequest>().CountAsync());
                 }
                 Assert.All(await db.TelegramOutboxMessages.ToListAsync(), message => Assert.Null(message.SentAt));
             }
@@ -128,5 +128,5 @@ public sealed class PostgresReviewTests
         }
     }
 
-    private static Task Post(HttpClient client, int id, string text) => TelegramReviewTests.Post(client, id, 101, text);
+    private static Task Post(IServiceProvider services, int id, string text) => LearningWorkerFixture.ProcessAsync(services, id, 101, text);
 }

@@ -15,7 +15,7 @@ public sealed class PostgresProgramsTests
 {
     [Fact]
     [Trait("Requires", "PostgreSQL via OWNDAY_TEST_POSTGRES_CONNECTION")]
-    public async Task Post_ProgramsAcrossUpgradeAndRestarts_PreservesSelectionSharedIdentityAndAtomicReplies()
+    public async Task Process_ProgramsAcrossUpgradeAndRestarts_PreservesSelectionSharedIdentityAndAtomicReplies()
     {
         var connection = Environment.GetEnvironmentVariable("OWNDAY_TEST_POSTGRES_CONNECTION") ??
             throw new InvalidOperationException("OWNDAY_TEST_POSTGRES_CONNECTION is required.");
@@ -66,8 +66,8 @@ public sealed class PostgresProgramsTests
                 Assert.Equal(source.Id, (await setup.Set<LearningContext>().AsNoTracking().SingleAsync()).ProgramId);
                 Assert.Single(await setup.Set<LearningEvidence>().ToListAsync());
             }
-            var planner = new TelegramCurriculumTests.Planner { NoQuestion = true, DifferentDiscipline = true };
-            var teacher = new TelegramCurriculumTests.Teacher();
+            var planner = new TelegramCurriculumFixture.Planner { NoQuestion = true, DifferentDiscipline = true };
+            var teacher = new TelegramCurriculumFixture.Teacher();
             for (var restart = 0; restart < 2; restart++)
             {
                 using var factory = new OwnDayHostFactory();
@@ -76,27 +76,27 @@ public sealed class PostgresProgramsTests
                     services.RemoveAll<DbContextOptions<OwnDayDbContext>>();
                     services.RemoveAll<IDbContextOptionsConfiguration<OwnDayDbContext>>();
                     services.AddDbContext<OwnDayDbContext>(builder => builder.UseNpgsql(scopedConnection));
-                    TelegramProgramsTests.Configure(services, planner, teacher);
+                    TelegramProgramsFixture.Configure(services, planner, teacher);
                 }));
                 using var client = host.CreateClient();
                 if (restart == 0)
                 {
-                    await Post(client, 1, "/learn_route");
-                    await Post(client, 2, "/learn_program Physics | Beginner");
-                    await Post(client, 3, $"/learn_link basics | {skill.Id} | The same concept in mechanics");
-                    await Post(client, 4, "/learn_next");
-                    await Post(client, 5, "/learn_pause");
+                    await Post(host.Services, 1, "/learn_route");
+                    await Post(host.Services, 2, "/learn_program Physics | Beginner");
+                    await Post(host.Services, 3, $"/learn_link basics | {skill.Id} | The same concept in mechanics");
+                    await Post(host.Services, 4, "/learn_next");
+                    await Post(host.Services, 5, "/learn_pause");
                 }
                 else
                 {
-                    await Post(client, 3, $"/learn_link basics | {skill.Id} | Duplicate update");
-                    await Post(client, 6, "/learn_links");
-                    await Post(client, 7, "/learn_resume");
-                    await Post(client, 8, "/answer correct");
-                    await Post(client, 9, "/learn_focus basics");
-                    await Post(client, 10, "/answer correct");
-                    await Post(client, 11, $"/learn_select {source.Id}");
-                    await Post(client, 12, "/learn_next");
+                    await Post(host.Services, 3, $"/learn_link basics | {skill.Id} | Duplicate update");
+                    await Post(host.Services, 6, "/learn_links");
+                    await Post(host.Services, 7, "/learn_resume");
+                    await Post(host.Services, 8, "/answer correct");
+                    await Post(host.Services, 9, "/learn_focus basics");
+                    await Post(host.Services, 10, "/answer correct");
+                    await Post(host.Services, 11, $"/learn_select {source.Id}");
+                    await Post(host.Services, 12, "/learn_next");
                 }
                 using var scope = host.Services.CreateScope();
                 var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
@@ -126,7 +126,7 @@ public sealed class PostgresProgramsTests
                     Assert.Equal(2, LearnerSkillState.Evaluate(observations).PositiveAssessments);
                     Assert.Equal(2, target.Routes.Count);
                     Assert.Equal(1, target.CurrentRoute.ProgressVersion);
-                    Assert.Equal(12, await db.ProcessedTelegramUpdates.CountAsync());
+                    Assert.Equal(12, await db.Set<OwnDay.Application.Learning.Requests.LearningRequest>().CountAsync());
                     Assert.Equal("Advanced", teacher.Requests[^1].Topic);
                 }
             }
@@ -164,5 +164,5 @@ public sealed class PostgresProgramsTests
         }
     }
 
-    private static Task Post(HttpClient client, int id, string text) => TelegramCurriculumTests.PostAsync(client, id, 101, text);
+    private static Task Post(IServiceProvider services, int id, string text) => LearningWorkerFixture.ProcessAsync(services, id, 101, text);
 }

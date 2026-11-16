@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Npgsql;
 using OwnDay.Application.Learning;
+using OwnDay.Application.Learning.Requests;
 using OwnDay.Domain;
 using OwnDay.Domain.Learning;
 using OwnDay.Infrastructure.Persistence;
@@ -18,7 +19,7 @@ public sealed class PostgresVerificationTests
     [InlineData(MaterialSourceStatus.QuoteMatched)]
     [InlineData(MaterialSourceStatus.Unavailable)]
     [Trait("Requires", "PostgreSQL via OWNDAY_TEST_POSTGRES_CONNECTION")]
-    public async Task Post_VerificationAcrossMigrationAndRestarts_PreservesUncertaintyAndPreventsUnsafeDowngrade(MaterialSourceStatus sourceStatus)
+    public async Task Process_VerificationAcrossMigrationAndRestarts_PreservesUncertaintyAndPreventsUnsafeDowngrade(MaterialSourceStatus sourceStatus)
     {
         var connection = Environment.GetEnvironmentVariable("OWNDAY_TEST_POSTGRES_CONNECTION") ??
             throw new InvalidOperationException("OWNDAY_TEST_POSTGRES_CONNECTION is required.");
@@ -64,26 +65,26 @@ public sealed class PostgresVerificationTests
                     services.RemoveAll<DbContextOptions<OwnDayDbContext>>();
                     services.RemoveAll<IDbContextOptionsConfiguration<OwnDayDbContext>>();
                     services.AddDbContext<OwnDayDbContext>(builder => builder.UseNpgsql(scopedConnection));
-                    services.Replace(ServiceDescriptor.Singleton<ICurriculumPlanner>(new TelegramCurriculumTests.Planner { NoQuestion = true }));
+                    services.Replace(ServiceDescriptor.Singleton<ICurriculumPlanner>(new TelegramCurriculumFixture.Planner { NoQuestion = true }));
                     services.Replace(ServiceDescriptor.Singleton<ILessonTeacher>(teacher));
                 }));
                 using var client = host.CreateClient();
                 if (restart == 0)
                 {
-                    await Post(client, 1, "/learn_program Mathematics | Beginner");
-                    await Post(client, 2, "/learn_next");
-                    await Post(client, 3, "/learn_pause");
+                    await Post(host.Services, 1, "/learn_program Mathematics | Beginner");
+                    await Post(host.Services, 2, "/learn_next");
+                    await Post(host.Services, 3, "/learn_pause");
                 }
                 else if (restart == 1)
                 {
-                    await Post(client, 2, "/learn_next");
-                    await Post(client, 4, "/learn_resume");
-                    await Post(client, 5, "/answer five");
-                    await Post(client, 5, "/answer five");
+                    await Post(host.Services, 2, "/learn_next");
+                    await Post(host.Services, 4, "/learn_resume");
+                    await Post(host.Services, 5, "/answer five");
+                    await Post(host.Services, 5, "/answer five");
                 }
                 else
                 {
-                    await Post(client, 6, "/learn_next");
+                    await Post(host.Services, 6, "/learn_next");
                 }
                 using var scope = host.Services.CreateScope();
                 var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
@@ -102,7 +103,7 @@ public sealed class PostgresVerificationTests
                     Assert.False(evidence.DeterministicIsCorrect);
                     Assert.False(evidence.AssessedCorrect);
                     Assert.Equal(SkillMastery.Conflicting, LearnerSkillState.Evaluate([evidence]).Mastery);
-                    await Post(client, 20 + restart, "/learn_status " + evidence.SkillId);
+                    await Post(host.Services, 20 + restart, "/learn_status " + evidence.SkillId);
                 }
                 var messages = await db.TelegramOutboxMessages.AsNoTracking().Where(m => m.ChatId == 101).ToListAsync();
                 Assert.All(messages, m => Assert.Null(m.SentAt));
@@ -124,7 +125,7 @@ public sealed class PostgresVerificationTests
         }
     }
 
-    private static Task Post(HttpClient client, int id, string text) => TelegramReviewTests.Post(client, id, 101, text);
+    private static Task Post(IServiceProvider services, int id, string text) => LearningWorkerFixture.ProcessAsync(services, id, 101, text);
 
     private sealed class Teacher(LessonProvenance provenance) : ILessonTeacher
     {
@@ -137,7 +138,17 @@ public sealed class PostgresVerificationTests
             Assessed++;
             return Task.FromResult(new LessonAssessment("AI says correct", true));
         }
+
+        public Task<LessonAssessment> AssessAsync(LessonSnapshot lesson, string answer, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            Assessed++;
+            return Task.FromResult(new LessonAssessment("AI says correct", true));
+        }
         public Task<LessonExplanation> ExplainAsync(Lesson lesson, string request, LessonInteractionKind kind, CancellationToken token) =>
+            throw new NotSupportedException();
+
+        public Task<LessonExplanation> ExplainAsync(LessonSnapshot lesson, string request, LessonInteractionKind kind, CancellationToken token) =>
             throw new NotSupportedException();
     }
 }

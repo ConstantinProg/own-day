@@ -4,6 +4,9 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using OwnDay.Infrastructure.Learning;
 using OwnDay.Application.Inbox;
+using OwnDay.Domain;
+using OwnDay.Domain.Inbox;
+using OwnDay.Infrastructure.Telegram.Commands;
 using OwnDay.Application.Learning.Requests;
 using OwnDay.Infrastructure.Persistence;
 using Xunit;
@@ -134,31 +137,88 @@ public sealed class TelegramDialogueOnlyTests
 
     [Theory]
     [InlineData("/start")]
+    [InlineData("/ping")]
+    [InlineData("/unknown")]
+    [InlineData("/help")]
     [InlineData("/help commands")]
+    [InlineData("/language")]
+    [InlineData("/language ru")]
     [InlineData("/inbox")]
+    [InlineData("/inbox 1")]
     [InlineData("/capture old note")]
-    [InlineData("/process 1 task")]
     [InlineData("/add old task")]
+    [InlineData("/done 1")]
+    [InlineData("/tasks")]
     [InlineData("/list")]
+    [InlineData("/project old project")]
+    [InlineData("/projects")]
+    [InlineData("/idea old idea")]
+    [InlineData("/ideas")]
+    [InlineData("/note old note")]
+    [InlineData("/notes")]
+    [InlineData("/wait old item")]
+    [InlineData("/waiting")]
     [InlineData("/settings")]
-    public async Task Post_LegacyCommand_ExplainsDialogueWithoutLegacyNavigationOrMutation(string text)
+    [InlineData("/stats")]
+    [InlineData("/process 1 task")]
+    [InlineData("/discard 1")]
+    [InlineData("/back")]
+    [InlineData("/result 1")]
+    [InlineData("/inbox_result 1")]
+    [InlineData("/undo 1")]
+    [InlineData("/accept 1 1")]
+    [InlineData("/reject 1 1")]
+    [InlineData("/inbox_accept 11111111111111111111111111111111")]
+    [InlineData("/inbox_reject 11111111111111111111111111111111")]
+    public async Task Post_LegacyCommand_RetainsExistingRecordsAndQueuesDialogueOnce(string text)
     {
         using var factory = new OwnDayHostFactory();
         using var client = factory.CreateClient();
+        long actionId;
+        long inboxId;
+        using (var seed = factory.Services.CreateScope())
+        {
+            var db = seed.ServiceProvider.GetRequiredService<OwnDayDbContext>();
+            var action = OwnDay.Domain.Actions.Action.Create(new UserId(101), "Existing task", DateTime.UtcNow);
+            var inbox = InboxItem.Capture(new UserId(101), "Existing note", DateTime.UtcNow);
+            db.AddRange(action, inbox);
+            await db.SaveChangesAsync();
+            actionId = action.Id;
+            inboxId = inbox.Id;
+            db.TelegramInboxDrafts.Add(new InboxDraft { UserId = 101, InboxItemId = inbox.Id,
+                ExpiresAt = DateTime.UtcNow.AddHours(1) });
+            db.TelegramUserLanguages.Add(new TelegramUserLanguage { UserId = 101, Locale = "en",
+                SelectionExpiresAt = DateTime.UtcNow.AddHours(1) });
+            await db.SaveChangesAsync();
+        }
+
         await PostAsync(client, 1, text);
+        await PostAsync(client, 1, text);
+
         using var scope = factory.Services.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
-        var replies = await db.TelegramOutboxMessages.ToListAsync();
-        Assert.NotEmpty(replies);
+        var saved = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
+        var replies = await saved.TelegramOutboxMessages.OrderBy(reply => reply.CreatedAt).ToListAsync();
+        Assert.Equal(2, replies.Count);
+        Assert.Equal(TelegramDialoguePresenter.Introduction, replies[0].Text);
         Assert.All(replies, reply =>
         {
-            Assert.DoesNotContain("Inbox", reply.Text, StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain("/capture", reply.Text, StringComparison.Ordinal);
             Assert.Null(reply.ReplyMarkupJson);
+            Assert.Equal(101, reply.ChatId);
         });
-        Assert.Empty(await db.InboxItems.ToListAsync());
-        Assert.Empty(await db.Actions.ToListAsync());
-        Assert.Empty(await db.TelegramInboxDrafts.ToListAsync());
+        var task = Assert.Single(await saved.Actions.ToListAsync());
+        Assert.Equal(actionId, task.Id);
+        Assert.Equal("Existing task", task.Title);
+        Assert.Equal(OwnDay.Domain.Actions.ActionStatus.Active, task.Status);
+        var item = Assert.Single(await saved.InboxItems.ToListAsync());
+        Assert.Equal(inboxId, item.Id);
+        Assert.Equal("Existing note", item.OriginalText);
+        Assert.Empty(await saved.TelegramInboxDrafts.ToListAsync());
+        var language = await saved.TelegramUserLanguages.SingleAsync();
+        Assert.Equal("en", language.Locale);
+        Assert.Null(language.SelectionExpiresAt);
+        Assert.Single(await saved.ProcessedTelegramUpdates.ToListAsync());
+        Assert.Empty(await saved.Set<LearningRequest>().ToListAsync());
     }
 
     private static async Task PostAsync(HttpClient client, int id, string text,

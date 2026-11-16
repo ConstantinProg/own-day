@@ -21,9 +21,9 @@ public sealed class PostgresStudyTests
     public async Task Dispatch_MigrationRestartsConcurrentWorkersAndFailedDelivery_PreservesOneInvitation()
     {
         await using var database = await Database.CreateAsync();
-        var clock = new TelegramStudyTests.Clock { Now = new(2026, 11, 6, 14, 0, 0, TimeSpan.Zero) };
+        var clock = new TelegramStudyFixture.Clock { Now = new(2026, 11, 6, 14, 0, 0, TimeSpan.Zero) };
         var sender = new Sender();
-        var teacher = new TelegramCurriculumTests.Teacher();
+        var teacher = new TelegramCurriculumFixture.Teacher();
         await using (var seed = database.Context())
         {
             await seed.GetService<IMigrator>().MigrateAsync(Database.Previous);
@@ -43,8 +43,8 @@ public sealed class PostgresStudyTests
         using (var host = Host(factory, database.Connection, clock, teacher, sender))
         using (var client = host.CreateClient())
         {
-            await TelegramStudyTests.Post(client, 1, 101, "/learn_schedule Europe/Moscow | 1 | 18:00-20:00");
-            var schedule = await TelegramStudyTests.Dispatch(host.Services);
+            await LearningWorkerFixture.ProcessAsync(host.Services, 1, 101, "/learn_schedule Europe/Moscow | 1 | 18:00-20:00");
+            var schedule = await TelegramStudyFixture.Dispatch(host.Services);
             Assert.Equal(clock.Now.AddHours(1), schedule.NextAt);
             Assert.Null(schedule.InvitationId);
         }
@@ -54,7 +54,7 @@ public sealed class PostgresStudyTests
         using (var host = Host(factory, database.Connection, clock, teacher, sender))
         {
             _ = host.CreateClient();
-            var results = await Task.WhenAll(TelegramStudyTests.Dispatch(host.Services), TelegramStudyTests.Dispatch(host.Services));
+            var results = await Task.WhenAll(TelegramStudyFixture.Dispatch(host.Services), TelegramStudyFixture.Dispatch(host.Services));
             invitation = results[0].InvitationId!.Value;
             Assert.Equal(invitation, results[1].InvitationId);
             using var scope = host.Services.CreateScope();
@@ -72,7 +72,7 @@ public sealed class PostgresStudyTests
         using (var host = Host(factory, database.Connection, clock, teacher, sender))
         using (var client = host.CreateClient())
         {
-            await TelegramStudyTests.Dispatch(host.Services);
+            await TelegramStudyFixture.Dispatch(host.Services);
             using (var scope = host.Services.CreateScope())
             {
                 await scope.ServiceProvider.GetRequiredService<TelegramOutboxDeliveryService>().DeliverBatchAsync(CancellationToken.None);
@@ -83,21 +83,21 @@ public sealed class PostgresStudyTests
                 Assert.Equal(1, sender.InvitationDeliveries);
                 Assert.Equal(clock.Now.AddDays(1).AddSeconds(-3), (await db.Set<StudySchedule>().SingleAsync()).NextAt);
             }
-            await TelegramStudyTests.Post(client, 2, 101, "/learn_schedule UTC | 1 | 18:00-20:00");
-            await TelegramStudyTests.Post(client, 3, 101, $"/learn_invite_start {invitation:N}");
+            await LearningWorkerFixture.ProcessAsync(host.Services, 2, 101, "/learn_schedule UTC | 1 | 18:00-20:00");
+            await LearningWorkerFixture.ProcessAsync(host.Services, 3, 101, $"/learn_invite_start {invitation:N}");
             await using (var db = database.Context())
             {
                 Assert.Equal(new DateTimeOffset(2026, 11, 27, 18, 0, 0, TimeSpan.Zero), (await db.Set<StudySchedule>().SingleAsync()).NextAt);
                 Assert.Empty(await db.Set<Lesson>().ToListAsync());
             }
             clock.Now = new(2026, 12, 10, 21, 0, 0, TimeSpan.Zero);
-            var delayed = await TelegramStudyTests.Dispatch(host.Services);
+            var delayed = await TelegramStudyFixture.Dispatch(host.Services);
             Assert.Null(delayed.InvitationId);
             Assert.Equal(new DateTimeOffset(2026, 12, 11, 18, 0, 0, TimeSpan.Zero), delayed.NextAt);
             clock.Now = delayed.NextAt;
-            var next = await TelegramStudyTests.Dispatch(host.Services);
+            var next = await TelegramStudyFixture.Dispatch(host.Services);
             Assert.NotNull(next.InvitationId);
-            await TelegramStudyTests.Post(client, 4, 101, "/learn_notify_pause");
+            await LearningWorkerFixture.ProcessAsync(host.Services, 4, 101, "/learn_notify_pause");
             using var inspection = host.Services.CreateScope();
             await inspection.ServiceProvider.GetRequiredService<TelegramOutboxDeliveryService>().DeliverBatchAsync(CancellationToken.None);
             var stored = inspection.ServiceProvider.GetRequiredService<OwnDayDbContext>();
@@ -115,16 +115,16 @@ public sealed class PostgresStudyTests
     public async Task Dispatch_OutboxWriteFailure_RollsBackScheduleAndRetriesAfterRestart()
     {
         await using var database = await Database.CreateAsync();
-        var clock = new TelegramStudyTests.Clock();
+        var clock = new TelegramStudyFixture.Clock();
         var failure = new RejectInvitationInsert();
         using (var factory = new OwnDayHostFactory())
         using (var host = Host(factory, database.Connection, clock, new(), new(), failure))
         using (var client = host.CreateClient())
         {
-            await TelegramStudyTests.Post(client, 1, 101, "/learn_program Algebra | Beginner");
-            await TelegramStudyTests.Post(client, 2, 101, "/learn_schedule Europe/Moscow | 1 | 18:00-20:00");
+            await LearningWorkerFixture.ProcessAsync(host.Services, 1, 101, "/learn_program Algebra | Beginner");
+            await LearningWorkerFixture.ProcessAsync(host.Services, 2, 101, "/learn_schedule Europe/Moscow | 1 | 18:00-20:00");
             failure.Enabled = true;
-            await Assert.ThrowsAsync<DbUpdateException>(() => TelegramStudyTests.Dispatch(host.Services));
+            await Assert.ThrowsAsync<DbUpdateException>(() => TelegramStudyFixture.Dispatch(host.Services));
         }
         await using (var db = database.Context())
         {
@@ -133,24 +133,52 @@ public sealed class PostgresStudyTests
             Assert.Null(schedule.InvitationId);
             Assert.Null(schedule.LastInvitedAt);
             Assert.Equal(0, await db.TelegramOutboxMessages.CountAsync(m => m.StudyInvitationId != null));
-            Assert.Equal(2, await db.ProcessedTelegramUpdates.CountAsync());
+            Assert.Equal(2, await db.Set<OwnDay.Application.Learning.Requests.LearningRequest>().CountAsync());
         }
         using (var factory = new OwnDayHostFactory())
         using (var host = Host(factory, database.Connection, clock, new(), new()))
         {
             _ = host.CreateClient();
-            Assert.NotNull((await TelegramStudyTests.Dispatch(host.Services)).InvitationId);
+            Assert.NotNull((await TelegramStudyFixture.Dispatch(host.Services)).InvitationId);
         }
         await using (var db = database.Context())
         {
-            await db.GetService<IMigrator>().MigrateAsync(Database.Previous);
-            // Query the old schema without the new marker column.
-            Assert.Equal(1, await db.TelegramOutboxMessages.CountAsync(m => m.LastError == "StudyScheduleRemoved" && m.Status == OutboxMessageStatus.Failed));
+            var rejected = await Assert.ThrowsAsync<Npgsql.PostgresException>(() => db.GetService<IMigrator>().MigrateAsync(Database.Previous));
+            Assert.Contains("Cannot remove shared ledger", rejected.MessageText, StringComparison.Ordinal);
             await db.Database.MigrateAsync();
-            Assert.Empty(await db.Set<StudySchedule>().ToListAsync());
+            Assert.NotNull((await db.Set<StudySchedule>().SingleAsync()).InvitationId);
             Assert.Equal(1, await db.Set<LearningProgram>().CountAsync());
             Assert.Equal(5, await db.TelegramOutboxMessages.CountAsync());
         }
+    }
+
+    [Fact]
+    [Trait("Requires", "PostgreSQL via OWNDAY_TEST_POSTGRES_CONNECTION")]
+    public async Task Migrate_InvitationWithoutLearningHistory_RetiresPendingDeliveryWithoutLosingProgram()
+    {
+        await using var database = await Database.CreateAsync();
+        await using var db = database.Context();
+        var now = new DateTimeOffset(2026, 11, 6, 18, 0, 0, TimeSpan.Zero);
+        var program = LearningProgram.Create(new(101), "Algebra", "Beginner", null, "Mathematics", [new("a", "Algebra", [])], null);
+        var schedule = StudySchedule.Create(new(101), "UTC", 1, [new(new TimeOnly(18, 0), new TimeOnly(20, 0))], now);
+        var invitation = schedule.Invite(program.Id, null, now);
+        db.AddRange(program, schedule);
+        db.TelegramOutboxMessages.Add(new TelegramOutboxMessage
+        {
+            Id = Guid.NewGuid(), ChatId = 101, Text = "Pending invitation",
+            Status = OutboxMessageStatus.Pending, CreatedAt = now.UtcDateTime,
+            NextAttemptAt = now.UtcDateTime, StudyInvitationId = invitation
+        });
+        await db.SaveChangesAsync();
+
+        await db.GetService<IMigrator>().MigrateAsync(Database.Previous);
+
+        Assert.Equal(1, await db.TelegramOutboxMessages.CountAsync(message => message.LastError == "StudyScheduleRemoved" && message.Status == OutboxMessageStatus.Failed));
+        await db.Database.MigrateAsync();
+        db.ChangeTracker.Clear();
+        Assert.Empty(await db.Set<StudySchedule>().ToListAsync());
+        Assert.Single(await db.Set<LearningProgram>().ToListAsync());
+        Assert.Single(await db.TelegramOutboxMessages.ToListAsync());
     }
 
     [Theory]
@@ -162,26 +190,26 @@ public sealed class PostgresStudyTests
     public async Task Deliver_DelayedOrObsoleteInvitation_SuppressesSend(string reason)
     {
         await using var database = await Database.CreateAsync();
-        var clock = new TelegramStudyTests.Clock();
+        var clock = new TelegramStudyFixture.Clock();
         var sender = new Sender { FailFirst = false };
         using var factory = new OwnDayHostFactory();
         using var host = Host(factory, database.Connection, clock, new(), sender);
         using var client = host.CreateClient();
         if (reason == "review")
         {
-            await TelegramStudyTests.Post(client, 10, 101, "/learn Algebra");
-            await TelegramStudyTests.Post(client, 11, 101, "/answer correct");
+            await LearningWorkerFixture.ProcessAsync(host.Services, 10, 101, "/learn Algebra");
+            await LearningWorkerFixture.ProcessAsync(host.Services, 11, 101, "/answer correct");
             clock.Now = clock.Now.AddDays(1);
         }
-        await TelegramStudyTests.Post(client, 1, 101, "/learn_program Algebra | Beginner");
-        await TelegramStudyTests.Post(client, 2, 101, "/learn_schedule Europe/Moscow | 1 | 18:00-20:00");
-        var invitation = await TelegramStudyTests.Dispatch(host.Services);
+        await LearningWorkerFixture.ProcessAsync(host.Services, 1, 101, "/learn_program Algebra | Beginner");
+        await LearningWorkerFixture.ProcessAsync(host.Services, 2, 101, "/learn_schedule Europe/Moscow | 1 | 18:00-20:00");
+        var invitation = await TelegramStudyFixture.Dispatch(host.Services);
         switch (reason)
         {
             case "window": clock.Now = clock.Now.AddHours(3); break;
-            case "settings": await TelegramStudyTests.Post(client, 3, 101, "/learn_schedule UTC | 1 | 18:00-20:00"); break;
-            case "lesson": await TelegramStudyTests.Post(client, 3, 101, "/learn_next"); break;
-            case "review": await TelegramStudyTests.Post(client, 3, 101, $"/learn_review_skip {invitation.SkillId:N}"); break;
+            case "settings": await LearningWorkerFixture.ProcessAsync(host.Services, 3, 101, "/learn_schedule UTC | 1 | 18:00-20:00"); break;
+            case "lesson": await LearningWorkerFixture.ProcessAsync(host.Services, 3, 101, "/learn_next"); break;
+            case "review": await LearningWorkerFixture.ProcessAsync(host.Services, 3, 101, $"/learn_review_skip {invitation.SkillId:N}"); break;
         }
         using var scope = host.Services.CreateScope();
         await scope.ServiceProvider.GetRequiredService<TelegramOutboxDeliveryService>().DeliverBatchAsync(CancellationToken.None);
@@ -192,7 +220,7 @@ public sealed class PostgresStudyTests
     }
 
     private static WebApplicationFactory<Program> Host(OwnDayHostFactory factory, string connection,
-        TelegramStudyTests.Clock clock, TelegramCurriculumTests.Teacher teacher, Sender sender,
+        TelegramStudyFixture.Clock clock, TelegramCurriculumFixture.Teacher teacher, Sender sender,
         RejectInvitationInsert? failure = null) => factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
         {
             services.RemoveAll<DbContextOptions<OwnDayDbContext>>();
@@ -202,7 +230,7 @@ public sealed class PostgresStudyTests
                 options.UseNpgsql(connection);
                 if (failure is not null) options.AddInterceptors(failure);
             });
-            TelegramStudyTests.Configure(services, clock, teacher);
+            TelegramStudyFixture.Configure(services, clock, teacher);
             services.Replace(ServiceDescriptor.Singleton<ITelegramMessageSender>(sender));
         }));
 
