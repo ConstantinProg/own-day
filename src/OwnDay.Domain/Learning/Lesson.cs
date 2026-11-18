@@ -115,8 +115,9 @@ public sealed class Lesson
             return;
         }
 
-        RubricEvaluation = evaluation with { Final = true };
         var correct = assessment.Criteria.All(item => item.Result == RubricCriterionResult.Met);
+        var usedClarification = prior is { AwaitingCorrection: false, Clarification: not null };
+        RubricEvaluation = evaluation with { Final = true, FinalThroughClarification = usedClarification };
         var referenceCandidate = prior is { AwaitingCorrection: false, Clarification: not null }
             ? prior.ClarificationAnswer ?? prior.InitialAnswer : answer;
         CommitAssessment(answer, feedback, correct, referenceCandidate);

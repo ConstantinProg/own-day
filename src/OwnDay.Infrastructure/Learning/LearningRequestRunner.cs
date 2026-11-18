@@ -179,6 +179,16 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
             return new(null, decision.Audit?.Code ?? "dialogue_reply")
                 { Replies = Introduce(introduce, TelegramDialoguePresenter.Render(decision.Reply ?? new(DialogueReplyKind.Unavailable))), DialogueOutcomeJson = audit };
         }
+        if (operation is DialogueOperationKind.ExplainAssessment or DialogueOperationKind.AppealAssessment)
+        {
+            var assessments = new AssessmentReviewService(services.GetRequiredService<IAssessmentReviewStore>(),
+                services.GetRequiredService<IKnowledgeStore>(), session, services.GetRequiredService<TimeProvider>());
+            var result = operation == DialogueOperationKind.AppealAssessment
+                ? await assessments.ReviewAsync(request.UserId, request.Id, decision.Arguments, token)
+                : await assessments.ExplainAsync(request.UserId, program?.Id, decision.Arguments, token);
+            session.EnsureComplete();
+            return new(null, "assessment_review") { Replies = TelegramAssessmentReviewPresenter.Render(result) };
+        }
         if (operation == DialogueOperationKind.Diagnose && program?.HasEnglishDiagnostic == true && lesson is null)
         {
             var result = await new EnglishDiagnosticDialogue(services.GetRequiredService<ICurriculumStore>(),
@@ -267,6 +277,7 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
         "learn_resume" => DialogueOperationKind.Resume, "learn_finish" => DialogueOperationKind.Finish,
         "learn_end_session" => DialogueOperationKind.EndSession,
         "learn_solution" => DialogueOperationKind.RevealSolution,
+        "learn_assessment" => DialogueOperationKind.ExplainAssessment, "learn_appeal" => DialogueOperationKind.AppealAssessment,
         "learn_next" => DialogueOperationKind.Next, "learn_progress" => DialogueOperationKind.Progress,
         "learn_request" or "learn_program" => DialogueOperationKind.CreateProgram,
         "learn_project" => DialogueOperationKind.CreateProjectProgram, "learn_select" => DialogueOperationKind.SelectProgram,
@@ -313,7 +324,8 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
                 entry.OriginalValues.Properties
                     // A legacy program has the same checkpoint stamp on either side of the additive migration.
                     .Where(property => property.Name is not (nameof(LearningProgram.GoalCriterion) or nameof(LearningProgram.SubjectDiagnostic) or
-                        nameof(Lesson.RubricEvaluation) or nameof(LearningEvidence.RubricEvidence)) ||
+                        nameof(Lesson.RubricEvaluation) or nameof(LearningEvidence.RubricEvidence) or
+                        nameof(LearningEvidence.ReviewHistory) or nameof(LearningEvidence.ReassessmentCredit)) ||
                         entry.OriginalValues[property] is not null)
                     .OrderBy(property => property.Name, StringComparer.Ordinal)
                     .ToDictionary(property => property.Name, property => entry.OriginalValues[property]), JsonSerializerOptions.Web))

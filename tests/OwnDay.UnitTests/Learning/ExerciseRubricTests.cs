@@ -78,6 +78,36 @@ public sealed class ExerciseRubricTests
         Assert.Equal(SkillMastery.Demonstrated, LearnerSkillState.Evaluate([first, second, application, delayed]).Mastery);
     }
 
+    [Fact]
+    public void Review_DisagreementThenAgreement_ChangesOnlyTheEffectiveGrade()
+    {
+        var owner = new UserId(1);
+        var skill = Skill.Create(owner, "Types");
+        var lesson = Lesson.Start(owner, "Types", "Theory", "Compare these types.",
+            content: Content(ExerciseEvidenceKind.Understanding));
+        var unclear = new RubricAssessment([new("meaning", RubricCriterionResult.Unclear, "More detail is needed.")]);
+        lesson.LinkToSkill(skill);
+        lesson.ApplyRubricAssessment("First reply", "Feedback", unclear, Guid.NewGuid());
+        lesson.ApplyRubricAssessment("Follow-up", "Feedback", unclear, Guid.NewGuid());
+        var at = DateTimeOffset.UnixEpoch;
+        var evidence = LearningEvidence.FromAnswer(lesson, at, "test");
+        var pass = new RubricReviewCheck(new([new("meaning", RubricCriterionResult.Met, "Criterion met.")]), "Basis", "test");
+        var fail = new RubricReviewCheck(new([new("meaning", RubricCriterionResult.NotMet, "Criterion missing.")]), "Basis", "test");
+
+        Assert.True(evidence.NeedsIndependentCheck(pass));
+        var unresolved = evidence.Review(0, Guid.NewGuid(), "First argument", at, pass, fail);
+        Assert.Equal(AssessmentReviewOutcome.Unresolved, unresolved.Outcome);
+        Assert.Equal(AnswerAssessmentStatus.Inconclusive, evidence.EffectiveAssessmentStatus);
+        Assert.False(evidence.CanReview(0, "Different argument"));
+
+        var changed = evidence.Review(1, Guid.NewGuid(), "New evidence argument", at, pass, pass);
+        Assert.Equal(AssessmentReviewOutcome.Changed, changed.Outcome);
+        Assert.True(evidence.EffectiveCorrect);
+        Assert.False(evidence.AssessedCorrect);
+        Assert.Equal(AnswerAssessmentStatus.Inconclusive, evidence.AssessmentStatus);
+        Assert.Equal(2, evidence.ReviewHistory!.Revisions.Length);
+    }
+
     private static LearningContent Content(ExerciseEvidenceKind kind) => new("types", "rubric-v1", LearningContentKind.StructuredExercise,
         "Understand type relations", "Describe the relation", "All published criteria must be met.",
         new(1, kind, [new("meaning", "Describe the type relation in your own words.")]));

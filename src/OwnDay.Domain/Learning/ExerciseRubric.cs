@@ -46,7 +46,8 @@ public sealed record LessonRubricEvaluation(RubricAssessment Assessment, string 
     string? Clarification, bool Final, RubricAssessment? InitialAssessment = null, Guid? InitialOperationId = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] ImmutableArray<ExerciseCorrection> Corrections = default,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool AwaitingCorrection = false,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ClarificationAnswer = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ClarificationAnswer = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool FinalThroughClarification = false);
 
 public sealed record ExerciseCorrectionProposal(ExerciseCorrectionKind Kind, string Guidance)
 {

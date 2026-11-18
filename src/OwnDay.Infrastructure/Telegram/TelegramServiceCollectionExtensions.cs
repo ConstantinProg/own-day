@@ -50,6 +50,7 @@ public static class TelegramServiceCollectionExtensions
         services.AddScoped<OwnDay.Application.Dialogue.IDialogueStore, OwnDay.Infrastructure.Persistence.EfDialogueStore>();
         services.AddScoped<OwnDay.Application.Dialogue.ILearningSessionStore, OwnDay.Infrastructure.Persistence.EfLearningSessionStore>();
         services.AddScoped<OwnDay.Application.Dialogue.LearningSessionService>();
+        services.AddScoped<OwnDay.Application.Learning.IAssessmentReviewStore, OwnDay.Infrastructure.Persistence.EfAssessmentReviewStore>();
         services.AddScoped<OwnDay.Application.Dialogue.ILearningIntentResolver, OwnDay.Infrastructure.OpenAIAnalysis.OpenAILessonTeacher>();
         services.AddScoped<OwnDay.Application.Learning.Requests.LearningRequestProcessor>();
         services.AddHostedService<OwnDay.Infrastructure.Learning.LearningRequestWorker>();

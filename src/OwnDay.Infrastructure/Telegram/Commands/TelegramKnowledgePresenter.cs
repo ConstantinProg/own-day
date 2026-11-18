@@ -48,6 +48,9 @@ public static class TelegramKnowledgePresenter
                 $"Assistance: {evidence.Assistance} (Unknown is not independent).\n" +
                 $"Scheduled review: {evidence.IsReview}\nSkill checked: {evidence.SkillId}\n" +
                 $"Method: {evidence.Method}\nSource: {evidence.AssessmentSource}\nBasis: {evidence.AssessmentFeedback}");
+            if (evidence.ReviewVersion > 0)
+                messages.Add($"Effective credit: {evidence.EffectiveCorrect}; review version: {evidence.ReviewVersion}.\n" +
+                    $"/learn_assessment {evidence.LessonId}");
         }
         return messages;
     }

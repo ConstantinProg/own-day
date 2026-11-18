@@ -40,6 +40,13 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
 
         var normalized = Normalize(turn.Text);
         var command = turn.Command;
+        if (command is DialogueOperationKind.ExplainAssessment or DialogueOperationKind.AppealAssessment)
+            return new(context, command, turn.Text.Trim());
+        if (command is null && normalized is "почему такая оценка" or "покажи оценку" or "оспорить оценку" or "explain the grade")
+            return new(context, DialogueOperationKind.ExplainAssessment, "");
+        const string appealPrefix = "оспорить оценку ";
+        if (command is null && normalized.StartsWith(appealPrefix, StringComparison.Ordinal))
+            return new(context, DialogueOperationKind.AppealAssessment, turn.Text.Trim()[appealPrefix.Length..]);
         if (sessions is not null && turn.SourceOrder > 0)
         {
             if (command == DialogueOperationKind.EndSession ||

@@ -79,6 +79,7 @@ public abstract record LearningResult
         public long? ProjectActionId { get; init; }
         public IReadOnlyList<CriterionFeedback>? Criteria { get; init; }
         public Guid? IndependentPracticeSkillId { get; init; }
+        public Guid? LessonId { get; init; }
     }
     public sealed record InvalidTopic : LearningResult;
     public sealed record InvalidAnswer : LearningResult;
@@ -199,6 +200,7 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
         {
             Status = active.AssessmentStatus, DeterministicIsCorrect = active.DeterministicIsCorrect, ProjectActionId = active.ProjectActionId,
             Assistance = active.Assistance,
+            LessonId = active.Id,
             IndependentPracticeSkillId = active.IsCorrect == true && active.Assistance == AnswerAssistance.Assisted ? active.SkillId : null,
             Criteria = active.Content?.StructuredRubric is { } publishedRubric && active.RubricEvaluation is { } evaluation
                 ? publishedRubric.Criteria.Select(criterion =>

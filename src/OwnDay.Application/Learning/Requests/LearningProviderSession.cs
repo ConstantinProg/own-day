@@ -13,11 +13,14 @@ namespace OwnDay.Application.Learning.Requests;
 public sealed record LessonSnapshot(Guid Id, UserId UserId, string Topic, string Theory, string Question,
     LessonStatus Status, LessonTeaching? Teaching, InterdisciplinaryPractice? Transfer,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] LearningContent? Content = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] LessonRubricEvaluation? RubricEvaluation = null)
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] LessonRubricEvaluation? RubricEvaluation = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] AssessmentReviewContext? Review = null)
 {
     public static LessonSnapshot From(Lesson lesson) => new(lesson.Id, lesson.UserId, lesson.Topic,
         lesson.Theory, lesson.Question, lesson.Status, lesson.Teaching, lesson.Transfer, lesson.Content, lesson.RubricEvaluation);
 }
+
+public sealed record AssessmentReviewContext(string Argument, string Stage);
 
 public sealed record LessonAssessmentInput(LessonSnapshot Lesson, string Answer);
 public sealed record LessonExplanationInput(LessonSnapshot Lesson, string Request, LessonInteractionKind Kind);

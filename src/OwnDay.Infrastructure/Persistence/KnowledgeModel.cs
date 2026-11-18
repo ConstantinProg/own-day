@@ -70,6 +70,9 @@ internal static class KnowledgeModel
             entity.Property(e => e.RubricEvidence).HasConversion(
                 value => JsonSerializer.Serialize(value, JsonSerializerOptions.Web),
                 value => JsonSerializer.Deserialize<RubricEvidence>(value, JsonSerializerOptions.Web)).HasColumnType("jsonb");
+            entity.Property(e => e.ReviewHistory).HasConversion(
+                value => JsonSerializer.Serialize(value, JsonSerializerOptions.Web),
+                value => JsonSerializer.Deserialize<AssessmentReviewHistory>(value, JsonSerializerOptions.Web)).HasColumnType("jsonb");
             entity.ToTable("learning_evidence");
             entity.HasKey(e => e.LessonId);
             entity.Property(e => e.LessonId).ValueGeneratedNever();

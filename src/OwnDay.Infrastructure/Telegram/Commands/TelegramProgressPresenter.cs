@@ -37,11 +37,14 @@ public static class TelegramProgressPresenter
                   (state.Mastery != SkillMastery.Demonstrated ? "Gap: further practice or verification needed.\n" : "") +
                   $"/learn_status {status!.Skill.Id}\n";
             if (status?.Evidence.LastOrDefault() is { } evidence)
-                text += $"Latest assessment ({evidence.ObservedAt:O}): {evidence.AssessmentStatus}; " +
-                    $"AI interpretation: {(evidence.AssessmentStatus == AnswerAssessmentStatus.Inconclusive ? "unclear" :
-                        (evidence.AiAssessedCorrect ?? evidence.AssessedCorrect) ? "positive" : "negative")}\n" +
-                    TelegramLearningPresenter.RenderAssessment(evidence.AssessmentStatus, evidence.DeterministicIsCorrect) + "\n" +
-                    $"source: {evidence.AssessmentSource}\nBasis (excerpt): {Excerpt(evidence.AssessmentFeedback)}\n";
+                text += evidence.RubricEvidence is null
+                    ? $"Latest assessment ({evidence.ObservedAt:O}): {evidence.AssessmentStatus}; " +
+                      $"AI interpretation: {((evidence.AiAssessedCorrect ?? evidence.AssessedCorrect) ? "positive" : "negative")}\n" +
+                      TelegramLearningPresenter.RenderAssessment(evidence.AssessmentStatus, evidence.DeterministicIsCorrect) + "\n" +
+                      $"source: {evidence.AssessmentSource}\nBasis (excerpt): {Excerpt(evidence.AssessmentFeedback)}\n"
+                    : $"Latest assessment ({evidence.ObservedAt:O}): {evidence.EffectiveAssessmentStatus}; " +
+                    $"route credit: {evidence.EffectiveCorrect}; review version: {evidence.ReviewVersion}\n" +
+                    $"Assessment details: /learn_assessment {evidence.LessonId}\n";
             if (state?.EvidenceSummary is { } summary)
                 text += $"Independent evidence — understanding: {Evidence(summary.Understanding)}; application: {Evidence(summary.Application)}; retention: {Evidence(summary.Retention)}.\n";
             text += status?.Review is { } review
@@ -66,6 +69,6 @@ public static class TelegramProgressPresenter
         return TelegramTextLists.Split(entries, $"Learning progress: page {report.Page}");
     }
 
-    private static string Excerpt(string value) => value.Length <= 300 ? value : value[..299] + "…";
     private static string Evidence(bool sufficient) => sufficient ? "sufficient" : "insufficient";
+    private static string Excerpt(string value) => value.Length <= 300 ? value : value[..299] + "…";
 }

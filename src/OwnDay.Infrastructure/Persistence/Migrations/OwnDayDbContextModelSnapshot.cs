@@ -1602,7 +1602,11 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
         modelBuilder.Entity("OwnDay.Domain.Learning.Lesson", b =>
             b.Property<string>("RubricEvaluation").HasColumnType("jsonb"));
         modelBuilder.Entity("OwnDay.Domain.Learning.LearningEvidence", b =>
-            b.Property<string>("RubricEvidence").HasColumnType("jsonb"));
+        {
+            b.Property<string>("RubricEvidence").HasColumnType("jsonb");
+            b.Property<string>("ReviewHistory").HasColumnType("jsonb");
+            b.Property<bool?>("ReassessmentCredit").HasColumnType("boolean");
+        });
         modelBuilder.Entity("OwnDay.Domain.Learning.LearningSession", b =>
         {
             b.Property<Guid>("Id").ValueGeneratedNever().HasColumnType("uuid");

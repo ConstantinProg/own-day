@@ -35,13 +35,13 @@ public sealed class ReviewSchedule
         if (LastLessonId != Guid.Empty && evidence.ObservedAt < LastObservedAt)
             throw new ArgumentException("Evidence must not precede the last observation.", nameof(evidence));
 
-        if (evidence.Assistance != AnswerAssistance.Independent || evidence.AssessmentStatus == AnswerAssessmentStatus.Conflict)
+        if (evidence.Assistance != AnswerAssistance.Independent || evidence.EffectiveAssessmentStatus == AnswerAssessmentStatus.Conflict)
         {
             // Uncertainty cannot earn a longer interval or count as a failed answer.
             var retryAt = evidence.ObservedAt.AddHours(1);
             if (LastLessonId == Guid.Empty || DueAt > retryAt) DueAt = retryAt;
         }
-        else if (!evidence.AssessedCorrect)
+        else if (!evidence.EffectiveCorrect)
         {
             SuccessfulReviews = 0;
             DueAt = evidence.ObservedAt.AddHours(1);
@@ -58,6 +58,16 @@ public sealed class ReviewSchedule
         // Early practice never postpones an existing review or proves retention.
         LastObservedAt = evidence.ObservedAt;
         LastLessonId = evidence.LessonId;
+    }
+
+    public void AdoptRecalculation(ReviewSchedule recalculated, DateTimeOffset? keepUntil)
+    {
+        if (recalculated.UserId != UserId || recalculated.SkillId != SkillId)
+            throw new ArgumentException("A schedule for the same learner and skill is required.", nameof(recalculated));
+        DueAt = keepUntil is { } deferred && deferred > recalculated.DueAt ? deferred : recalculated.DueAt;
+        LastObservedAt = recalculated.LastObservedAt;
+        LastLessonId = recalculated.LastLessonId;
+        SuccessfulReviews = recalculated.SuccessfulReviews;
     }
 
     public void Defer(DateTimeOffset now, ReviewDeferral deferral)

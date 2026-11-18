@@ -55,7 +55,9 @@ public sealed class EfCurriculumStore(OwnDayDbContext db) : ICurriculumStore
         if (program is null) return new HashSet<string>(StringComparer.Ordinal);
         var versions = program.ProgressVersions(version);
         return (await db.Set<Lesson>().Where(l => l.UserId == user && l.ProgramId == programId && l.RouteVersion != null &&
-            versions.Contains(l.RouteVersion.Value) && l.Status == LessonStatus.Completed && l.IsCorrect == true)
+            versions.Contains(l.RouteVersion.Value) && l.Status == LessonStatus.Completed &&
+            (db.Set<LearningEvidence>().Where(evidence => evidence.UserId == user && evidence.LessonId == l.Id)
+                .Select(evidence => evidence.ReassessmentCredit).FirstOrDefault() ?? l.IsCorrect) == true)
             .Select(l => l.TopicCode!).ToListAsync(token)).ToHashSet(StringComparer.Ordinal);
     }
 

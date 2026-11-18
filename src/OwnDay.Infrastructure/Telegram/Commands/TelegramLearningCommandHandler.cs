@@ -10,7 +10,7 @@ public sealed class TelegramLearningCommandHandler(LearningService learning,
 {
     public bool Handles(string name) => study.Handles(name) || curriculum.Handles(name) || knowledge.Handles(name) ||
         name is "learn" or "answer" or "learn_ask" or "learn_explain" or "learn_pause" or "learn_resume" or "learn_finish" or
-            "learn_confirm" or "learn_end_session" or "learn_solution";
+            "learn_confirm" or "learn_end_session" or "learn_solution" or "learn_assessment" or "learn_appeal";
 
     public Task<IReadOnlyList<string>> HandleAsync(ProcessIncomingCommand command, CancellationToken token) => command.Name switch
     {
@@ -18,6 +18,7 @@ public sealed class TelegramLearningCommandHandler(LearningService learning,
         _ when curriculum.Handles(command.Name) => curriculum.HandleAsync(command, token),
         _ when knowledge.Handles(command.Name) => knowledge.HandleAsync(command, token),
         "learn_end_session" => Task.FromResult<IReadOnlyList<string>>(["Напишите «завершить сессию»."]),
+        "learn_assessment" or "learn_appeal" => Task.FromResult<IReadOnlyList<string>>(["Напишите «почему такая оценка»."]),
         _ => HandleLessonAsync(command, token)
     };
 

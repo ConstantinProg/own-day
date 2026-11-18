@@ -23,12 +23,13 @@ public sealed class EfKnowledgeStore(OwnDayDbContext db) : IKnowledgeStore
         var recent = await (from evidence in db.Set<LearningEvidence>()
                             join lesson in db.Set<Lesson>() on new { evidence.LessonId, evidence.UserId }
                                 equals new { LessonId = lesson.Id, lesson.UserId }
-                            where evidence.UserId == user && lesson.Teaching != null
+                            where evidence.UserId == user && lesson.Teaching != null &&
+                                (evidence.ReassessmentCredit != null || evidence.AssessmentStatus != AnswerAssessmentStatus.Inconclusive)
                             orderby evidence.ObservedAt descending, evidence.LessonId
-                            select new { evidence.LessonId, lesson.Teaching, evidence.AssessedCorrect, evidence.AssessmentStatus })
+                            select new { evidence.LessonId, lesson.Teaching, evidence.AssessedCorrect, evidence.AssessmentStatus, evidence.ReassessmentCredit })
             .Take(100).ToListAsync(token);
         return recent.Select(e => new StrategyObservation(e.LessonId, e.Teaching!.Strategy,
-            e.AssessedCorrect, e.AssessmentStatus == AnswerAssessmentStatus.Conflict)).ToArray();
+            e.ReassessmentCredit ?? e.AssessedCorrect, e.ReassessmentCredit is null && e.AssessmentStatus == AnswerAssessmentStatus.Conflict)).ToArray();
     }
 
     public async Task<IReadOnlyDictionary<string, SkillStatus>> TopicStatusesAsync(LearningProgram program, CancellationToken token)

@@ -5,7 +5,7 @@ using System.Text.Json.Serialization;
 namespace OwnDay.Domain.Learning;
 
 // The answer is an observation. Correctness and feedback are a provider's interpretation.
-public sealed class LearningEvidence
+public sealed partial class LearningEvidence
 {
     private LearningEvidence() { }
     public Guid LessonId { get; private set; }
@@ -73,14 +73,14 @@ public sealed record LearnerSkillState(SkillMastery Mastery, int Answers, int Po
         var observations = evidence.DistinctBy(e => e.LessonId).ToArray();
         if (observations.Select(e => (e.UserId, e.SkillId)).Distinct().Count() > 1)
             throw new ArgumentException("Evidence must belong to one learner and skill.", nameof(evidence));
-        var positive = observations.Count(e => e.AssessedCorrect && e.Assistance == AnswerAssistance.Independent &&
-            e.AssessmentStatus != AnswerAssessmentStatus.Conflict);
-        var negative = observations.Count(e => !e.AssessedCorrect && e.AssessmentStatus is not
+        var positive = observations.Count(e => e.EffectiveCorrect && e.Assistance == AnswerAssistance.Independent &&
+            e.EffectiveAssessmentStatus != AnswerAssessmentStatus.Conflict);
+        var negative = observations.Count(e => !e.EffectiveCorrect && e.EffectiveAssessmentStatus is not
             (AnswerAssessmentStatus.Conflict or AnswerAssessmentStatus.Inconclusive));
         var summary = observations.Any(e => e.RubricEvidence is not null) ? SummarizeRubricEvidence(observations) : null;
         var demonstrated = summary is null ? positive >= 3 : summary is { Understanding: true, Application: true, Retention: true };
         var mastery = observations.Length == 0 ? SkillMastery.Unknown
-            : observations.Any(e => e.AssessmentStatus == AnswerAssessmentStatus.Conflict) ? SkillMastery.Conflicting
+            : observations.Any(e => e.EffectiveAssessmentStatus == AnswerAssessmentStatus.Conflict) ? SkillMastery.Conflicting
             : negative > 0 && positive > 0 ? SkillMastery.Conflicting
             : negative > 0 ? SkillMastery.NeedsPractice
             : demonstrated ? SkillMastery.Demonstrated : positive > 0 ? SkillMastery.Developing : SkillMastery.Unknown;
@@ -90,8 +90,8 @@ public sealed record LearnerSkillState(SkillMastery Mastery, int Answers, int Po
     private static MasteryEvidenceSummary SummarizeRubricEvidence(IEnumerable<LearningEvidence> observations)
     {
         var eligible = observations
-            .Where(e => e.AssessedCorrect && e.Assistance == AnswerAssistance.Independent &&
-                e.AssessmentStatus != AnswerAssessmentStatus.Conflict &&
+            .Where(e => e.EffectiveCorrect && e.Assistance == AnswerAssistance.Independent &&
+                e.EffectiveAssessmentStatus != AnswerAssessmentStatus.Conflict &&
                 e.RubricEvidence is { Evaluation.OperationId: not null } && e.Content?.StructuredRubric is not null)
             .OrderBy(e => e.ObservedAt)
             .DistinctBy(e => e.RubricEvidence!.QuestionFingerprint, StringComparer.Ordinal)

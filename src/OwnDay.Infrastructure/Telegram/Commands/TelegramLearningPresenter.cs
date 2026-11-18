@@ -17,8 +17,8 @@ public static class TelegramLearningPresenter
                     : "Some published criteria still need work.")
                 : RenderAssessment(assessment.Status, assessment.DeterministicIsCorrect)) +
             (assessment.Assistance == AnswerAssistance.Assisted ? "\nОтвет с помощью: самостоятельный успех и увеличение интервала повторения не засчитаны." : "") +
-            "\n\n/learn_skills · /learn <topic> · /learn_next (program)",
-            .. assessment.Criteria is { } criteria ? new[] { RenderCriteria(criteria) } : Array.Empty<string>(),
+            "\n\n/learn_skills · /learn <topic> · /learn_next (program)" +
+            (assessment is { Criteria: not null, LessonId: Guid gradeId } ? $"\nРазбор оценки /learn_assessment {gradeId}" : ""),
             .. assessment.IndependentPracticeSkillId is Guid skillId
                 ? new[] { $"Для самостоятельной проверки откройте другое задание по этому навыку. /learn_practice {skillId}" }
                 : Array.Empty<string>(),
@@ -107,15 +107,6 @@ public static class TelegramLearningPresenter
     private static string Criteria(LearningContent? content) => content?.StructuredRubric is { } rubric
         ? "\n\nCriteria\n" + string.Join('\n', rubric.Criteria.Select(criterion => "• " + criterion.Requirement))
         : "";
-
-    private static string RenderCriteria(IReadOnlyList<CriterionFeedback> criteria) =>
-        "Assessment criteria\n" + string.Join("\n\n", criteria.Select(item =>
-            $"{item.Requirement}\n{item.Result switch
-            {
-                RubricCriterionResult.Met => "Met",
-                RubricCriterionResult.NotMet => "Needs work",
-                _ => "Unclear"
-            }} — {item.Reason}"));
 
     private static IReadOnlyList<string> RenderEnglishSession(LearningResult.Session session) => session.Status == LessonStatus.Paused
         ? ["Остановимся здесь. Письмо, вопрос и помощь сохранены. Напишите «Продолжим», когда будете готовы."]
