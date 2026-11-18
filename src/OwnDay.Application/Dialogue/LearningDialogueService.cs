@@ -7,7 +7,7 @@ using System.Text.Json;
 namespace OwnDay.Application.Dialogue;
 
 public sealed class LearningDialogueService(IDialogueStore store, ILearningIntentResolver resolver, bool consultationEnabled = false,
-    bool practiceEnabled = false, bool programSwitchEnabled = false)
+    bool practiceEnabled = false, bool programSwitchEnabled = false, LearningSessionService? sessions = null)
 {
     public async Task<DialogueDecision> DecideAsync(DialogueTurn turn, Lesson? lesson, DialogueProgramSnapshot? program,
         string stamp, CancellationToken token)
@@ -40,6 +40,28 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
 
         var normalized = Normalize(turn.Text);
         var command = turn.Command;
+        if (sessions is not null && turn.SourceOrder > 0)
+        {
+            if (command == DialogueOperationKind.EndSession ||
+                command is null && normalized is "завершить сессию" or "закончить сессию" or "end session")
+            {
+                await sessions.EndAsync(turn, program?.Id, lesson, token);
+                context.Synchronize(lesson, turn.Now, turn.SourceOrder);
+                context.AdvanceResponseBoundary(turn.SourceOrder);
+                return Reply(context, DialogueReplyKind.SessionEnded);
+            }
+
+            var sessionAction = command ?? Deterministic(normalized);
+            if (program is not null && sessionAction is not (DialogueOperationKind.Progress or DialogueOperationKind.Finish or
+                    DialogueOperationKind.Confirm or DialogueOperationKind.Cancel or DialogueOperationKind.None) &&
+                await sessions.RecordActivityAsync(turn, program.Id, lesson, token) && lesson is not null &&
+                sessionAction != DialogueOperationKind.Resume)
+            {
+                context.Synchronize(lesson, turn.Now, turn.SourceOrder);
+                context.AdvanceResponseBoundary(turn.SourceOrder);
+                return Recap(context, lesson);
+            }
+        }
         if (lesson is null && program is null && context.Consultation is { CreatedProgramId: null } &&
             command is DialogueOperationKind.Cancel or DialogueOperationKind.Pause or DialogueOperationKind.Resume)
             return await FirstGoalConsultation.DecideAsync(context, turn with

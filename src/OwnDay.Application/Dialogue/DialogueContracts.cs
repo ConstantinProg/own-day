@@ -58,7 +58,8 @@ public enum DialogueReplyKind
     GoalDeferred, ChooseAnswerOrQuestion, ChooseQuestionOrGoal, ChoosePauseOrResume, ConfirmFinish,
     ConfirmProgramSelection, ConfirmProgramCreation, ConfirmGoalIntent,
     AskGoal, AskPracticalUse, AskExperience, ConsultationRetry, ConsultationUnavailable, FirstProgramReady, ConsultationPaused, MustEndPractice,
-    AskNewGoal, ConfirmProgramSwitch, ConfirmGoalSwitch, GoalChanged, DiagnosticOffer, DiagnosticQuestion, AskRelevantExperience
+    AskNewGoal, ConfirmProgramSwitch, ConfirmGoalSwitch, GoalChanged, DiagnosticOffer, DiagnosticQuestion, AskRelevantExperience,
+    SessionEnded
 }
 public sealed record DialogueReply(DialogueReplyKind Kind, IReadOnlyList<string>? Values = null, bool InEnglish = false);
 public sealed record DialogueDecision(DialogueContext Context, DialogueOperationKind? Execute, string Arguments,

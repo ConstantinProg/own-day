@@ -10,6 +10,20 @@ internal static class StudyModel
 {
     internal static void Configure(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<LearningSession>(entity =>
+        {
+            entity.ToTable("learning_sessions");
+            entity.HasKey(session => session.Id);
+            entity.Property(session => session.Id).ValueGeneratedNever();
+            entity.Property(session => session.UserId).HasConversion(id => id.Value, value => new UserId(value));
+            entity.Property(session => session.Summary).HasConversion(
+                value => JsonSerializer.Serialize(value, JsonSerializerOptions.Web),
+                value => JsonSerializer.Deserialize<LearningSessionSummary>(value, JsonSerializerOptions.Web)).HasColumnType("jsonb");
+            entity.HasIndex(session => new { session.UserId, session.StartedAt, session.FirstSourceOrder });
+            entity.HasOne<LearningProgram>().WithMany().HasForeignKey(session => new { session.ProgramId, session.UserId })
+                .HasPrincipalKey(program => new { program.Id, program.UserId }).OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("FK_learning_sessions_program");
+        });
         modelBuilder.Entity<StudySchedule>(entity =>
         {
             entity.ToTable("learning_study_schedules", table =>

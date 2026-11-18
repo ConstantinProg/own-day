@@ -1603,6 +1603,26 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
             b.Property<string>("RubricEvaluation").HasColumnType("jsonb"));
         modelBuilder.Entity("OwnDay.Domain.Learning.LearningEvidence", b =>
             b.Property<string>("RubricEvidence").HasColumnType("jsonb"));
+        modelBuilder.Entity("OwnDay.Domain.Learning.LearningSession", b =>
+        {
+            b.Property<Guid>("Id").ValueGeneratedNever().HasColumnType("uuid");
+            b.Property<long>("UserId").HasColumnType("bigint");
+            b.Property<Guid>("ProgramId").HasColumnType("uuid");
+            b.Property<DateTimeOffset>("StartedAt").HasColumnType("timestamp with time zone");
+            b.Property<DateTimeOffset>("LastActivityAt").HasColumnType("timestamp with time zone");
+            b.Property<DateTimeOffset?>("EndedAt").HasColumnType("timestamp with time zone");
+            b.Property<int?>("EndReason").HasColumnType("integer");
+            b.Property<long>("ActiveSeconds").HasColumnType("bigint");
+            b.Property<long>("FirstSourceOrder").HasColumnType("bigint");
+            b.Property<string>("Summary").HasColumnType("jsonb");
+            b.HasKey("Id");
+            b.HasIndex("ProgramId", "UserId");
+            b.HasIndex("UserId", "StartedAt", "FirstSourceOrder");
+            b.ToTable("learning_sessions");
+            b.HasOne("OwnDay.Domain.Learning.LearningProgram", null).WithMany()
+                .HasForeignKey("ProgramId", "UserId").HasPrincipalKey("Id", "UserId")
+                .OnDelete(DeleteBehavior.Restrict).IsRequired().HasConstraintName("FK_learning_sessions_program");
+        });
         modelBuilder.Entity("OwnDay.Domain.Dialogue.DialogueContext", b =>
             b.Property<string>("DiagnosticTarget").HasColumnType("jsonb").HasColumnName("diagnostic_target"));
         foreach (var target in new[] { "OwnDay.Domain.Learning.Lesson", "OwnDay.Domain.Learning.LearningEvidence" })

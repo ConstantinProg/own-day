@@ -158,7 +158,8 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
             request.SourceMessageId ?? request.SourceUpdateId);
         var decision = await new LearningDialogueService(store, session, processing.ConsultationEnabled || text?.ConsultationAllowed == true,
             processing.PracticeEnabled || text?.PracticeAllowed == true,
-            processing.ProgramSwitchEnabled || text?.ProgramSwitchAllowed == true || command?.ProgramSwitchAllowed == true)
+            processing.ProgramSwitchEnabled || text?.ProgramSwitchAllowed == true || command?.ProgramSwitchAllowed == true,
+            services.GetRequiredService<LearningSessionService>())
             .DecideAsync(turn, lesson, program, pedagogicalStamp, token);
         var introduce = db.Entry(decision.Context).State == EntityState.Added;
         var audit = decision.Audit is null ? null : JsonSerializer.Serialize(decision.Audit, JsonSerializerOptions.Web);
@@ -264,6 +265,7 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
         "answer" => DialogueOperationKind.Answer, "learn_ask" => DialogueOperationKind.Clarify,
         "learn_explain" => DialogueOperationKind.Explain, "learn_pause" => DialogueOperationKind.Pause,
         "learn_resume" => DialogueOperationKind.Resume, "learn_finish" => DialogueOperationKind.Finish,
+        "learn_end_session" => DialogueOperationKind.EndSession,
         "learn_next" => DialogueOperationKind.Next, "learn_progress" => DialogueOperationKind.Progress,
         "learn_request" or "learn_program" => DialogueOperationKind.CreateProgram,
         "learn_project" => DialogueOperationKind.CreateProjectProgram, "learn_select" => DialogueOperationKind.SelectProgram,
@@ -304,7 +306,8 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
         // Newly proposed state is never part of a stamp and never survives prepare.
         var rows = db.ChangeTracker.Entries().Where(entry => entry.State != EntityState.Added &&
                 (includeDialogue || entry.Entity is not DialogueContext) &&
-                entry.Entity.GetType().Namespace?.StartsWith("OwnDay.Domain", StringComparison.Ordinal) == true)
+                entry.Entity.GetType().Namespace?.StartsWith("OwnDay.Domain", StringComparison.Ordinal) == true &&
+                entry.Entity is not LearningSession)
             .Select(entry => entry.Metadata.Name + ":" + JsonSerializer.Serialize(
                 entry.OriginalValues.Properties
                     // A legacy program has the same checkpoint stamp on either side of the additive migration.
