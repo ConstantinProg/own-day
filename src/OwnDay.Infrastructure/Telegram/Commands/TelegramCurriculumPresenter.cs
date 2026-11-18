@@ -9,6 +9,8 @@ public static class TelegramCurriculumPresenter
     {
         CurriculumResult.Program program => RenderProgram(program.Value),
         CurriculumResult.Diagnostic diagnostic => RenderDiagnostic(diagnostic),
+        CurriculumResult.SubjectDiagnosticQuestion diagnostic =>
+            [diagnostic.Value.DiagnosticQuestion! + "\nAnswer the question or write “skip”. /learn_diagnose <answer>"],
         CurriculumResult.Progress progress => TelegramProgressPresenter.Render(progress.Value),
         CurriculumResult.NoProgress empty => [empty.Page == 1
             ? "No programs yet. /learn_program <goal> | <experience>. Free lesson skills: /learn_skills"
@@ -104,7 +106,8 @@ public static class TelegramCurriculumPresenter
             (t.Prerequisites.Count > 0 ? $" (requires: {string.Join(", ", t.Prerequisites)})" : ""));
         return [heading, .. topics.Chunk(4).Select(chunk => string.Join('\n', chunk)), program.DiagnosticPending
             ? $"Optional diagnostic (AI interpretation, not a knowledge score):\n{program.DiagnosticQuestion}\n/learn_diagnose <answer> or /learn_diagnose skip"
-            : "Route ready. /learn_next · /learn_adapt · /learn_focus <topic code> · /learn_route",
+            : "Route ready. /learn_next · /learn_adapt · /learn_focus <topic code> · /learn_route" +
+                (program.SubjectDiagnostic is { Deferred: true } ? "\nDeferred diagnosis: /learn_diagnose start" : ""),
             .. program.ProjectId is not null ? new[] { "Project skills and task practice: /learn_project_report [page] · /learn_project_practice <topic code> | <task id>" } : Array.Empty<string>()];
     }
 }

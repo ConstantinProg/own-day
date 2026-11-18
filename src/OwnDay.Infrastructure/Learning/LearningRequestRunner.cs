@@ -165,7 +165,8 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
         if (decision.Creation is { } creation)
         {
             var result = await CreateCurriculum(services, session).CreateAsync(request.UserId, creation.Goal, creation.Experience, null, token,
-                processing.EnglishDiagnosticEnabled || text?.EnglishDiagnosticAllowed == true, goalCriterion: creation.GoalCriterion);
+                processing.EnglishDiagnosticEnabled || text?.EnglishDiagnosticAllowed == true, goalCriterion: creation.GoalCriterion,
+                subjectDiagnostic: true);
             session.EnsureComplete();
             var completed = FirstGoalConsultation.CompleteCreation(decision.Context, result, turn);
             return new(null, completed.Audit!.Code)
@@ -193,7 +194,12 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
         if (operation == DialogueOperationKind.CompleteDiagnostic)
         {
             var result = await CreateCurriculum(services, session).CompleteDiagnosticAndStartAsync(request.UserId, decision.Arguments, token);
-            if (result is CurriculumResult.Lesson or CurriculumResult.RouteCompleted)
+            if (result is CurriculumResult.SubjectDiagnosticQuestion question)
+            {
+                if (!decision.Context.MatchesDiagnosticQuestion(question.Value.Id, question.Value.DiagnosticQuestion!))
+                    decision.Context.BindDiagnosticQuestion(question.Value.Id, question.Value.DiagnosticQuestion!, now, turn.SourceOrder);
+            }
+            else if (result is CurriculumResult.Lesson or CurriculumResult.RouteCompleted)
             {
                 var current = db.Set<Lesson>().Local.SingleOrDefault(value => value.UserId == request.UserId &&
                     value.Status is LessonStatus.AwaitingAnswer or LessonStatus.Paused);
@@ -302,7 +308,7 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
             .Select(entry => entry.Metadata.Name + ":" + JsonSerializer.Serialize(
                 entry.OriginalValues.Properties
                     // A legacy program has the same checkpoint stamp on either side of the additive migration.
-                    .Where(property => property.Name != nameof(OwnDay.Domain.Learning.LearningProgram.GoalCriterion) ||
+                    .Where(property => property.Name is not (nameof(LearningProgram.GoalCriterion) or nameof(LearningProgram.SubjectDiagnostic)) ||
                         entry.OriginalValues[property] is not null)
                     .OrderBy(property => property.Name, StringComparer.Ordinal)
                     .ToDictionary(property => property.Name, property => entry.OriginalValues[property]), JsonSerializerOptions.Web))

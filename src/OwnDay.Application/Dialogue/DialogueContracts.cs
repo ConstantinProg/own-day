@@ -35,7 +35,8 @@ public sealed record LearningTextInput(string Text, Guid? LessonId, Guid? Prompt
     bool EnglishDiagnosticAllowed = false, bool PracticeAllowed = false, bool ProgramSwitchAllowed = false);
 public sealed record DialogueProgramSnapshot(Guid Id, string Goal, string Discipline, int RouteVersion, uint Version = 0,
     bool HasEnglishDiagnostic = false, LearningPracticeStatus? PracticeStatus = null,
-    Guid? SuspendedLessonId = null, uint? SuspendedLessonVersion = null, [property: JsonIgnore] string? PendingDiagnosticQuestion = null);
+    Guid? SuspendedLessonId = null, uint? SuspendedLessonVersion = null, [property: JsonIgnore] string? PendingDiagnosticQuestion = null,
+    [property: JsonIgnore] bool HasSubjectDiagnostic = false);
 public sealed record DialogueOriginalInput(string Text, Guid? LessonId, Guid? PromptId);
 public interface IDialogueStore
 {

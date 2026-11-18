@@ -65,6 +65,7 @@ public sealed partial class LearningProgram
     public void ApplyDiagnostic(string answer, string discipline, IEnumerable<CurriculumTopic> topics)
     {
         if (EnglishDiagnostic is not null) throw new InvalidOperationException("Use the versioned English diagnostic.");
+        if (SubjectDiagnostic is not null) throw new InvalidOperationException("Use the versioned subject diagnostic.");
         if (!DiagnosticPending) throw new InvalidOperationException("Diagnosis has ended.");
         Validate(answer, MaxDiagnosticAnswerLength);
         if (!string.Equals(Discipline, discipline, StringComparison.Ordinal))
@@ -85,6 +86,13 @@ public sealed partial class LearningProgram
         {
             if (!diagnostic.Supported) throw new InvalidOperationException("A compatible diagnostic reader is required.");
             EnglishDiagnostic = diagnostic with { Status = EnglishDiagnosticStatus.Skipped };
+        }
+        if (SubjectDiagnostic is { } subject)
+        {
+            if (!subject.Supported) throw new InvalidOperationException("A compatible diagnostic reader is required.");
+            SubjectDiagnostic = subject with { Deferred = true, WasDeferred = true };
+            if (subject.Observations.Length > 0)
+                DiagnosticAnswer = SummarizeSubjectDiagnostic(subject);
         }
         DiagnosticPending = false;
     }

@@ -2,6 +2,7 @@ using OwnDay.Application.Actions;
 using OwnDay.Application.StructuredItems;
 using OwnDay.Domain;
 using OwnDay.Domain.Learning;
+using System.Text.Json.Serialization;
 
 namespace OwnDay.Application.Learning;
 
@@ -21,8 +22,11 @@ public interface ICurriculumStore
     void Add(LearningProgram program);
 }
 
-public sealed record CurriculumProposal(string Discipline, CurriculumTopic[] Topics, string? DiagnosticQuestion);
-public sealed record CurriculumRequest(string Goal, string Experience, string? Question, string? Answer, string? Discipline = null);
+public sealed record CurriculumProposal(string Discipline, CurriculumTopic[] Topics, string? DiagnosticQuestion,
+    string? DiagnosticInterpretation = null, DiagnosticStartingLevel? StartingLevel = null);
+public sealed record CurriculumRequest(string Goal, string Experience, string? Question, string? Answer, string? Discipline = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] DiagnosticQuestionContext[]? PriorObservations = null);
+public sealed record DiagnosticQuestionContext(string Question, string Interpretation);
 
 public interface ICurriculumPlanner
 {
@@ -55,6 +59,7 @@ public abstract record CurriculumResult
     public sealed record TransferUnavailable : CurriculumResult;
     public sealed record Progress(LearningProgress Value) : CurriculumResult;
     public sealed record Diagnostic(LearningProgram Value, string? Notice = null) : CurriculumResult;
+    public sealed record SubjectDiagnosticQuestion(LearningProgram Value) : CurriculumResult;
     public sealed record NoProgress(int Page) : CurriculumResult;
 }
 
@@ -66,7 +71,7 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
     public const int MaxPageNumber = int.MaxValue / PageSize;
 
     public async Task<CurriculumResult> CreateAsync(UserId user, string goal, string experience, long? projectId, CancellationToken token,
-        bool englishDiagnostic = false, bool suspendCurrent = false, string? goalCriterion = null)
+        bool englishDiagnostic = false, bool suspendCurrent = false, string? goalCriterion = null, bool subjectDiagnostic = false)
     {
         ValidateUser(user, token);
         goal = goal.Trim();
@@ -95,6 +100,7 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
             var program = LearningProgram.Create(user, goal, experience, projectId,
                 proposal.Discipline, proposal.Topics, proposal.DiagnosticQuestion, goalCriterion);
             if (authored) program.OfferEnglishDiagnostic();
+            else if (program.DiagnosticPending && subjectDiagnostic) program.OfferSubjectDiagnostic();
             if (suspendCurrent) await SuspendAsync(current, currentContext, active, token);
             store.Add(program);
             await store.SelectAsync(program, token);
@@ -183,6 +189,7 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
         var program = await store.FindAsync(user, token);
         if (program is null) return new CurriculumResult.NoProgram();
         if (program.EnglishDiagnostic is not null) return await DiagnoseEnglishAsync(program, answer, token);
+        if (program.SubjectDiagnostic is not null) return await DiagnoseSubjectAsync(program, answer, token);
         if (!program.DiagnosticPending) return new CurriculumResult.InvalidTransition();
         if (answer.Equals("skip", StringComparison.OrdinalIgnoreCase))
         {
@@ -204,12 +211,51 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
         }
     }
 
+    private async Task<CurriculumResult> DiagnoseSubjectAsync(LearningProgram program, string answer, CancellationToken token)
+    {
+        var diagnostic = program.SubjectDiagnostic!;
+        if (!diagnostic.Supported) return new CurriculumResult.InvalidTransition();
+        if (await lessons.FindActiveAsync(program.UserId, token) is not null) return new CurriculumResult.LessonInProgress();
+        if (answer.Equals("start", StringComparison.OrdinalIgnoreCase))
+        {
+            if (diagnostic.Deferred) program.ResumeSubjectDiagnostic();
+            return program.DiagnosticPending ? new CurriculumResult.SubjectDiagnosticQuestion(program)
+                : new CurriculumResult.InvalidTransition();
+        }
+        if (!program.DiagnosticPending) return new CurriculumResult.InvalidTransition();
+        if (answer.Equals("skip", StringComparison.OrdinalIgnoreCase))
+        {
+            program.SkipDiagnostic();
+            return new CurriculumResult.Program(program);
+        }
+
+        try
+        {
+            var proposal = await planner.PlanAsync(new(program.Goal, program.Experience, program.DiagnosticQuestion,
+                answer, program.Discipline, diagnostic.Observations.Select(item => new DiagnosticQuestionContext(item.Question, item.Interpretation)).ToArray()), token);
+            token.ThrowIfCancellationRequested();
+            if (proposal.DiagnosticInterpretation is null || proposal.StartingLevel is null)
+                return new CurriculumResult.ProviderUnavailable();
+            program.RecordSubjectObservation(answer, proposal.DiagnosticInterpretation, proposal.Discipline, proposal.Topics,
+                proposal.DiagnosticQuestion, proposal.StartingLevel.Value);
+            return program.DiagnosticPending ? new CurriculumResult.SubjectDiagnosticQuestion(program) : new CurriculumResult.Program(program);
+        }
+        catch (Exception exception) when (exception is LessonProviderException or ArgumentException)
+        {
+            return new CurriculumResult.ProviderUnavailable();
+        }
+    }
+
     public Task<CurriculumResult> NextAsync(UserId user, CancellationToken token) => StartLessonAsync(user, LessonSelection.Next, null, token);
 
     public async Task<CurriculumResult> CompleteDiagnosticAndStartAsync(UserId user, string answer, CancellationToken token)
     {
         var result = await DiagnoseAsync(user, answer, token);
-        return result is CurriculumResult.Program ? await NextAsync(user, token) : result;
+        if (result is not CurriculumResult.Program program) return result;
+        var next = await NextAsync(user, token);
+        return next is CurriculumResult.Lesson lesson && program.Value.SubjectDiagnostic is { Deferred: true }
+            ? lesson with { Introduction = "Диагностика отложена. Начнём с предварительной сложности. Вернуться после упражнения можно командой /learn_diagnose start." }
+            : next;
     }
 
     internal async Task<CurriculumResult> NextAsync(UserId user, Guid programId, CancellationToken token)

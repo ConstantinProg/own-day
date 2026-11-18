@@ -146,6 +146,17 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
                 command == DialogueOperationKind.Resume ? "resume" : command == DialogueOperationKind.Next ? "start" :
                 command is DialogueOperationKind.Pause or DialogueOperationKind.Cancel ? "pause" : turn.Text);
 
+        if (lesson is null && program is { HasSubjectDiagnostic: true })
+        {
+            if (command == DialogueOperationKind.Diagnose)
+            {
+                var arguments = program.PendingDiagnosticQuestion is { } currentQuestion && normalized is not ("start" or "skip") &&
+                    !IsDiagnosticAnswerBound(context, turn, program.Id, currentQuestion) ? "start" : turn.Text;
+                return new(context, DialogueOperationKind.CompleteDiagnostic, arguments);
+            }
+            if (command is null && normalized is "начать диагностику" or "вернуться к диагностике" or "start diagnostic")
+                return new(context, DialogueOperationKind.CompleteDiagnostic, "start");
+        }
         if (lesson is null && program is { PendingDiagnosticQuestion: { } question } && command is null)
             return DecideDiagnostic(context, turn, normalized, program, question);
         if (lesson is null && program is not null && (command == DialogueOperationKind.Resume ||
@@ -243,6 +254,10 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
             return new(context, DialogueOperationKind.CompleteDiagnostic, turn.Text);
         return new(context, null, "", new(DialogueReplyKind.DiagnosticQuestion, [question], english));
     }
+
+    private static bool IsDiagnosticAnswerBound(DialogueContext context, DialogueTurn turn, Guid programId, string question) =>
+        context.MatchesDiagnosticQuestion(programId, question) && turn.ReceiptPromptId == context.PromptId &&
+        turn.SourceOrder > context.ResponseAfterSourceOrder && turn.ReceivedAt >= context.PromptOpenedAt;
 
     private async Task<DialogueDecision> DecideActionAsync(DialogueContext context, DialogueTurn turn, DialogueOperationKind action,
         string arguments, Lesson? lesson, DialogueProgramSnapshot? program, string stamp, bool confirmed, bool bound, CancellationToken token)

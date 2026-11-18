@@ -22,7 +22,7 @@ public sealed class EfDialogueStore(OwnDayDbContext db) : IDialogueStore
         var selected = await (from context in db.Set<LearningContext>() join program in db.Set<LearningProgram>() on context.ProgramId equals program.Id
          where context.UserId == user && program.UserId == user
          select new { Snapshot = new DialogueProgramSnapshot(program.Id, program.Goal, program.Discipline, program.Routes.Max(route => route.Version), EF.Property<uint>(program, "TargetVersion"), program.EnglishDiagnostic != null,
-             null, null, null, program.DiagnosticPending ? program.DiagnosticQuestion : null), context.Practice })
+             null, null, null, program.DiagnosticPending ? program.DiagnosticQuestion : null, program.SubjectDiagnostic != null), context.Practice })
         .SingleOrDefaultAsync(token);
         return selected is null ? null : selected.Snapshot with { PracticeStatus = selected.Practice?.Status };
     }

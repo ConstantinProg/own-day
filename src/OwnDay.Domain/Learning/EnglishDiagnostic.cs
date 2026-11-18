@@ -19,7 +19,8 @@ public sealed partial class LearningProgram
 
     public void OfferEnglishDiagnostic()
     {
-        if (EnglishDiagnostic is not null || !DiagnosticPending || DiagnosticAnswer is not null || CurrentRoute.Version != 1)
+        if (EnglishDiagnostic is not null || SubjectDiagnostic is not null || !DiagnosticPending ||
+            DiagnosticAnswer is not null || CurrentRoute.Version != 1)
             throw new InvalidOperationException("Only a new pending diagnostic can use the English content.");
         EnglishDiagnostic = new(1, "work-email-v1", EnglishDiagnosticStatus.Offered, []);
     }

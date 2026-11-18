@@ -1028,6 +1028,7 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
                 b.HasIndex("UserId");
                 b.HasIndex("ProjectId", "UserId");
                 b.ToTable("learning_programs", (string)null);
+                b.Property<string>("SubjectDiagnostic").HasColumnType("jsonb");
             });
 
         modelBuilder.Entity("OwnDay.Domain.Learning.Lesson", b =>

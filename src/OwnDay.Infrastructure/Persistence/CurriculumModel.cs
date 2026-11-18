@@ -55,6 +55,9 @@ internal static class CurriculumModel
             entity.Property(p => p.EnglishDiagnostic).HasConversion(
                 value => JsonSerializer.Serialize(value, JsonSerializerOptions.Web),
                 value => JsonSerializer.Deserialize<EnglishDiagnostic>(value, JsonSerializerOptions.Web)).HasColumnType("jsonb");
+            entity.Property(p => p.SubjectDiagnostic).HasConversion(
+                value => JsonSerializer.Serialize(value, JsonSerializerOptions.Web),
+                value => JsonSerializer.Deserialize<SubjectDiagnostic>(value, JsonSerializerOptions.Web)).HasColumnType("jsonb");
             entity.Ignore(p => p.CurrentRoute);
             entity.HasOne<Project>().WithMany().HasForeignKey(p => new { p.ProjectId, p.UserId })
                 .HasPrincipalKey(p => new { p.Id, p.UserId }).OnDelete(DeleteBehavior.Restrict);

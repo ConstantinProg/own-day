@@ -383,6 +383,7 @@ public sealed partial class PostgresLearningProviderTests : IAsyncLifetime
         public bool IgnoreCancellation { get; init; }
         public LearningIntent Intent { get; init; } = LearningIntent.Answer;
         public CurriculumProposal Curriculum { get; init; } = new("English", [new("root", "Read an email", [])], null);
+        public Func<CurriculumRequest, CurriculumProposal>? Plan { get; init; }
         public LessonMaterial Material { get; init; } = new("Theory", "Question");
         public System.Collections.Concurrent.ConcurrentQueue<LearningIntentInput> IntentInputs { get; } = new();
         public System.Collections.Concurrent.ConcurrentQueue<string> AssessedAnswers { get; } = new();
@@ -448,7 +449,7 @@ public sealed partial class PostgresLearningProviderTests : IAsyncLifetime
         public Task<LessonAssessment> AssessAsync(Lesson lesson, string answer, CancellationToken token) => throw new InvalidOperationException("Tracked lesson crossed provider boundary.");
         public Task<LessonExplanation> ExplainAsync(Lesson lesson, string request, LessonInteractionKind kind, CancellationToken token) => throw new InvalidOperationException("Tracked lesson crossed provider boundary.");
         public async Task<CurriculumProposal> PlanAsync(CurriculumRequest request, CancellationToken token)
-        { await BlockAsync("plan", token); return probe.Curriculum; }
+        { await BlockAsync("plan", token); return probe.Plan?.Invoke(request) ?? probe.Curriculum; }
         public async Task<TeachingProposal> ProposeAsync(TeachingRequest request, CancellationToken token)
         { await BlockAsync("teach", token); return new("Simplify", "root", "Use a shorter email"); }
     }
