@@ -28,7 +28,7 @@ public sealed partial class PostgresLearningProviderTests
         await SendEnglishAsync(client, 3, "Понимаю отдельные слова");
         if (complete)
         {
-            await SendEnglishAsync(client, 4, "начнём диагностику");
+            await SendEnglishAsync(client, 4, "давай");
             await SendEnglishAsync(client, 5, "B");
             await SendEnglishAsync(client, 6, "ответ: Yes, I can send the list today.");
         }

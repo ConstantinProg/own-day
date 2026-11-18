@@ -293,7 +293,14 @@ public sealed partial class PostgresLearningProviderTests
         Assert.Equal(fail ? LessonStatus.AwaitingAnswer : LessonStatus.Suspended, (await result.Set<Lesson>().SingleAsync()).Status);
         Assert.Equal(fail ? 1 : 2, await result.Set<LearningProgram>().CountAsync());
         Assert.Empty(await result.Set<LearningEvidence>().ToListAsync());
-        if (!fail) Assert.Equal(newGoal, (await result.Set<LearningProgram>().SingleAsync(value => value.Id == selected)).Goal);
+        if (!fail)
+        {
+            Assert.Equal(newGoal, (await result.Set<LearningProgram>().SingleAsync(value => value.Id == selected)).Goal);
+            await SendEnglishAsync(client, 3, "Продолжим");
+            var exercise = await result.Set<Lesson>().AsNoTracking().SingleAsync(value => value.ProgramId == selected);
+            Assert.Equal(LessonStatus.AwaitingAnswer, exercise.Status);
+            Assert.Equal(probe.Material.Question, exercise.Question);
+        }
         Assert.DoesNotContain(await result.Set<LearningRequest>().ToListAsync(), request => request.Outcome == "stale_target");
     }
 

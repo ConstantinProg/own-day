@@ -1,18 +1,21 @@
 using OwnDay.Domain.Learning;
+using System.Text.Json.Serialization;
 
 namespace OwnDay.Domain.Dialogue;
 
 public sealed record ConsultationDraft(Guid OriginalRequestId, string OriginalGoal, string? PracticalUse = null,
-    string? Experience = null, Guid? CreatedProgramId = null, long AfterSourceOrder = 0, int Version = 1);
+    string? Experience = null, Guid? CreatedProgramId = null, long AfterSourceOrder = 0, int Version = 1,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool PracticalUseDefinesCriterion = false);
 
 public sealed partial class DialogueContext
 {
-    public void BeginConsultation(Guid requestId, string goal, DateTimeOffset now, long sourceOrder)
+    public void BeginConsultation(Guid requestId, string goal, DateTimeOffset now, long sourceOrder,
+        bool practicalUseDefinesCriterion = false)
     {
         if (requestId == Guid.Empty || string.IsNullOrWhiteSpace(goal) || goal.Length > LearningProgram.MaxGoalLength ||
             TargetLessonId is not null || Consultation is not null)
             throw new InvalidOperationException("Cannot start this consultation.");
-        Consultation = new(requestId, goal, AfterSourceOrder: sourceOrder);
+        Consultation = new(requestId, goal, AfterSourceOrder: sourceOrder, PracticalUseDefinesCriterion: practicalUseDefinesCriterion);
         RestoreConsultation(now, sourceOrder);
     }
 

@@ -21,6 +21,7 @@ public sealed record CurriculumTopic
 public sealed partial class LearningProgram
 {
     public const int MaxGoalLength = 500;
+    public const int MaxGoalCriterionLength = 500;
     public const int MaxExperienceLength = 1000;
     public const int MaxDisciplineLength = 100;
     public const int MaxDiagnosticQuestionLength = 1000;
@@ -32,6 +33,7 @@ public sealed partial class LearningProgram
     public Guid Id { get; private set; }
     public UserId UserId { get; private set; }
     public string Goal { get; private set; } = "";
+    public string? GoalCriterion { get; private set; }
     public string Experience { get; private set; } = "";
     public string Discipline { get; private set; } = "";
     public long? ProjectId { get; private set; }
@@ -43,16 +45,17 @@ public sealed partial class LearningProgram
     public CurriculumRoute CurrentRoute => _routes.MaxBy(r => r.Version)!;
 
     public static LearningProgram Create(UserId user, string goal, string experience, long? projectId,
-        string discipline, IEnumerable<CurriculumTopic> topics, string? diagnosticQuestion)
+        string discipline, IEnumerable<CurriculumTopic> topics, string? diagnosticQuestion, string? goalCriterion = null)
     {
         if (!user.IsValid || projectId is <= 0) throw new ArgumentException("Invalid owner or project.");
         Validate(goal, MaxGoalLength);
+        if (goalCriterion is not null) Validate(goalCriterion, MaxGoalCriterionLength);
         Validate(experience, MaxExperienceLength);
         Validate(discipline, MaxDisciplineLength);
         if (diagnosticQuestion is not null) Validate(diagnosticQuestion, MaxDiagnosticQuestionLength);
         var program = new LearningProgram
         {
-            Id = Guid.NewGuid(), UserId = user, Goal = goal, Experience = experience, ProjectId = projectId,
+            Id = Guid.NewGuid(), UserId = user, Goal = goal, GoalCriterion = goalCriterion, Experience = experience, ProjectId = projectId,
             Discipline = discipline, DiagnosticQuestion = diagnosticQuestion, DiagnosticPending = diagnosticQuestion is not null
         };
         program._routes.Add(CurriculumRoute.Create(program.Id, 1, "Initial route based on self-reported experience.", topics));

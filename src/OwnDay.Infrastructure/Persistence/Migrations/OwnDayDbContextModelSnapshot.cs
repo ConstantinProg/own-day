@@ -1014,6 +1014,10 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
                     .IsRequired()
                     .HasMaxLength(500)
                     .HasColumnType("character varying(500)");
+
+                b.Property<string>("GoalCriterion")
+                    .HasMaxLength(500)
+                    .HasColumnType("character varying(500)");
                 b.Property<int>("Priority")
                     .HasColumnType("integer");
                 b.Property<long?>("ProjectId")

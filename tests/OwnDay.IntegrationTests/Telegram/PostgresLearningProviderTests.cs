@@ -382,6 +382,8 @@ public sealed partial class PostgresLearningProviderTests : IAsyncLifetime
         public System.Collections.Concurrent.ConcurrentDictionary<string, int> KindCalls { get; } = new();
         public bool IgnoreCancellation { get; init; }
         public LearningIntent Intent { get; init; } = LearningIntent.Answer;
+        public CurriculumProposal Curriculum { get; init; } = new("English", [new("root", "Read an email", [])], null);
+        public LessonMaterial Material { get; init; } = new("Theory", "Question");
         public System.Collections.Concurrent.ConcurrentQueue<LearningIntentInput> IntentInputs { get; } = new();
         public System.Collections.Concurrent.ConcurrentQueue<string> AssessedAnswers { get; } = new();
         public System.Collections.Concurrent.ConcurrentQueue<LessonSnapshot> AssessedLessons { get; } = new();
@@ -413,7 +415,7 @@ public sealed partial class PostgresLearningProviderTests : IAsyncLifetime
         }
         public async Task<LessonMaterial> GenerateAsync(LessonRequest request, CancellationToken token)
         {
-            if (!source) { await BlockAsync("generate", token); return new("Theory", "Question"); }
+            if (!source) { await BlockAsync("generate", token); return probe.Material; }
             using var sourceHttp = new HttpClient(new Handler(async cancellationToken =>
             {
                 await BlockAsync("source", cancellationToken);
@@ -446,7 +448,7 @@ public sealed partial class PostgresLearningProviderTests : IAsyncLifetime
         public Task<LessonAssessment> AssessAsync(Lesson lesson, string answer, CancellationToken token) => throw new InvalidOperationException("Tracked lesson crossed provider boundary.");
         public Task<LessonExplanation> ExplainAsync(Lesson lesson, string request, LessonInteractionKind kind, CancellationToken token) => throw new InvalidOperationException("Tracked lesson crossed provider boundary.");
         public async Task<CurriculumProposal> PlanAsync(CurriculumRequest request, CancellationToken token)
-        { await BlockAsync("plan", token); return new("English", [new("root", "Read an email", [])], null); }
+        { await BlockAsync("plan", token); return probe.Curriculum; }
         public async Task<TeachingProposal> ProposeAsync(TeachingRequest request, CancellationToken token)
         { await BlockAsync("teach", token); return new("Simplify", "root", "Use a shorter email"); }
     }

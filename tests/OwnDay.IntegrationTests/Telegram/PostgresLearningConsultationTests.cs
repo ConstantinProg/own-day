@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Npgsql;
+using OwnDay.Application.Dialogue;
 using OwnDay.Domain.Dialogue;
 using OwnDay.Domain.Learning;
 using Xunit;
@@ -11,6 +12,148 @@ namespace OwnDay.IntegrationTests.Telegram;
 
 public sealed partial class PostgresLearningProviderTests
 {
+    [Theory]
+    [InlineData("Мне нужна помощь с TypeScript generics", LearningIntent.StudyGoal)]
+    [InlineData("Хочу заказать пиццу", LearningIntent.Ambiguous)]
+    public async Task Post_FreeTextConsultation_CreatesDraftOnlyForStudyGoal(string text, LearningIntent intent)
+    {
+        var probe = new Probe("") { Intent = intent };
+        using var host = ConsultationHost(probe);
+        using var client = host.CreateClient();
+        using var response = await PostPublicAsync(client, 1, text);
+        response.EnsureSuccessStatusCode();
+        await WaitAllPublicAsync(1);
+
+        await using var db = Open();
+        var draft = (await db.Set<DialogueContext>().SingleAsync()).Consultation;
+        Assert.Equal(intent == LearningIntent.StudyGoal ? text : null, draft?.OriginalGoal);
+        Assert.Empty(await db.Set<LearningProgram>().ToListAsync());
+        Assert.Empty(await db.InboxItems.ToListAsync());
+        Assert.Empty(await db.Actions.ToListAsync());
+        Assert.Equal(1, probe.KindCalls["intent"]);
+    }
+
+    [Fact]
+    public async Task Post_MarketGoalRestatementAndUnrelatedExperience_StartsExerciseOnResume()
+    {
+        const string original = "Хочу понять, как работает Московская биржа";
+        const string practicalUse = "Хочу понять, как работает биржа, чтобы делать инвистиции";
+        var probe = new Probe("")
+        {
+            Curriculum = new("Рыночная механика", [new("orders", "Биржевые заявки", [])], null),
+            Material = new("Лимитная заявка задаёт предельную цену.", "Что ограничивает лимитная заявка?")
+        };
+        using var host = ConsultationHost(probe);
+        using var client = host.CreateClient();
+        string[] turns = [original, practicalUse, "короткие тексты", "с нуля", "Продолжим"];
+        for (var index = 0; index < turns.Length; index++)
+        {
+            using var response = await PostPublicAsync(client, index + 1, turns[index]);
+            response.EnsureSuccessStatusCode();
+            await WaitAllPublicAsync(index + 1);
+        }
+
+        await using var db = Open();
+        var program = await db.Set<LearningProgram>().SingleAsync();
+        Assert.Equal(original, program.Goal);
+        Assert.Contains(practicalUse, program.Experience);
+        Assert.DoesNotContain("короткие тексты", program.Experience);
+        Assert.Contains(practicalUse, program.GoalCriterion);
+        var lesson = await db.Set<Lesson>().SingleAsync();
+        Assert.Equal(probe.Material.Question, lesson.Question);
+        var replies = await db.TelegramOutboxMessages.Select(message => message.Text).ToListAsync();
+        Assert.Contains(replies, reply => reply.Contains("Биржевые заявки", StringComparison.Ordinal));
+        Assert.Contains(replies, reply => reply.Contains(program.GoalCriterion!, StringComparison.Ordinal));
+        Assert.Contains(replies, reply => reply.Contains(probe.Material.Question, StringComparison.Ordinal));
+        await Assert.ThrowsAsync<PostgresException>(() =>
+            db.GetService<IMigrator>().MigrateAsync("20261114130000_AddProgramSuspension"));
+        db.ChangeTracker.Clear();
+        Assert.Equal(program.GoalCriterion, (await db.Set<LearningProgram>().SingleAsync()).GoalCriterion);
+    }
+
+    [Theory]
+    [InlineData("давай", "пропустить")]
+    [InlineData("да", "дальше")]
+    [InlineData("давай", "позже")]
+    public async Task Post_DiagnosticConsentAndProgressAcrossRestart_PreservesPromptAndOpensOneExercise(string consent, string skip)
+    {
+        const string question = "Когда проверяется тип значения в TypeScript?";
+        var probe = new Probe("")
+        {
+            Curriculum = new("TypeScript", [new("types", "Статическая проверка типов", [])], question)
+        };
+        using (var host = ConsultationHost(probe))
+        using (var client = host.CreateClient())
+        {
+            string[] turns = ["Хочу изучать TypeScript", "Проверять типы в React", "Начинаю с нуля", consent];
+            for (var index = 0; index < turns.Length; index++)
+            {
+                using var response = await PostPublicAsync(client, index + 1, turns[index]);
+                response.EnsureSuccessStatusCode();
+                await WaitAllPublicAsync(index + 1);
+            }
+        }
+
+        await using var before = Open();
+        var prompt = (await before.Set<DialogueContext>().SingleAsync()).PromptId;
+        Assert.Equal(DialogueExpectedResponse.DiagnosticAnswer, (await before.Set<DialogueContext>().SingleAsync()).ExpectedResponse);
+        Assert.Contains(await before.TelegramOutboxMessages.ToListAsync(), reply => reply.Text.Contains(question, StringComparison.Ordinal));
+        Assert.Empty(await before.Set<Lesson>().ToListAsync());
+
+        using var restarted = ConsultationHost(probe);
+        using var restartedClient = restarted.CreateClient();
+        using var progress = await PostPublicAsync(restartedClient, 5, "прогресс");
+        progress.EnsureSuccessStatusCode();
+        await WaitAllPublicAsync(5);
+        await before.Entry(await before.Set<DialogueContext>().SingleAsync()).ReloadAsync();
+        Assert.Equal(prompt, (await before.Set<DialogueContext>().SingleAsync()).PromptId);
+
+        using var skipped = await PostPublicAsync(restartedClient, 6, skip);
+        skipped.EnsureSuccessStatusCode();
+        await WaitAllPublicAsync(6);
+        using var repeated = await PostPublicAsync(restartedClient, 6, skip);
+        repeated.EnsureSuccessStatusCode();
+        using var lateConsent = await PostPublicAsync(restartedClient, 7, "давай");
+        lateConsent.EnsureSuccessStatusCode();
+        await WaitAllPublicAsync(7);
+
+        await using var result = Open();
+        var program = await result.Set<LearningProgram>().SingleAsync();
+        Assert.False(program.DiagnosticPending);
+        Assert.Null(program.DiagnosticAnswer);
+        Assert.Single(await result.Set<Lesson>().ToListAsync());
+        Assert.Equal(1, probe.KindCalls["plan"]);
+        Assert.Equal(1, probe.KindCalls["generate"]);
+        Assert.Empty(probe.AssessedAnswers);
+    }
+
+    [Fact]
+    public async Task Post_EnglishGoalAndExperience_OpensExerciseWithEnglishGuidance()
+    {
+        var probe = new Probe("")
+        {
+            Curriculum = new("Geometry", [new("angles", "Triangle angles", [])], null),
+            Material = new("The angles of a planar triangle sum to 180 degrees.", "What is the third angle?")
+        };
+        using var host = ConsultationHost(probe);
+        using var client = host.CreateClient();
+        string[] turns = ["I want to learn geometry", "Calculate angles for a drawing", "No experience", "continue"];
+        for (var index = 0; index < turns.Length; index++)
+        {
+            using var response = await PostPublicAsync(client, index + 1, turns[index]);
+            response.EnsureSuccessStatusCode();
+            await WaitAllPublicAsync(index + 1);
+        }
+
+        await using var db = Open();
+        var program = await db.Set<LearningProgram>().SingleAsync();
+        Assert.Contains(turns[1], program.GoalCriterion);
+        Assert.Equal(probe.Material.Question, (await db.Set<Lesson>().SingleAsync()).Question);
+        var replies = await db.TelegramOutboxMessages.Select(message => message.Text).ToListAsync();
+        Assert.Contains(replies, reply => reply.Contains("First topics: Triangle angles", StringComparison.Ordinal));
+        Assert.Contains(replies, reply => reply.Contains(probe.Material.Theory, StringComparison.Ordinal));
+    }
+
     [Fact]
     public async Task Migrate_ConsultationDraft_RefusesDowngradeWithoutLosingSavedGoal()
     {
@@ -212,10 +355,10 @@ public sealed partial class PostgresLearningProviderTests
             using var usage = await PostPublicAsync(client, 2, "Рабочие письма");
             usage.EnsureSuccessStatusCode();
             await WaitAllPublicAsync(2);
-            using var experience = await PostPublicAsync(client, 3, "Понимаю отдельные слова");
+            using var experience = await PostPublicAsync(client, 3, "b1");
             experience.EnsureSuccessStatusCode();
             await WaitAllPublicAsync(3);
-            using var repeated = await PostPublicAsync(client, 3, "Понимаю отдельные слова");
+            using var repeated = await PostPublicAsync(client, 3, "b1");
             repeated.EnsureSuccessStatusCode();
         }
         await using var result = Open();
@@ -223,7 +366,8 @@ public sealed partial class PostgresLearningProviderTests
         Assert.Equal(goal, program.Goal);
         Assert.Null(program.ProjectId);
         Assert.Contains("Рабочие письма", program.Experience);
-        Assert.Contains("Понимаю отдельные слова", program.Experience);
+        Assert.Contains("Рабочие письма", program.GoalCriterion);
+        Assert.Contains("b1", program.Experience);
         Assert.Equal(DialoguePhase.DiagnosticOffer, (await result.Set<DialogueContext>().SingleAsync()).Phase);
         Assert.Empty(await result.InboxItems.ToListAsync());
         Assert.Empty(await result.Projects.ToListAsync());

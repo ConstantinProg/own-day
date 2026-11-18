@@ -30,6 +30,26 @@ public static class TelegramDialoguePresenter
     public static IReadOnlyList<string> Render(DialogueReply reply)
     {
         var values = reply.Values ?? [];
+        if (reply.InEnglish)
+        {
+            var english = reply.Kind switch
+            {
+                DialogueReplyKind.AskGoal => "What would you like to learn? Tell me the subject or skill.",
+                DialogueReplyKind.AskPracticalUse => "Where would you use this skill? We will measure progress toward your goal by whether you can solve a new task in that situation independently and explain your solution.",
+                DialogueReplyKind.AskExperience => "What can you already do in this area? Name a familiar task, give your current level, or say that you are starting from scratch.",
+                DialogueReplyKind.AskRelevantExperience => $"What can you already do toward your goal “{values[0]}”? Give one example or say “no experience”.",
+                DialogueReplyKind.ConsultationPaused => "Your goal and answers are saved. Write “continue” when you're ready.",
+                DialogueReplyKind.ConsultationRetry => "Your goal and answers are saved. Write “retry” to try creating the program again.",
+                DialogueReplyKind.DiagnosticQuestion => values[0] + "\nAnswer the question or write “skip” to open the exercise.",
+                DialogueReplyKind.DiagnosticOffer => "Write “yes” to see the optional diagnostic question or “skip” to open the exercise.",
+                DialogueReplyKind.FirstProgramReady => $"Goal saved: {values[0]}\nApplication: {values[1]}\nFirst topics: {values[2]}\n" +
+                    (values[4].Length > 0 ? $"Success criterion: {values[4]}\n" : "") +
+                    (values[3] == "start" ? "Write “continue” to open the first exercise." :
+                        "You can start with a short diagnostic. Write “yes” to see the question or “skip” to open the first exercise."),
+                _ => null
+            };
+            if (english is not null) return [english];
+        }
         if (reply.Kind == DialogueReplyKind.Recap) return ["Текущее упражнение: " + values[0], values[1],
             .. values.Count > 3 && !string.IsNullOrWhiteSpace(values[3]) ? new[] { "Ранее разбирали (помощь сохранена):\n" + values[3] } : Array.Empty<string>(),
             values[2] + "\n\n" + (values.Count > 4 && values[4] == "Paused"
@@ -71,14 +91,21 @@ public static class TelegramDialoguePresenter
             DialogueReplyKind.ChooseAnswerOrQuestion => "Это ваш ответ на упражнение или вопрос по нему? Напишите «ответ» или «вопрос». До выбора ничего не оценивается; при выборе ответа будет оценён исходный текст.",
             DialogueReplyKind.ChooseQuestionOrGoal => "Это вопрос в рамках текущего урока или желание сменить учебную цель? Напишите «вопрос» или «цель». Учебное состояние пока не изменено.",
             DialogueReplyKind.ChoosePauseOrResume => "Уточните одно действие: «пауза» или «продолжить». Учебное состояние пока не изменено.",
-            DialogueReplyKind.AskGoal => "Я помогу вам учиться и применять знания. Например, читать рабочие письма или писать короткие сообщения. Чему вы хотите научиться? Напишите «Хочу…» и свою цель.",
-            DialogueReplyKind.AskPracticalUse => "Для чего эти знания нужны прежде всего? Например, рабочие письма, статьи или повседневная переписка. Исходную цель сохраним.",
-            DialogueReplyKind.AskExperience => "Какой у вас опыт? Например, понимаете отдельные слова, уже читаете короткие тексты или начинаете с нуля.",
+            DialogueReplyKind.AskGoal => "Чему вы хотите научиться? Напишите «Хочу…» и свою цель.",
+            DialogueReplyKind.AskPracticalUse => "Для чего эти знания нужны прежде всего? Опишите ситуацию, в которой хотите их применить. Будем считать цель достигнутой, когда вы сможете самостоятельно решить новую задачу в этой ситуации и объяснить решение.",
+            DialogueReplyKind.AskExperience => "Что вы уже умеете в этой области? Можно назвать знакомую задачу, указать свой уровень или сказать, что начинаете с нуля.",
+            DialogueReplyKind.AskRelevantExperience => "Какой опыт у вас именно по цели «" + values[0] + "»? Назовите один знакомый пример или напишите «с нуля».",
             DialogueReplyKind.ConsultationRetry => "Цель, применение и опыт сохранены. Программу пока не удалось создать. Напишите «повторить», чтобы попробовать ещё раз, или «Продолжим», чтобы вернуться позже.",
             DialogueReplyKind.ConsultationUnavailable => "Первая программа уже создана. Для возврата к ней напишите «Продолжим». Текущая цель сохранена.",
             DialogueReplyKind.ConsultationPaused => "Консультация приостановлена, цель и ответы сохранены. Напишите «Продолжим», когда будете готовы.",
-            DialogueReplyKind.FirstProgramReady => "Цель сохранена: «" + values[0] + "». Применение: «" + values[1] + "». " +
-                "Предлагаю два-три коротких задания, чтобы выбрать сложность. Можно пропустить.",
+            DialogueReplyKind.FirstProgramReady => "Цель сохранена: «" + values[0] + "». Применение: «" + values[1] + "».\n" +
+                (values.Count > 2 ? "Первые темы: " + values[2] + ".\n" : "") +
+                (values.Count > 4 && values[4].Length > 0 ? "Критерий цели — " + values[4] + "\n" : "") +
+                (values.Count > 3 && values[3] == "start"
+                    ? "Напишите «Продолжим», чтобы открыть первое упражнение."
+                    : "Можно начать с короткой диагностики. Напишите «давай» или «пропустить»."),
+            DialogueReplyKind.DiagnosticQuestion => values[0] + "\nОтветьте на вопрос или напишите «пропустить», чтобы перейти к упражнению.",
+            DialogueReplyKind.DiagnosticOffer => "Можно начать с короткой диагностики. Напишите «давай», чтобы увидеть вопрос, или «пропустить», чтобы открыть упражнение.",
             _ => "Учебный диалог временно недоступен. Попробуйте позже."
         }];
     }

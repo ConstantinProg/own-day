@@ -66,7 +66,7 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
     public const int MaxPageNumber = int.MaxValue / PageSize;
 
     public async Task<CurriculumResult> CreateAsync(UserId user, string goal, string experience, long? projectId, CancellationToken token,
-        bool englishDiagnostic = false, bool suspendCurrent = false)
+        bool englishDiagnostic = false, bool suspendCurrent = false, string? goalCriterion = null)
     {
         ValidateUser(user, token);
         goal = goal.Trim();
@@ -93,7 +93,7 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
                 : await planner.PlanAsync(new(goal, experience, null, null), token);
             token.ThrowIfCancellationRequested();
             var program = LearningProgram.Create(user, goal, experience, projectId,
-                proposal.Discipline, proposal.Topics, proposal.DiagnosticQuestion);
+                proposal.Discipline, proposal.Topics, proposal.DiagnosticQuestion, goalCriterion);
             if (authored) program.OfferEnglishDiagnostic();
             if (suspendCurrent) await SuspendAsync(current, currentContext, active, token);
             store.Add(program);
@@ -205,6 +205,12 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
     }
 
     public Task<CurriculumResult> NextAsync(UserId user, CancellationToken token) => StartLessonAsync(user, LessonSelection.Next, null, token);
+
+    public async Task<CurriculumResult> CompleteDiagnosticAndStartAsync(UserId user, string answer, CancellationToken token)
+    {
+        var result = await DiagnoseAsync(user, answer, token);
+        return result is CurriculumResult.Program ? await NextAsync(user, token) : result;
+    }
 
     internal async Task<CurriculumResult> NextAsync(UserId user, Guid programId, CancellationToken token)
     {

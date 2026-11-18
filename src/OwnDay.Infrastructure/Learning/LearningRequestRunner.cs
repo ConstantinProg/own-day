@@ -165,7 +165,7 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
         if (decision.Creation is { } creation)
         {
             var result = await CreateCurriculum(services, session).CreateAsync(request.UserId, creation.Goal, creation.Experience, null, token,
-                processing.EnglishDiagnosticEnabled || text?.EnglishDiagnosticAllowed == true);
+                processing.EnglishDiagnosticEnabled || text?.EnglishDiagnosticAllowed == true, goalCriterion: creation.GoalCriterion);
             session.EnsureComplete();
             var completed = FirstGoalConsultation.CompleteCreation(decision.Context, result, turn);
             return new(null, completed.Audit!.Code)
@@ -189,6 +189,18 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
                 decision.Context.Synchronize(current, now, turn.SourceOrder);
             }
             return new(null, result.Outcome) { Replies = Introduce(introduce, TelegramCurriculumPresenter.Render(result.Result)) };
+        }
+        if (operation == DialogueOperationKind.CompleteDiagnostic)
+        {
+            var result = await CreateCurriculum(services, session).CompleteDiagnosticAndStartAsync(request.UserId, decision.Arguments, token);
+            if (result is CurriculumResult.Lesson or CurriculumResult.RouteCompleted)
+            {
+                var current = db.Set<Lesson>().Local.SingleOrDefault(value => value.UserId == request.UserId &&
+                    value.Status is LessonStatus.AwaitingAnswer or LessonStatus.Paused);
+                decision.Context.Synchronize(current, now, turn.SourceOrder);
+            }
+            session.EnsureComplete();
+            return new(null, "diagnostic_reply") { Replies = Introduce(introduce, TelegramCurriculumPresenter.Render(result)) };
         }
         if (operation is DialogueOperationKind.SwitchProgram or DialogueOperationKind.SwitchGoal or
             DialogueOperationKind.SwitchCreateProgram or DialogueOperationKind.SwitchCreateProjectProgram)
@@ -233,7 +245,8 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
         session.EnsureComplete();
         var active = db.Set<Lesson>().Local.SingleOrDefault(value => value.UserId == request.UserId &&
             value.Status is LessonStatus.AwaitingAnswer or LessonStatus.Paused);
-        decision.Context.Synchronize(active, now, turn.SourceOrder);
+        if (operation != DialogueOperationKind.Progress)
+            decision.Context.Synchronize(active, now, turn.SourceOrder);
         return new(null, decision.Audit?.Code ?? "reply_committed") { Replies = Introduce(introduce, replies), DialogueOutcomeJson = audit };
     }
 
@@ -287,7 +300,11 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
                 (includeDialogue || entry.Entity is not DialogueContext) &&
                 entry.Entity.GetType().Namespace?.StartsWith("OwnDay.Domain", StringComparison.Ordinal) == true)
             .Select(entry => entry.Metadata.Name + ":" + JsonSerializer.Serialize(
-                entry.OriginalValues.Properties.OrderBy(property => property.Name, StringComparer.Ordinal)
+                entry.OriginalValues.Properties
+                    // A legacy program has the same checkpoint stamp on either side of the additive migration.
+                    .Where(property => property.Name != nameof(OwnDay.Domain.Learning.LearningProgram.GoalCriterion) ||
+                        entry.OriginalValues[property] is not null)
+                    .OrderBy(property => property.Name, StringComparer.Ordinal)
                     .ToDictionary(property => property.Name, property => entry.OriginalValues[property]), JsonSerializerOptions.Web))
             .OrderBy(row => row, StringComparer.Ordinal);
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\n', rows))));

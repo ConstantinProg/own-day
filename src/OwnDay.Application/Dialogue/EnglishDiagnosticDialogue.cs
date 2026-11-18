@@ -26,7 +26,7 @@ public sealed class EnglishDiagnosticDialogue(ICurriculumStore programs, Curricu
         if (normalized is "ответ" or "вопрос" or "answer" or "question") return Choice(program);
         if (normalized.StartsWith("хочу ", StringComparison.Ordinal) || normalized.StartsWith("сменить ", StringComparison.Ordinal) ||
             normalized.Contains("ignore previous", StringComparison.Ordinal) || normalized.Contains("ignore system", StringComparison.Ordinal) ||
-            normalized is "другая цель" or "другая тема" or "да" or "нет" or "yes" or "no" && diagnostic.Status != EnglishDiagnosticStatus.Offered)
+            normalized is "другая цель" or "другая тема" or "да" or "давай" or "нет" or "yes" or "no" && diagnostic.Status != EnglishDiagnosticStatus.Offered)
             return Choice(program);
         if (normalized is "пауза" or "pause" or "отмена" or "cancel" or "потом")
         {
@@ -56,7 +56,7 @@ public sealed class EnglishDiagnosticDialogue(ICurriculumStore programs, Curricu
         if (normalized is "пропустим" or "пропустить" or "skip") action = "skip";
         else if (diagnostic.Status == EnglishDiagnosticStatus.Offered)
         {
-            if (normalized is "начнём диагностику" or "начнем диагностику" or "да" or "yes" or "start") action = "start";
+            if (normalized is "начнём диагностику" or "начнем диагностику" or "давай" or "да" or "yes" or "start") action = "start";
             else return new(new CurriculumResult.Diagnostic(program), "diagnostic_offer_repeated");
         }
         else if (normalized.StartsWith("объясни", StringComparison.Ordinal) || normalized.StartsWith("почему ", StringComparison.Ordinal) ||

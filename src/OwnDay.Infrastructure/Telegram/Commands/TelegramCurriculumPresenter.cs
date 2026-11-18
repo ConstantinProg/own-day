@@ -98,6 +98,7 @@ public static class TelegramCurriculumPresenter
     {
         var route = program.CurrentRoute;
         var heading = $"Goal: {program.Goal}\nProgram: {program.Id}\nDiscipline: {program.Discipline}\nRoute v{route.Version}: {route.Reason}" +
+            (program.GoalCriterion is { } criterion ? $"\nКритерий цели — {criterion}" : "") +
             (program.ProjectId is long id ? $"\nProject: #{id}" : "");
         var topics = route.Topics.Select(t => $"{t.Code}: {t.Title}" +
             (t.Prerequisites.Count > 0 ? $" (requires: {string.Join(", ", t.Prerequisites)})" : ""));

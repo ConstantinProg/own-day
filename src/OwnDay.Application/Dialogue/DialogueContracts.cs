@@ -7,7 +7,7 @@ using OwnDay.Domain.Learning;
 namespace OwnDay.Application.Dialogue;
 
 [JsonConverter(typeof(JsonStringEnumConverter<LearningIntent>))]
-public enum LearningIntent { Ambiguous, Answer, Clarify, Pause, Resume, Progress, Next, GoalChange }
+public enum LearningIntent { Ambiguous, Answer, Clarify, Pause, Resume, Progress, Next, GoalChange, StudyGoal, RelevantExperience }
 public sealed record LearningIntentInput(string Input, string Question, string? Goal, string? Discipline,
     string[] RecentInteractions, LearningIntent[] Allowed, Guid? ProgramId = null, int? RouteVersion = null,
     uint? ProgramVersion = null, long DialogueRevision = 0, Guid? PromptId = null);
@@ -35,7 +35,7 @@ public sealed record LearningTextInput(string Text, Guid? LessonId, Guid? Prompt
     bool EnglishDiagnosticAllowed = false, bool PracticeAllowed = false, bool ProgramSwitchAllowed = false);
 public sealed record DialogueProgramSnapshot(Guid Id, string Goal, string Discipline, int RouteVersion, uint Version = 0,
     bool HasEnglishDiagnostic = false, LearningPracticeStatus? PracticeStatus = null,
-    Guid? SuspendedLessonId = null, uint? SuspendedLessonVersion = null);
+    Guid? SuspendedLessonId = null, uint? SuspendedLessonVersion = null, [property: JsonIgnore] string? PendingDiagnosticQuestion = null);
 public sealed record DialogueOriginalInput(string Text, Guid? LessonId, Guid? PromptId);
 public interface IDialogueStore
 {
@@ -57,9 +57,9 @@ public enum DialogueReplyKind
     GoalDeferred, ChooseAnswerOrQuestion, ChooseQuestionOrGoal, ChoosePauseOrResume, ConfirmFinish,
     ConfirmProgramSelection, ConfirmProgramCreation, ConfirmGoalIntent,
     AskGoal, AskPracticalUse, AskExperience, ConsultationRetry, ConsultationUnavailable, FirstProgramReady, ConsultationPaused, MustEndPractice,
-    AskNewGoal, ConfirmProgramSwitch, ConfirmGoalSwitch, GoalChanged
+    AskNewGoal, ConfirmProgramSwitch, ConfirmGoalSwitch, GoalChanged, DiagnosticOffer, DiagnosticQuestion, AskRelevantExperience
 }
-public sealed record DialogueReply(DialogueReplyKind Kind, IReadOnlyList<string>? Values = null);
+public sealed record DialogueReply(DialogueReplyKind Kind, IReadOnlyList<string>? Values = null, bool InEnglish = false);
 public sealed record DialogueDecision(DialogueContext Context, DialogueOperationKind? Execute, string Arguments,
     DialogueReply? Reply = null, DialogueAudit? Audit = null, FirstProgramCreation? Creation = null);
-public sealed record FirstProgramCreation(string Goal, string Experience);
+public sealed record FirstProgramCreation(string Goal, string Experience, string? GoalCriterion);

@@ -75,7 +75,9 @@ public sealed partial class PostgresLearningProviderTests
         await using var result = Open();
         Assert.Empty(await result.InboxItems.ToListAsync());
         Assert.Contains(await result.Set<DialogueContext>().ToListAsync(), context => context.UserId.Value == 202);
-        Assert.Equal(0, probe.Calls);
+        var interpretation = Assert.Single(probe.IntentInputs);
+        Assert.Equal("A separate learning message", interpretation.Input);
+        Assert.Empty(await result.Set<LearningProgram>().ToListAsync());
     }
 
     [Fact]

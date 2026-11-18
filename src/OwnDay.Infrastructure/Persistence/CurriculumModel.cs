@@ -47,6 +47,7 @@ internal static class CurriculumModel
             entity.HasAlternateKey(p => new { p.Id, p.UserId });
             entity.HasIndex(p => p.UserId);
             entity.Property(p => p.Goal).HasMaxLength(LearningProgram.MaxGoalLength);
+            entity.Property(p => p.GoalCriterion).HasMaxLength(LearningProgram.MaxGoalCriterionLength);
             entity.Property(p => p.Experience).HasMaxLength(LearningProgram.MaxExperienceLength);
             entity.Property(p => p.Discipline).HasMaxLength(LearningProgram.MaxDisciplineLength);
             entity.Property(p => p.DiagnosticQuestion).HasMaxLength(LearningProgram.MaxDiagnosticQuestionLength);
