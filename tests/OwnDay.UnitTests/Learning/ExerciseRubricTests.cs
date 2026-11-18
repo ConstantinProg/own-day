@@ -7,6 +7,30 @@ namespace OwnDay.UnitTests.Learning;
 public sealed class ExerciseRubricTests
 {
     [Fact]
+    public void ApplyRubricAssessment_RepeatedWrongAnswers_BoundsHelpAndRetainsTheOriginalAttempts()
+    {
+        var lesson = Lesson.Start(new UserId(1), "Types", "Theory", "Compare these types.",
+            content: Content(ExerciseEvidenceKind.Understanding));
+        var incorrect = new RubricAssessment([new("meaning", RubricCriterionResult.NotMet, "A required relation is missing.")]);
+        var operation = Guid.NewGuid();
+        lesson.ApplyRubricAssessment("first wrong answer", "Feedback", incorrect, operation, new(ExerciseCorrectionKind.Example, "Try a smaller example."));
+        lesson.ApplyRubricAssessment("second wrong answer", "Feedback", incorrect, Guid.NewGuid());
+
+        Assert.Equal(LessonStatus.AwaitingAnswer, lesson.Status);
+        Assert.Equal(AnswerAssistance.Assisted, lesson.Assistance);
+        Assert.False(lesson.CanOfferMoreHelp);
+        Assert.Equal(2, lesson.CorrectionCount);
+        Assert.Equal(operation, lesson.RubricEvaluation!.Corrections[0].OperationId);
+        Assert.Throws<InvalidOperationException>(() => lesson.AddExplanation(LessonInteractionKind.Clarification, "Hint", "Help"));
+
+        lesson.ApplyRubricAssessment("third wrong answer", "Feedback", incorrect, Guid.NewGuid());
+        Assert.Equal(LessonStatus.Completed, lesson.Status);
+        Assert.False(lesson.IsCorrect);
+        Assert.Equal("first wrong answer", lesson.RubricEvaluation!.Corrections[0].Answer);
+        Assert.Equal("third wrong answer", lesson.Answer);
+    }
+
+    [Fact]
     public void ApplyRubricAssessment_UnclearThenUnclear_PreservesBothResponsesWithoutCredit()
     {
         var owner = new UserId(1);

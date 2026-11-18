@@ -12,7 +12,7 @@ public enum DialogueOperationKind
     None, Answer, Clarify, Explain, Pause, Resume, Finish, Next, Progress,
     CreateProgram, CreateProjectProgram, SelectProgram, ChangeGoal, Cancel, Confirm, Diagnose,
     BeginPractice, NextPractice, PausePractice, ResumePractice, StopPractice, PracticeInfo, StartOtherLesson,
-    SwitchProgram, SwitchGoal, SwitchCreateProgram, SwitchCreateProjectProgram, CompleteDiagnostic, EndSession
+    SwitchProgram, SwitchGoal, SwitchCreateProgram, SwitchCreateProjectProgram, CompleteDiagnostic, EndSession, RevealSolution
 }
 
 public sealed record DialogueClarification(Guid OriginalRequestId, ImmutableArray<DialogueOperationKind> Allowed,
@@ -95,8 +95,12 @@ public sealed partial class DialogueContext
     public bool MatchesQuestion(Lesson? lesson) => lesson is null ? TargetLessonId is null :
         lesson.UserId == UserId && TargetLessonId == lesson.Id && QuestionFingerprint == LessonQuestionFingerprint(lesson);
 
-    private static string LessonQuestionFingerprint(Lesson lesson) => lesson.RubricEvaluation is { Final: false }
-        ? Hash("rubric-clarification-v1\n" + lesson.ResponseQuestion) : Hash(lesson.Question);
+    private static string LessonQuestionFingerprint(Lesson lesson) => lesson.RubricEvaluation switch
+    {
+        { Final: false, AwaitingCorrection: true } => Hash($"rubric-correction-v1/{lesson.CorrectionCount}\n{lesson.ResponseQuestion}"),
+        { Final: false } => Hash("rubric-clarification-v1\n" + lesson.ResponseQuestion),
+        _ => Hash(lesson.Question)
+    };
 
     public void AdvanceResponseBoundary(long sourceOrder)
     {

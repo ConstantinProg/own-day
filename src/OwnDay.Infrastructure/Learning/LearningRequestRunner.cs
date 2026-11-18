@@ -266,6 +266,7 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
         "learn_explain" => DialogueOperationKind.Explain, "learn_pause" => DialogueOperationKind.Pause,
         "learn_resume" => DialogueOperationKind.Resume, "learn_finish" => DialogueOperationKind.Finish,
         "learn_end_session" => DialogueOperationKind.EndSession,
+        "learn_solution" => DialogueOperationKind.RevealSolution,
         "learn_next" => DialogueOperationKind.Next, "learn_progress" => DialogueOperationKind.Progress,
         "learn_request" or "learn_program" => DialogueOperationKind.CreateProgram,
         "learn_project" => DialogueOperationKind.CreateProjectProgram, "learn_select" => DialogueOperationKind.SelectProgram,
@@ -277,7 +278,7 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
     private static string CommandName(DialogueOperationKind operation) => operation switch
     {
         DialogueOperationKind.Answer => "answer", DialogueOperationKind.Clarify => "learn_ask",
-        DialogueOperationKind.Explain => "learn_explain", DialogueOperationKind.Pause => "learn_pause",
+        DialogueOperationKind.Explain => "learn_explain", DialogueOperationKind.RevealSolution => "learn_solution", DialogueOperationKind.Pause => "learn_pause",
         DialogueOperationKind.Resume => "learn_resume", DialogueOperationKind.Finish => "learn_finish",
         DialogueOperationKind.Next => "learn_next", DialogueOperationKind.Progress => "learn_progress",
         DialogueOperationKind.CreateProgram => "learn_request", DialogueOperationKind.CreateProjectProgram => "learn_project",

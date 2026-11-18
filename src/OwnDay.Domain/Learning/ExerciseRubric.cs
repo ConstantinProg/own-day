@@ -6,6 +6,8 @@ namespace OwnDay.Domain.Learning;
 [JsonConverter(typeof(JsonStringEnumConverter<RubricCriterionResult>))]
 public enum RubricCriterionResult { Unclear, Met, NotMet }
 public enum ExerciseEvidenceKind { Understanding, Application, Retrieval }
+[JsonConverter(typeof(JsonStringEnumConverter<ExerciseCorrectionKind>))]
+public enum ExerciseCorrectionKind { Hint, Simplify, Example, AlternativeExplanation, PrerequisiteCheck, Redirect }
 
 public sealed record ExerciseCriterion(string Code, string Requirement);
 
@@ -41,4 +43,17 @@ public sealed record RubricAssessment(ImmutableArray<RubricCriterionAssessment> 
 }
 
 public sealed record LessonRubricEvaluation(RubricAssessment Assessment, string InitialAnswer, Guid? OperationId,
-    string? Clarification, bool Final, RubricAssessment? InitialAssessment = null, Guid? InitialOperationId = null);
+    string? Clarification, bool Final, RubricAssessment? InitialAssessment = null, Guid? InitialOperationId = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] ImmutableArray<ExerciseCorrection> Corrections = default,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool AwaitingCorrection = false,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ClarificationAnswer = null);
+
+public sealed record ExerciseCorrectionProposal(ExerciseCorrectionKind Kind, string Guidance)
+{
+    [JsonIgnore]
+    public bool IsInstructional => Enum.IsDefined(Kind) && Kind != ExerciseCorrectionKind.Redirect &&
+        !string.IsNullOrWhiteSpace(Guidance) && Guidance.Length <= 1000;
+}
+
+public sealed record ExerciseCorrection(string Answer, RubricAssessment Assessment, Guid? OperationId,
+    ExerciseCorrectionProposal Proposal);

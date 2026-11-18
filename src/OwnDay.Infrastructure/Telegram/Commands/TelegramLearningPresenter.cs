@@ -19,6 +19,9 @@ public static class TelegramLearningPresenter
             (assessment.Assistance == AnswerAssistance.Assisted ? "\nОтвет с помощью: самостоятельный успех и увеличение интервала повторения не засчитаны." : "") +
             "\n\n/learn_skills · /learn <topic> · /learn_next (program)",
             .. assessment.Criteria is { } criteria ? new[] { RenderCriteria(criteria) } : Array.Empty<string>(),
+            .. assessment.IndependentPracticeSkillId is Guid skillId
+                ? new[] { $"Для самостоятельной проверки откройте другое задание по этому навыку. /learn_practice {skillId}" }
+                : Array.Empty<string>(),
             .. assessment.ProjectActionId is long actionId ? new[] { ProjectPracticeNotice(actionId) } : Array.Empty<string>()],
         LearningResult.InvalidTopic => ["Use /learn <topic> (up to 500 characters)."],
         LearningResult.InvalidAnswer => ["Use /answer <answer> (up to 3000 characters)."],
@@ -32,6 +35,11 @@ public static class TelegramLearningPresenter
         LearningResult.Explanation explanation => [explanation.Text + "\nAI explanation; no independent source verification.", "Return to: " + explanation.Topic + "\n" + explanation.Question + "\n\n" + Actions],
         LearningResult.AssessmentClarification clarification => ["Для оценки уточните один пункт задания. " +
             clarification.Criterion + "\nОтвет сохранён. Оценка пока не выставлена."],
+        LearningResult.AssessmentCorrection correction => [correction.Guidance + "\n\n" + correction.Question +
+            "\nПопробуйте ещё раз, поставьте упражнение на паузу или завершите его." +
+            (correction.AnotherHintAvailable ? " Можно попросить подсказку." : " Лимит подсказок исчерпан."),
+            "Полное решение доступно по запросу «покажи решение»."],
+        LearningResult.HelpLimit => ["Лимит подсказок исчерпан. Ответьте самостоятельно, поставьте упражнение на паузу или завершите его. Можно попросить полное решение."],
         LearningResult.InvalidClarification => ["Use /learn_ask <question> (up to 1000 characters)."],
         LearningResult.InvalidTransition => ["This action is unavailable in the current lesson state. Use /learn_resume or /learn_finish."],
         LearningResult.Finished => ["Lesson finished without an assessment. /learn <topic>"],
@@ -92,7 +100,8 @@ public static class TelegramLearningPresenter
                 "Lesson paused. /learn_resume or /learn_finish"),
             _ => throw new ArgumentOutOfRangeException(nameof(session))
         };
-        return $"Topic: {session.Topic}\n{expected}\nCurrent question: {session.Question}{Criteria(session.Content)}\n\n{actions}";
+        return $"Topic: {session.Topic}\n{expected}\nCurrent question: {session.Question}{Criteria(session.Content)}" +
+            (session.LastExplanation is { } guidance ? $"\n\nSaved guidance\n{guidance[..Math.Min(guidance.Length, 500)]}" : "") + $"\n\n{actions}";
     }
 
     private static string Criteria(LearningContent? content) => content?.StructuredRubric is { } rubric

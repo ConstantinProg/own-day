@@ -389,6 +389,7 @@ public sealed partial class PostgresLearningProviderTests : IAsyncLifetime
         public System.Collections.Concurrent.ConcurrentQueue<LearningIntentInput> IntentInputs { get; } = new();
         public System.Collections.Concurrent.ConcurrentQueue<string> AssessedAnswers { get; } = new();
         public System.Collections.Concurrent.ConcurrentQueue<LessonSnapshot> AssessedLessons { get; } = new();
+        public System.Collections.Concurrent.ConcurrentQueue<LessonInteractionKind> ExplanationKinds { get; } = new();
         public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public int Calls;
@@ -446,7 +447,7 @@ public sealed partial class PostgresLearningProviderTests : IAsyncLifetime
         public async Task<LearningIntentProposal> ResolveAsync(LearningIntentInput input, CancellationToken token)
         { probe.IntentInputs.Enqueue(input); await BlockAsync("intent", token); return new(probe.Intent); }
         public async Task<LessonExplanation> ExplainAsync(LessonSnapshot lesson, string request, LessonInteractionKind kind, CancellationToken token)
-        { await BlockAsync("explain", token); return new("Explanation"); }
+        { probe.ExplanationKinds.Enqueue(kind); await BlockAsync("explain", token); return new("Explanation"); }
         public Task<LessonAssessment> AssessAsync(Lesson lesson, string answer, CancellationToken token) => throw new InvalidOperationException("Tracked lesson crossed provider boundary.");
         public Task<LessonExplanation> ExplainAsync(Lesson lesson, string request, LessonInteractionKind kind, CancellationToken token) => throw new InvalidOperationException("Tracked lesson crossed provider boundary.");
         public async Task<CurriculumProposal> PlanAsync(CurriculumRequest request, CancellationToken token)

@@ -9,7 +9,8 @@ public sealed class TelegramLearningCommandHandler(LearningService learning,
     TelegramCurriculumCommandHandler curriculum, TelegramKnowledgeCommandHandler knowledge, TelegramStudyCommandHandler study)
 {
     public bool Handles(string name) => study.Handles(name) || curriculum.Handles(name) || knowledge.Handles(name) ||
-        name is "learn" or "answer" or "learn_ask" or "learn_explain" or "learn_pause" or "learn_resume" or "learn_finish" or "learn_confirm" or "learn_end_session";
+        name is "learn" or "answer" or "learn_ask" or "learn_explain" or "learn_pause" or "learn_resume" or "learn_finish" or
+            "learn_confirm" or "learn_end_session" or "learn_solution";
 
     public Task<IReadOnlyList<string>> HandleAsync(ProcessIncomingCommand command, CancellationToken token) => command.Name switch
     {
@@ -29,6 +30,7 @@ public sealed class TelegramLearningCommandHandler(LearningService learning,
             "answer" => await learning.AnswerAsync(command.UserId, command.Arguments, token),
             "learn_ask" => await learning.ClarifyAsync(command.UserId, command.Arguments, token),
             "learn_explain" => await learning.ExplainAsync(command.UserId, token),
+            "learn_solution" => await learning.RevealAsync(command.UserId, token),
             "learn_pause" => await learning.PauseAsync(command.UserId, token),
             "learn_resume" => await learning.ResumeAsync(command.UserId, token),
             "learn_finish" => await learning.FinishAsync(command.UserId, token),

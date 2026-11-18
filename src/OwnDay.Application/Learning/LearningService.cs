@@ -28,6 +28,7 @@ public sealed record LessonAssessment(string Feedback, bool IsCorrect)
 {
     public string Source { get; init; } = "LLM (unspecified model)";
     public RubricAssessment? Rubric { get; init; }
+    public ExerciseCorrectionProposal? Correction { get; init; }
 }
 public sealed record LessonExplanation(string Explanation);
 public sealed record CriterionFeedback(string Requirement, RubricCriterionResult Result, string Reason);
@@ -77,6 +78,7 @@ public abstract record LearningResult
         public bool? DeterministicIsCorrect { get; init; }
         public long? ProjectActionId { get; init; }
         public IReadOnlyList<CriterionFeedback>? Criteria { get; init; }
+        public Guid? IndependentPracticeSkillId { get; init; }
     }
     public sealed record InvalidTopic : LearningResult;
     public sealed record InvalidAnswer : LearningResult;
@@ -93,6 +95,8 @@ public abstract record LearningResult
     }
     public sealed record Explanation(string Text, string Topic, string Question) : LearningResult;
     public sealed record AssessmentClarification(string Criterion) : LearningResult;
+    public sealed record AssessmentCorrection(string Guidance, string Question, bool AnotherHintAvailable) : LearningResult;
+    public sealed record HelpLimit : LearningResult;
     public sealed record InvalidClarification : LearningResult;
     public sealed record InvalidTransition : LearningResult;
     public sealed record Finished : LearningResult;
@@ -166,6 +170,10 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
             {
                 if (result.Rubric is null) return new LearningResult.ProviderUnavailable();
                 result.Rubric.Validate(rubric);
+                if (result.Correction?.Kind == ExerciseCorrectionKind.Redirect &&
+                    result.Rubric.Criteria.All(item => item.Result == RubricCriterionResult.NotMet))
+                    return new LearningResult.AssessmentCorrection("Вернёмся к текущему вопросу. Оценка не записана.",
+                        active.ResponseQuestion, active.CanOfferMoreHelp);
             }
             await knowledge.AttachAsync(active, active.Topic, token);
             token.ThrowIfCancellationRequested();
@@ -178,7 +186,10 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
         // State/evidence failures must escape so the caller rolls back the entire update transaction.
         if (active.Content?.StructuredRubric is not null)
         {
-            active.ApplyRubricAssessment(answer, result.Feedback, result.Rubric!, operationId);
+            active.ApplyRubricAssessment(answer, result.Feedback, result.Rubric!, operationId, result.Correction);
+            if (active.RubricEvaluation is { Final: false, AwaitingCorrection: true } correction)
+                return new LearningResult.AssessmentCorrection(correction.Corrections[^1].Proposal.Guidance,
+                    active.ResponseQuestion, active.CanOfferMoreHelp);
             if (active.RubricEvaluation is { Final: false, Clarification: { } clarification })
                 return new LearningResult.AssessmentClarification(clarification);
         }
@@ -188,6 +199,7 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
         {
             Status = active.AssessmentStatus, DeterministicIsCorrect = active.DeterministicIsCorrect, ProjectActionId = active.ProjectActionId,
             Assistance = active.Assistance,
+            IndependentPracticeSkillId = active.IsCorrect == true && active.Assistance == AnswerAssistance.Assisted ? active.SkillId : null,
             Criteria = active.Content?.StructuredRubric is { } publishedRubric && active.RubricEvaluation is { } evaluation
                 ? publishedRubric.Criteria.Select(criterion =>
                 {
@@ -293,6 +305,9 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
     public Task<LearningResult> ClarifyAsync(UserId user, string request, CancellationToken token) =>
         ExplainAsync(user, request, LessonInteractionKind.Clarification, token);
 
+    public Task<LearningResult> RevealAsync(UserId user, CancellationToken token) =>
+        ExplainAsync(user, "Покажи полное решение текущего упражнения.", LessonInteractionKind.FullAnswer, token);
+
     public Task<LearningResult> ExplainAsync(UserId user, CancellationToken token) =>
         ExplainAsync(user, "Explain the current material differently.", LessonInteractionKind.AlternativeExplanation, token);
 
@@ -304,6 +319,12 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
         var lesson = await store.FindActiveAsync(user, token);
         if (lesson is null) return new LearningResult.NoActiveLesson();
         if (lesson.Status != LessonStatus.AwaitingAnswer) return new LearningResult.InvalidTransition();
+        if (kind == LessonInteractionKind.FullAnswer)
+        {
+            if (lesson.Interactions.FirstOrDefault(interaction => interaction.Kind == LessonInteractionKind.FullAnswer) is { } solution)
+                return new LearningResult.Explanation(solution.Explanation, lesson.Topic, lesson.ResponseQuestion);
+        }
+        else if (!lesson.CanOfferMoreHelp) return new LearningResult.HelpLimit();
         try
         {
             var result = await teacher.ExplainAsync(lesson, request, kind, token);
@@ -327,7 +348,7 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
     {
         Provenance = lesson.Provenance, ProjectActionId = lesson.ProjectActionId, Transfer = lesson.Transfer,
         Content = lesson.Content, Theory = lesson.Content is null ? null : lesson.Theory,
-        LastExplanation = lesson.Content is null ? null : lesson.Interactions.OrderByDescending(interaction => interaction.Id).FirstOrDefault()?.Explanation
+        LastExplanation = lesson.Content is null ? null : lesson.SavedGuidance
     };
 
     private static void ValidateUser(UserId user, CancellationToken token)

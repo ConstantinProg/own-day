@@ -284,7 +284,7 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
     private async Task<DialogueDecision> DecideActionAsync(DialogueContext context, DialogueTurn turn, DialogueOperationKind action,
         string arguments, Lesson? lesson, DialogueProgramSnapshot? program, string stamp, bool confirmed, bool bound, CancellationToken token)
     {
-        if (action is DialogueOperationKind.Answer or DialogueOperationKind.Clarify or DialogueOperationKind.Explain)
+        if (action is DialogueOperationKind.Answer or DialogueOperationKind.Clarify or DialogueOperationKind.Explain or DialogueOperationKind.RevealSolution)
         {
             if (!bound || lesson?.Status != LessonStatus.AwaitingAnswer)
                 return Reply(context, DialogueReplyKind.NeedBinding);
@@ -378,8 +378,7 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
         return new(context, operation, arguments);
     }
     private static DialogueDecision Recap(DialogueContext context, Lesson lesson) => new(context, null, "", new(DialogueReplyKind.Recap,
-        [lesson.Topic, lesson.Theory, lesson.ResponseQuestion,
-            lesson.Interactions.OrderByDescending(interaction => interaction.Id).FirstOrDefault()?.Explanation ?? "", lesson.Status.ToString()]));
+        [lesson.Topic, lesson.Theory, lesson.ResponseQuestion, lesson.SavedGuidance ?? "", lesson.Status.ToString()]));
     private static string Normalize(string text) => text.Trim().TrimEnd('.', '!').ToLowerInvariant();
     private static string Bounded(string text) => text[..Math.Min(500, text.Length)];
     private static string WithProgramTarget(string stamp, DialogueProgramSnapshot? program) =>
@@ -400,6 +399,9 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
         if (text is "прогресс" or "мой прогресс" or "покажи прогресс" or "progress") return DialogueOperationKind.Progress;
         if (text is "дальше" or "следующее упражнение" or "next") return DialogueOperationKind.Next;
         if (text is "завершить упражнение" or "закончу занятие" or "finish") return DialogueOperationKind.Finish;
+        if (text is "покажи решение" or "покажи полное решение" or "дай полный ответ" or "show the solution")
+            return DialogueOperationKind.RevealSolution;
+        if (text is "дай подсказку" or "подскажи" or "hint") return DialogueOperationKind.Clarify;
         if (text.StartsWith("объясни", StringComparison.Ordinal) || text.StartsWith("поясни", StringComparison.Ordinal) ||
             text.StartsWith("объясняй ", StringComparison.Ordinal) || text.StartsWith("explain in ", StringComparison.Ordinal) ||
             text.StartsWith("не понял", StringComparison.Ordinal) || text.StartsWith("не поняла", StringComparison.Ordinal) ||

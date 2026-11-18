@@ -3,7 +3,8 @@ namespace OwnDay.Domain.Learning;
 public enum LessonInteractionKind
 {
     Clarification,
-    AlternativeExplanation
+    AlternativeExplanation,
+    FullAnswer
 }
 
 public sealed class LessonInteraction

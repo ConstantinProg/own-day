@@ -2,6 +2,7 @@ namespace OwnDay.Domain.Learning;
 
 public sealed class Lesson
 {
+    public const int MaxHelpSteps = 2;
     private static readonly IAnswerCheck _answerCheck = new NormalizedTextAnswerCheck();
     private readonly List<LessonInteraction> _interactions = [];
     private Lesson() { }
@@ -32,7 +33,14 @@ public sealed class Lesson
     public AnswerAssistance Assistance { get; private set; }
     public LearningContent? Content { get; private set; }
     public LessonRubricEvaluation? RubricEvaluation { get; private set; }
-    public string ResponseQuestion => RubricEvaluation is { Final: false, Clarification: { } clarification } ? clarification : Question;
+    public string ResponseQuestion => RubricEvaluation is { Final: false, AwaitingCorrection: false, Clarification: { } clarification }
+        ? clarification : Question;
+    public int CorrectionCount => RubricEvaluation is { Corrections.IsDefault: false } evaluation ? evaluation.Corrections.Length : 0;
+    public bool CanOfferMoreHelp => Content?.StructuredRubric is null || CorrectionCount + _interactions.Count < MaxHelpSteps;
+    public string? SavedGuidance => _interactions.FirstOrDefault(interaction => interaction.Kind == LessonInteractionKind.FullAnswer)?.Explanation
+        ?? (RubricEvaluation is { Final: false, AwaitingCorrection: true } evaluation
+        ? evaluation.Corrections[^1].Proposal.Guidance
+        : _interactions.OrderByDescending(interaction => interaction.Id).FirstOrDefault()?.Explanation);
     public InterdisciplinaryPractice? Transfer { get; private set; }
     public IReadOnlyCollection<LessonInteraction> Interactions => _interactions.AsReadOnly();
 
@@ -67,7 +75,8 @@ public sealed class Lesson
         CommitAssessment(answer, feedback, correct);
     }
 
-    public void ApplyRubricAssessment(string answer, string feedback, RubricAssessment assessment, Guid? operationId)
+    public void ApplyRubricAssessment(string answer, string feedback, RubricAssessment assessment, Guid? operationId,
+        ExerciseCorrectionProposal? correction = null)
     {
         RequireAwaitingAnswer();
         if (Content?.StructuredRubric is not { } rubric)
@@ -77,18 +86,40 @@ public sealed class Lesson
         if (operationId == Guid.Empty) throw new ArgumentException("Invalid operation identity.", nameof(operationId));
         assessment.Validate(rubric);
 
+        var prior = RubricEvaluation;
+        var evaluation = new LessonRubricEvaluation(assessment, prior?.InitialAnswer ?? answer, operationId,
+            prior?.Clarification, Final: false, prior?.InitialAssessment ?? prior?.Assessment,
+            prior?.InitialOperationId ?? prior?.OperationId, prior?.Corrections ?? default,
+            ClarificationAnswer: prior?.ClarificationAnswer);
+
         var unclear = assessment.Criteria.FirstOrDefault(item => item.Result == RubricCriterionResult.Unclear);
-        if (unclear is not null && RubricEvaluation is null)
+        if (unclear is not null && prior?.Clarification is null)
         {
             var clarification = rubric.Criteria.Single(criterion => criterion.Code == unclear.Code).Requirement;
-            RubricEvaluation = new(assessment, answer, operationId, clarification, Final: false);
+            RubricEvaluation = evaluation with { Clarification = clarification, ClarificationAnswer = answer };
             return;
         }
 
-        RubricEvaluation = new(assessment, RubricEvaluation?.InitialAnswer ?? answer, operationId,
-            RubricEvaluation?.Clarification, Final: true, RubricEvaluation?.Assessment, RubricEvaluation?.OperationId);
+        var unmet = assessment.Criteria.FirstOrDefault(item => item.Result == RubricCriterionResult.NotMet);
+        if (unclear is null && unmet is not null && CanOfferMoreHelp)
+        {
+            var requirement = rubric.Criteria.Single(criterion => criterion.Code == unmet.Code).Requirement;
+            var proposal = correction is { IsInstructional: true } ? correction : new(ExerciseCorrectionKind.Hint, requirement);
+            var attempt = new ExerciseCorrection(answer, assessment, operationId, proposal);
+            RubricEvaluation = evaluation with
+            {
+                Corrections = evaluation.Corrections.IsDefault ? [attempt] : evaluation.Corrections.Add(attempt),
+                AwaitingCorrection = true
+            };
+            Assistance = AnswerAssistance.Assisted;
+            return;
+        }
+
+        RubricEvaluation = evaluation with { Final = true };
         var correct = assessment.Criteria.All(item => item.Result == RubricCriterionResult.Met);
-        CommitAssessment(answer, feedback, correct, RubricEvaluation.InitialAnswer);
+        var referenceCandidate = prior is { AwaitingCorrection: false, Clarification: not null }
+            ? prior.ClarificationAnswer ?? prior.InitialAnswer : answer;
+        CommitAssessment(answer, feedback, correct, referenceCandidate);
         if (unclear is not null)
         {
             AssessmentStatus = AnswerAssessmentStatus.Inconclusive;
@@ -211,6 +242,10 @@ public sealed class Lesson
     {
         RequireAwaitingAnswer();
         if (!Enum.IsDefined(kind)) throw new ArgumentOutOfRangeException(nameof(kind));
+        if (kind == LessonInteractionKind.FullAnswer
+            ? _interactions.Any(interaction => interaction.Kind == LessonInteractionKind.FullAnswer)
+            : !CanOfferMoreHelp)
+            throw new InvalidOperationException("The exercise has reached its help limit.");
         Validate(request, 1000);
         Validate(explanation, 2500);
         _interactions.Add(new LessonInteraction(Id, kind, request, explanation));
