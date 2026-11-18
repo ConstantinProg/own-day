@@ -49,6 +49,9 @@ internal static class KnowledgeModel
         {
             entity.Property(l => l.Content).HasConversion(value => SerializeContent(value!), value => DeserializeContent(value))
                 .HasColumnType("jsonb");
+            entity.Property(l => l.RubricEvaluation).HasConversion(
+                value => JsonSerializer.Serialize(value, JsonSerializerOptions.Web),
+                value => JsonSerializer.Deserialize<LessonRubricEvaluation>(value, JsonSerializerOptions.Web)).HasColumnType("jsonb");
             entity.Property(l => l.Teaching).HasConversion(value => SerializeTeaching(value!), value => DeserializeTeaching(value))
                 .HasColumnType("jsonb");
             entity.Property(l => l.Transfer).HasConversion(value => SerializeTransfer(value!), value => DeserializeTransfer(value))
@@ -64,6 +67,9 @@ internal static class KnowledgeModel
         {
             entity.Property(e => e.Content).HasConversion(value => SerializeContent(value!), value => DeserializeContent(value))
                 .HasColumnType("jsonb");
+            entity.Property(e => e.RubricEvidence).HasConversion(
+                value => JsonSerializer.Serialize(value, JsonSerializerOptions.Web),
+                value => JsonSerializer.Deserialize<RubricEvidence>(value, JsonSerializerOptions.Web)).HasColumnType("jsonb");
             entity.ToTable("learning_evidence");
             entity.HasKey(e => e.LessonId);
             entity.Property(e => e.LessonId).ValueGeneratedNever();

@@ -286,10 +286,7 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
         if (program.EnglishDiagnostic is { Supported: false }) return new CurriculumResult.ProviderUnavailable();
         if (program.DiagnosticPending) return new CurriculumResult.Program(program);
         var active = await lessons.FindActiveAsync(user, token);
-        if (active is not null) return new CurriculumResult.Lesson(new LearningResult.Session(active.Topic, active.Question, active.Status)
-        {
-            Provenance = active.Provenance, ProjectActionId = active.ProjectActionId, Transfer = active.Transfer
-        });
+        if (active is not null) return new CurriculumResult.Lesson(LearningService.Session(active));
         var suspended = await store.FindSuspendedLessonAsync(user, program.Id, token);
         if (suspended is not null)
         {
@@ -342,7 +339,7 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
                 Personalization: personalization.ForGeneration()), token);
             if (scaffold) material = material with { Theory = material.Theory + "\n\n" + EnglishLearningContent.LessonScaffold };
             token.ThrowIfCancellationRequested();
-            var lesson = Lesson.Start(user, topic.Title, material.Theory, material.Question, material.Provenance, material.ExpectedAnswer);
+            var lesson = Lesson.Start(user, topic.Title, material.Theory, material.Question, material.Provenance, material.ExpectedAnswer, material.Content);
             if (authored) lesson.SetContent(EnglishLearningContent.FirstLesson);
             if (scaffold) lesson.AddExplanation(LessonInteractionKind.Clarification, "Опора после диагностики", EnglishLearningContent.LessonScaffold);
             lesson.SetTeaching(new(teaching is null ? PedagogicalStrategy.Standard : AdaptiveTeaching.StrategyFor(teaching.Action),

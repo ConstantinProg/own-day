@@ -15,8 +15,8 @@ public static class TelegramProgressPresenter
             $"Goal: {program.Goal}\nProgram: {program.Id}\nDiscipline: {program.Discipline}\n" +
             $"Selected: {report.Selected}; priority: {program.Priority}\nRoute v{route.Version}: {route.Reason}\n" +
             $"Diagnosis: {(program.DiagnosticPending ? "pending" : "finished or skipped")}\n" +
-            $"Route questions credited: {report.Topics.Count(t => t.Completed)}/{report.Topics.Count}. " +
-            "A credited question does not establish long-term mastery.\n" +
+            $"Route questions credited: {report.Topics.Count(t => t.Completed)}/{report.Topics.Count}.\n" +
+            (program.GoalCriterion is { } criterion ? $"Practical goal criterion: {criterion}\nPractical goal: awaiting direct verification.\n" : "") +
             $"/learn_select {program.Id}",
             "Skill estimates use distinct assessed answers across all routes and confirmed shared identities. " +
             string.Join(" ", Enum.GetValues<SkillMastery>().Select(TelegramSkillMasteryText.Explain)) + " " +
@@ -38,9 +38,12 @@ public static class TelegramProgressPresenter
                   $"/learn_status {status!.Skill.Id}\n";
             if (status?.Evidence.LastOrDefault() is { } evidence)
                 text += $"Latest assessment ({evidence.ObservedAt:O}): {evidence.AssessmentStatus}; " +
-                    $"AI interpretation: {((evidence.AiAssessedCorrect ?? evidence.AssessedCorrect) ? "positive" : "negative")}\n" +
+                    $"AI interpretation: {(evidence.AssessmentStatus == AnswerAssessmentStatus.Inconclusive ? "unclear" :
+                        (evidence.AiAssessedCorrect ?? evidence.AssessedCorrect) ? "positive" : "negative")}\n" +
                     TelegramLearningPresenter.RenderAssessment(evidence.AssessmentStatus, evidence.DeterministicIsCorrect) + "\n" +
                     $"source: {evidence.AssessmentSource}\nBasis (excerpt): {Excerpt(evidence.AssessmentFeedback)}\n";
+            if (state?.EvidenceSummary is { } summary)
+                text += $"Independent evidence — understanding: {Evidence(summary.Understanding)}; application: {Evidence(summary.Application)}; retention: {Evidence(summary.Retention)}.\n";
             text += status?.Review is { } review
                 ? $"Review (UTC): {review.DueAt:O}; {(item.ReviewDue ? "due" : "upcoming")}\n/learn_review {status.Skill.Id}\n"
                 : "No review scheduled yet.\n";
@@ -64,4 +67,5 @@ public static class TelegramProgressPresenter
     }
 
     private static string Excerpt(string value) => value.Length <= 300 ? value : value[..299] + "…";
+    private static string Evidence(bool sufficient) => sufficient ? "sufficient" : "insufficient";
 }

@@ -11,19 +11,27 @@ public static class TelegramLearningPresenter
     {
         LearningResult.Material material => RenderMaterial(material),
         LearningResult.Assessment assessment => ["AI assessment (may be inaccurate):\n" + assessment.Feedback + "\n" +
-            RenderAssessment(assessment.Status, assessment.DeterministicIsCorrect) +
+            (assessment is { Status: AnswerAssessmentStatus.AiOnly, Criteria: { } applied }
+                ? (applied.All(item => item.Result == RubricCriterionResult.Met)
+                    ? "Exercise credited on the published criteria."
+                    : "Some published criteria still need work.")
+                : RenderAssessment(assessment.Status, assessment.DeterministicIsCorrect)) +
             (assessment.Assistance == AnswerAssistance.Assisted ? "\nОтвет с помощью: самостоятельный успех и увеличение интервала повторения не засчитаны." : "") +
             "\n\n/learn_skills · /learn <topic> · /learn_next (program)",
+            .. assessment.Criteria is { } criteria ? new[] { RenderCriteria(criteria) } : Array.Empty<string>(),
             .. assessment.ProjectActionId is long actionId ? new[] { ProjectPracticeNotice(actionId) } : Array.Empty<string>()],
         LearningResult.InvalidTopic => ["Use /learn <topic> (up to 500 characters)."],
         LearningResult.InvalidAnswer => ["Use /answer <answer> (up to 3000 characters)."],
         LearningResult.NoActiveLesson => ["Start a lesson with /learn <topic>."],
         LearningResult.ProviderUnavailable => ["The teacher is temporarily unavailable or returned invalid material. Retry the command."],
-        LearningResult.Session session => [.. session.Content is null ? new[] { RenderSession(session) } : RenderEnglishSession(session),
+        LearningResult.Session session => [.. session.Content?.Kind is LearningContentKind.ReadingChoice or LearningContentKind.OpenWriting
+                ? RenderEnglishSession(session) : new[] { RenderSession(session) },
             .. session.Transfer is not null ? new[] { TransferNotice(session.Transfer) } : Array.Empty<string>(),
             .. session.ProjectActionId is long id ? new[] { ProjectPracticeNotice(id) } : Array.Empty<string>(),
             .. session.Provenance is not null ? new[] { RenderProvenance(session.Provenance) } : Array.Empty<string>()],
         LearningResult.Explanation explanation => [explanation.Text + "\nAI explanation; no independent source verification.", "Return to: " + explanation.Topic + "\n" + explanation.Question + "\n\n" + Actions],
+        LearningResult.AssessmentClarification clarification => ["Для оценки уточните один пункт задания. " +
+            clarification.Criterion + "\nОтвет сохранён. Оценка пока не выставлена."],
         LearningResult.InvalidClarification => ["Use /learn_ask <question> (up to 1000 characters)."],
         LearningResult.InvalidTransition => ["This action is unavailable in the current lesson state. Use /learn_resume or /learn_finish."],
         LearningResult.Finished => ["Lesson finished without an assessment. /learn <topic>"],
@@ -35,11 +43,12 @@ public static class TelegramLearningPresenter
 
     private static IReadOnlyList<string> RenderMaterial(LearningResult.Material material)
     {
-        if (material.Content is { } content)
+        if (material.Content is { Kind: LearningContentKind.ReadingChoice or LearningContentKind.OpenWriting } content)
             return [material.Topic + "\n\n" + material.Theory + "\n\nЦель: " + content.Objective,
                 material.Question + "\n\nНапишите ответ, вопрос по упражнению или «пауза». Можно вернуться словом «Продолжим».\n" +
                 "Авторский материал OwnDay: " + content.Version + ". Это учебное упражнение, не подтверждение уровня."];
-        var messages = new List<string> { material.Topic + "\n\n" + material.Theory, material.Question + "\n\n" + Actions };
+        var messages = new List<string> { material.Topic + "\n\n" + material.Theory,
+            material.Question + Criteria(material.Content) + "\n\n" + Actions };
         if (material.ProjectActionId is long id) messages.Add(ProjectPracticeNotice(id));
         if (material.Transfer is not null) messages.Add(TransferNotice(material.Transfer));
         if (material.Provenance is not null) messages.Add(RenderProvenance(material.Provenance));
@@ -60,6 +69,7 @@ public static class TelegramLearningPresenter
     {
         AnswerAssessmentStatus.Conflict => $"Conflict: AI and {NormalizedTextAnswerCheck.MethodName} disagree (reference match: {deterministic}). Uncertain; not credited. Additional practice is required.",
         AnswerAssessmentStatus.Agreement => $"AI and {NormalizedTextAnswerCheck.MethodName} agree (reference match: {deterministic}). The AI reference is not independently verified.",
+        AnswerAssessmentStatus.Inconclusive => "The available answer does not resolve all criteria. No credit was recorded.",
         _ => "AI only; no deterministic check. Uncertain."
     };
 
@@ -82,8 +92,21 @@ public static class TelegramLearningPresenter
                 "Lesson paused. /learn_resume or /learn_finish"),
             _ => throw new ArgumentOutOfRangeException(nameof(session))
         };
-        return $"Topic: {session.Topic}\n{expected}\nCurrent question: {session.Question}\n\n{actions}";
+        return $"Topic: {session.Topic}\n{expected}\nCurrent question: {session.Question}{Criteria(session.Content)}\n\n{actions}";
     }
+
+    private static string Criteria(LearningContent? content) => content?.StructuredRubric is { } rubric
+        ? "\n\nCriteria\n" + string.Join('\n', rubric.Criteria.Select(criterion => "• " + criterion.Requirement))
+        : "";
+
+    private static string RenderCriteria(IReadOnlyList<CriterionFeedback> criteria) =>
+        "Assessment criteria\n" + string.Join("\n\n", criteria.Select(item =>
+            $"{item.Requirement}\n{item.Result switch
+            {
+                RubricCriterionResult.Met => "Met",
+                RubricCriterionResult.NotMet => "Needs work",
+                _ => "Unclear"
+            }} — {item.Reason}"));
 
     private static IReadOnlyList<string> RenderEnglishSession(LearningResult.Session session) => session.Status == LessonStatus.Paused
         ? ["Остановимся здесь. Письмо, вопрос и помощь сохранены. Напишите «Продолжим», когда будете готовы."]

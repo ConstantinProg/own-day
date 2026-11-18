@@ -191,8 +191,8 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
             return Recap(context, lesson);
         if (normalized is "ответ" or "вопрос" or "answer" or "question")
             return Reply(context, DialogueReplyKind.NeedActualInput);
-        if (normalized is "yes" or "no" && (lesson.Question.Contains("yes or no", StringComparison.OrdinalIgnoreCase) ||
-            lesson.Question.Contains("yes/no", StringComparison.OrdinalIgnoreCase)))
+        if (normalized is "yes" or "no" && (lesson.ResponseQuestion.Contains("yes or no", StringComparison.OrdinalIgnoreCase) ||
+            lesson.ResponseQuestion.Contains("yes/no", StringComparison.OrdinalIgnoreCase)))
             return await DecideActionAsync(context, turn, DialogueOperationKind.Answer, turn.Text, lesson, program, stamp, false, bound, token);
         if (normalized is "да" or "нет" or "yes" or "no" or "потом" or "не знаю" ||
             normalized.Contains("ignore previous", StringComparison.Ordinal) || normalized.Contains("ignore system", StringComparison.Ordinal))
@@ -202,7 +202,7 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
         LearningIntentProposal proposal;
         try
         {
-            proposal = await resolver.ResolveAsync(new(turn.Text, lesson.Question, program?.Goal, program?.Discipline,
+            proposal = await resolver.ResolveAsync(new(turn.Text, lesson.ResponseQuestion, program?.Goal, program?.Discipline,
                 lesson.Interactions.OrderByDescending(interaction => interaction.Id).Take(3)
                     .Select(interaction => interaction.Explanation[..Math.Min(500, interaction.Explanation.Length)]).ToArray(), allowed,
                 program?.Id, program?.RouteVersion, program?.Version, context.Revision, context.PromptId), token);
@@ -356,7 +356,7 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
         return new(context, operation, arguments);
     }
     private static DialogueDecision Recap(DialogueContext context, Lesson lesson) => new(context, null, "", new(DialogueReplyKind.Recap,
-        [lesson.Topic, lesson.Theory, lesson.Question,
+        [lesson.Topic, lesson.Theory, lesson.ResponseQuestion,
             lesson.Interactions.OrderByDescending(interaction => interaction.Id).FirstOrDefault()?.Explanation ?? "", lesson.Status.ToString()]));
     private static string Normalize(string text) => text.Trim().TrimEnd('.', '!').ToLowerInvariant();
     private static string Bounded(string text) => text[..Math.Min(500, text.Length)];

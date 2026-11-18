@@ -1,3 +1,7 @@
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json.Serialization;
+
 namespace OwnDay.Domain.Learning;
 
 // The answer is an observation. Correctness and feedback are a provider's interpretation.
@@ -19,6 +23,7 @@ public sealed class LearningEvidence
     public bool IsReview { get; private set; }
     public AnswerAssistance Assistance { get; private set; }
     public LearningContent? Content { get; private set; }
+    public RubricEvidence? RubricEvidence { get; private set; }
 
     public static LearningEvidence FromAnswer(Lesson lesson, DateTimeOffset observedAt, string source)
     {
@@ -32,12 +37,20 @@ public sealed class LearningEvidence
             LessonId = lesson.Id, SkillId = lesson.SkillId.Value, UserId = lesson.UserId, ObservedAt = observedAt,
             Answer = lesson.Answer!, AssessmentFeedback = lesson.Feedback!, AssessedCorrect = lesson.IsCorrect!.Value,
             AssessmentSource = source, IsReview = lesson.IsReview, Assistance = lesson.Assistance, Content = lesson.Content,
-            AiAssessedCorrect = lesson.AiIsCorrect ?? lesson.IsCorrect,
+            AiAssessedCorrect = lesson.AssessmentStatus == AnswerAssessmentStatus.Inconclusive ? null : lesson.AiIsCorrect ?? lesson.IsCorrect,
             DeterministicIsCorrect = lesson.DeterministicIsCorrect, AssessmentStatus = lesson.AssessmentStatus,
-            Method = lesson.ExpectedAnswer is null ? "AI answer assessment" : $"AI + {NormalizedTextAnswerCheck.MethodName} (AI reference)"
+            RubricEvidence = lesson.RubricEvaluation is { Final: true } rubric
+                ? new(rubric, Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
+                    NormalizedTextAnswerCheck.Normalize(lesson.Question).ToUpperInvariant()))))
+                : null,
+            Method = lesson.ExpectedAnswer is not null ? $"AI + {NormalizedTextAnswerCheck.MethodName} (AI reference)"
+                : lesson.RubricEvaluation is not null ? "AI criterion assessment" : "AI answer assessment"
         };
     }
 }
+
+public sealed record RubricEvidence(LessonRubricEvaluation Evaluation, string QuestionFingerprint);
+public sealed record MasteryEvidenceSummary(bool Understanding, bool Application, bool Retention);
 
 public enum SkillMastery
 {
@@ -50,6 +63,9 @@ public enum SkillMastery
 
 public sealed record LearnerSkillState(SkillMastery Mastery, int Answers, int PositiveAssessments, int NegativeAssessments)
 {
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public MasteryEvidenceSummary? EvidenceSummary { get; init; }
+
     public bool RepeatedDifficulty => NegativeAssessments >= 2;
 
     public static LearnerSkillState Evaluate(IEnumerable<LearningEvidence> evidence)
@@ -59,12 +75,33 @@ public sealed record LearnerSkillState(SkillMastery Mastery, int Answers, int Po
             throw new ArgumentException("Evidence must belong to one learner and skill.", nameof(evidence));
         var positive = observations.Count(e => e.AssessedCorrect && e.Assistance == AnswerAssistance.Independent &&
             e.AssessmentStatus != AnswerAssessmentStatus.Conflict);
-        var negative = observations.Count(e => !e.AssessedCorrect && e.AssessmentStatus != AnswerAssessmentStatus.Conflict);
+        var negative = observations.Count(e => !e.AssessedCorrect && e.AssessmentStatus is not
+            (AnswerAssessmentStatus.Conflict or AnswerAssessmentStatus.Inconclusive));
+        var summary = observations.Any(e => e.RubricEvidence is not null) ? SummarizeRubricEvidence(observations) : null;
+        var demonstrated = summary is null ? positive >= 3 : summary is { Understanding: true, Application: true, Retention: true };
         var mastery = observations.Length == 0 ? SkillMastery.Unknown
             : observations.Any(e => e.AssessmentStatus == AnswerAssessmentStatus.Conflict) ? SkillMastery.Conflicting
             : negative > 0 && positive > 0 ? SkillMastery.Conflicting
             : negative > 0 ? SkillMastery.NeedsPractice
-            : positive >= 3 ? SkillMastery.Demonstrated : positive > 0 ? SkillMastery.Developing : SkillMastery.Unknown;
-        return new(mastery, observations.Length, positive, negative);
+            : demonstrated ? SkillMastery.Demonstrated : positive > 0 ? SkillMastery.Developing : SkillMastery.Unknown;
+        return new(mastery, observations.Length, positive, negative) { EvidenceSummary = summary };
+    }
+
+    private static MasteryEvidenceSummary SummarizeRubricEvidence(IEnumerable<LearningEvidence> observations)
+    {
+        var eligible = observations
+            .Where(e => e.AssessedCorrect && e.Assistance == AnswerAssistance.Independent &&
+                e.AssessmentStatus != AnswerAssessmentStatus.Conflict &&
+                e.RubricEvidence is { Evaluation.OperationId: not null } && e.Content?.StructuredRubric is not null)
+            .OrderBy(e => e.ObservedAt)
+            .DistinctBy(e => e.RubricEvidence!.QuestionFingerprint, StringComparer.Ordinal)
+            .DistinctBy(e => NormalizedTextAnswerCheck.Normalize(e.Answer), StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var understanding = eligible.Count(e => e.Content!.StructuredRubric!.Kind == ExerciseEvidenceKind.Understanding) >= 2;
+        var application = eligible.Any(e => e.Content!.StructuredRubric!.Kind == ExerciseEvidenceKind.Application);
+        var retention = eligible.Any(review => review.IsReview &&
+            review.Content!.StructuredRubric!.Kind == ExerciseEvidenceKind.Retrieval &&
+            eligible.Any(earlier => !earlier.IsReview && review.ObservedAt - earlier.ObservedAt >= TimeSpan.FromDays(1)));
+        return new(understanding, application, retention);
     }
 }

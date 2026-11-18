@@ -81,6 +81,11 @@ public sealed partial class KnowledgeService(IKnowledgeStore store, TimeProvider
     {
         Validate(lesson.UserId, token);
         var evidence = LearningEvidence.FromAnswer(lesson, clock.GetUtcNow(), source);
+        if (evidence.AssessmentStatus == AnswerAssessmentStatus.Inconclusive)
+        {
+            store.Add(evidence);
+            return;
+        }
         var schedule = await store.ReviewAsync(evidence.UserId, evidence.SkillId, token);
         token.ThrowIfCancellationRequested();
         if (schedule is null) store.Add(ReviewSchedule.FromAnswer(evidence));

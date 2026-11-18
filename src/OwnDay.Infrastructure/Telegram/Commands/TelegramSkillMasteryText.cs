@@ -10,7 +10,7 @@ internal static class TelegramSkillMasteryText
         SkillMastery.NeedsPractice => "Needs practice: only negative AI assessments so far.",
         SkillMastery.Developing => "Developing: one or two positive AI assessments; evidence is limited.",
         SkillMastery.Conflicting => "Conflicting: mixed AI results or disagreement with a deterministic check; further verification is needed.",
-        SkillMastery.Demonstrated => "Demonstrated: at least three distinct answers assessed positively by AI, with no negative assessments.",
+        SkillMastery.Demonstrated => "Demonstrated: sufficient independent evidence without unresolved conflicts. Structured assessments cover understanding, application and delayed retrieval.",
         _ => throw new ArgumentOutOfRangeException(nameof(mastery))
     };
 }

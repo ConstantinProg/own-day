@@ -12,10 +12,11 @@ namespace OwnDay.Application.Learning.Requests;
 // entity or service scope is retained by a durable step or sent to a provider.
 public sealed record LessonSnapshot(Guid Id, UserId UserId, string Topic, string Theory, string Question,
     LessonStatus Status, LessonTeaching? Teaching, InterdisciplinaryPractice? Transfer,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] LearningContent? Content = null)
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] LearningContent? Content = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] LessonRubricEvaluation? RubricEvaluation = null)
 {
     public static LessonSnapshot From(Lesson lesson) => new(lesson.Id, lesson.UserId, lesson.Topic,
-        lesson.Theory, lesson.Question, lesson.Status, lesson.Teaching, lesson.Transfer, lesson.Content);
+        lesson.Theory, lesson.Question, lesson.Status, lesson.Teaching, lesson.Transfer, lesson.Content, lesson.RubricEvaluation);
 }
 
 public sealed record LessonAssessmentInput(LessonSnapshot Lesson, string Answer);

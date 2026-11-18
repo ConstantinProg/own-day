@@ -36,7 +36,7 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
                 var steps = await db.Set<LearningProviderStep>().AsNoTracking()
                     .Where(step => step.RequestId == lease.RequestId).OrderBy(step => step.Ordinal).ToListAsync(token);
                 var session = new LearningProviderSession(steps, () => TargetStamp(db), () => TargetIdentities(db));
-                var handler = CreateHandler(services, session);
+                var handler = CreateHandler(services, session, lease.RequestId);
                 return await services.GetRequiredService<ILearningRequestStore>().ApplyAsync(lease, async (request, cancellationToken) =>
                 {
                     if (request.AttemptCount > maxAttempts) return new(null, "attempts_exhausted");
@@ -110,12 +110,12 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
         throw new InvalidOperationException("Learning command exceeded its phase limit.");
     }
 
-    private static TelegramLearningCommandHandler CreateHandler(IServiceProvider services, LearningProviderSession session)
+    private static TelegramLearningCommandHandler CreateHandler(IServiceProvider services, LearningProviderSession session, Guid operationId)
     {
         var knowledge = services.GetRequiredService<KnowledgeService>();
         var lessons = services.GetRequiredService<ILessonStore>();
         var programs = services.GetRequiredService<ICurriculumStore>();
-        var learning = new LearningService(lessons, session, knowledge);
+        var learning = new LearningService(lessons, session, knowledge, operationId);
         var curriculum = CreateCurriculum(services, session);
         var study = new StudyService(services.GetRequiredService<IStudyScheduleStore>(), lessons, programs,
             services.GetRequiredService<IKnowledgeStore>(), learning, curriculum, services.GetRequiredService<TimeProvider>());
@@ -308,7 +308,8 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
             .Select(entry => entry.Metadata.Name + ":" + JsonSerializer.Serialize(
                 entry.OriginalValues.Properties
                     // A legacy program has the same checkpoint stamp on either side of the additive migration.
-                    .Where(property => property.Name is not (nameof(LearningProgram.GoalCriterion) or nameof(LearningProgram.SubjectDiagnostic)) ||
+                    .Where(property => property.Name is not (nameof(LearningProgram.GoalCriterion) or nameof(LearningProgram.SubjectDiagnostic) or
+                        nameof(Lesson.RubricEvaluation) or nameof(LearningEvidence.RubricEvidence)) ||
                         entry.OriginalValues[property] is not null)
                     .OrderBy(property => property.Name, StringComparer.Ordinal)
                     .ToDictionary(property => property.Name, property => entry.OriginalValues[property]), JsonSerializerOptions.Web))

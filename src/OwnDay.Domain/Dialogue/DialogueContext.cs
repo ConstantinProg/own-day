@@ -63,7 +63,7 @@ public sealed partial class DialogueContext
     {
         if (lesson is not null && lesson.UserId != UserId) throw new ArgumentException("Foreign lesson.", nameof(lesson));
         if (lesson?.Status is not (LessonStatus.AwaitingAnswer or LessonStatus.Paused)) lesson = null;
-        var fingerprint = lesson is null ? null : Hash(lesson.Question);
+        var fingerprint = lesson is null ? null : LessonQuestionFingerprint(lesson);
         var changed = TargetLessonId != lesson?.Id || QuestionFingerprint != fingerprint;
         var newExpectation = changed || ExpectedResponse != DialogueExpectedResponse.LessonAnswer;
         ClearPending(now);
@@ -93,7 +93,10 @@ public sealed partial class DialogueContext
     }
 
     public bool MatchesQuestion(Lesson? lesson) => lesson is null ? TargetLessonId is null :
-        lesson.UserId == UserId && TargetLessonId == lesson.Id && QuestionFingerprint == Hash(lesson.Question);
+        lesson.UserId == UserId && TargetLessonId == lesson.Id && QuestionFingerprint == LessonQuestionFingerprint(lesson);
+
+    private static string LessonQuestionFingerprint(Lesson lesson) => lesson.RubricEvaluation is { Final: false }
+        ? Hash("rubric-clarification-v1\n" + lesson.ResponseQuestion) : Hash(lesson.Question);
 
     public void AdvanceResponseBoundary(long sourceOrder)
     {

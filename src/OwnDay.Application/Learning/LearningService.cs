@@ -22,12 +22,15 @@ public sealed record LessonMaterial(string Theory, string Question)
 {
     public LessonProvenance? Provenance { get; init; }
     public string? ExpectedAnswer { get; init; }
+    public LearningContent? Content { get; init; }
 }
 public sealed record LessonAssessment(string Feedback, bool IsCorrect)
 {
     public string Source { get; init; } = "LLM (unspecified model)";
+    public RubricAssessment? Rubric { get; init; }
 }
 public sealed record LessonExplanation(string Explanation);
+public sealed record CriterionFeedback(string Requirement, RubricCriterionResult Result, string Reason);
 
 public interface ILessonTeacher
 {
@@ -73,6 +76,7 @@ public abstract record LearningResult
         public AnswerAssessmentStatus Status { get; init; }
         public bool? DeterministicIsCorrect { get; init; }
         public long? ProjectActionId { get; init; }
+        public IReadOnlyList<CriterionFeedback>? Criteria { get; init; }
     }
     public sealed record InvalidTopic : LearningResult;
     public sealed record InvalidAnswer : LearningResult;
@@ -88,6 +92,7 @@ public abstract record LearningResult
         public InterdisciplinaryPractice? Transfer { get; init; }
     }
     public sealed record Explanation(string Text, string Topic, string Question) : LearningResult;
+    public sealed record AssessmentClarification(string Criterion) : LearningResult;
     public sealed record InvalidClarification : LearningResult;
     public sealed record InvalidTransition : LearningResult;
     public sealed record Finished : LearningResult;
@@ -96,7 +101,7 @@ public abstract record LearningResult
     public sealed record ReviewDeferred(DateTimeOffset DueAt) : LearningResult;
 }
 
-public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, KnowledgeService knowledge)
+public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, KnowledgeService knowledge, Guid? operationId = null)
 {
     public async Task<LearningResult> StartAsync(UserId user, string topic, CancellationToken token)
     {
@@ -118,7 +123,7 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
             var personalization = await knowledge.PersonalizationAsync(user, token);
             var material = await teacher.GenerateAsync(new LessonRequest(topic, Personalization: personalization.ForGeneration()), token);
             token.ThrowIfCancellationRequested();
-            var lesson = Lesson.Start(user, topic, material.Theory, material.Question, material.Provenance, material.ExpectedAnswer);
+            var lesson = Lesson.Start(user, topic, material.Theory, material.Question, material.Provenance, material.ExpectedAnswer, material.Content);
             lesson.SetTeaching(new(PedagogicalStrategy.Standard, personalization.ExplicitPreferences));
             await knowledge.AttachAsync(lesson, lesson.Topic, token);
             store.Add(lesson);
@@ -157,6 +162,11 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
             if (string.IsNullOrWhiteSpace(result.Feedback) || result.Feedback.Length > 3000 ||
                 string.IsNullOrWhiteSpace(result.Source) || result.Source.Length > 200)
                 return new LearningResult.ProviderUnavailable();
+            if (active.Content?.StructuredRubric is { } rubric)
+            {
+                if (result.Rubric is null) return new LearningResult.ProviderUnavailable();
+                result.Rubric.Validate(rubric);
+            }
             await knowledge.AttachAsync(active, active.Topic, token);
             token.ThrowIfCancellationRequested();
         }
@@ -166,12 +176,25 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
         }
 
         // State/evidence failures must escape so the caller rolls back the entire update transaction.
-        active.Complete(answer, result.Feedback, result.IsCorrect);
+        if (active.Content?.StructuredRubric is not null)
+        {
+            active.ApplyRubricAssessment(answer, result.Feedback, result.Rubric!, operationId);
+            if (active.RubricEvaluation is { Final: false, Clarification: { } clarification })
+                return new LearningResult.AssessmentClarification(clarification);
+        }
+        else active.Complete(answer, result.Feedback, result.IsCorrect);
         await knowledge.RecordAnswerAsync(active, result.Source, token);
         return new LearningResult.Assessment(result.Feedback)
         {
             Status = active.AssessmentStatus, DeterministicIsCorrect = active.DeterministicIsCorrect, ProjectActionId = active.ProjectActionId,
-            Assistance = active.Assistance
+            Assistance = active.Assistance,
+            Criteria = active.Content?.StructuredRubric is { } publishedRubric && active.RubricEvaluation is { } evaluation
+                ? publishedRubric.Criteria.Select(criterion =>
+                {
+                    var mark = evaluation.Assessment.Criteria.Single(item => item.Code == criterion.Code);
+                    return new CriterionFeedback(criterion.Requirement, mark.Result, mark.Reason);
+                }).ToArray()
+                : null
         };
     }
 
@@ -236,7 +259,7 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
             var material = await teacher.GenerateAsync(new LessonRequest(skill.Description, IsReview: kind == SkillLessonKind.Review,
                 Teaching: teaching, Personalization: personalization.ForGeneration()), token);
             token.ThrowIfCancellationRequested();
-            var lesson = Lesson.Start(user, skill.Title, material.Theory, material.Question, material.Provenance, material.ExpectedAnswer);
+            var lesson = Lesson.Start(user, skill.Title, material.Theory, material.Question, material.Provenance, material.ExpectedAnswer, material.Content);
             lesson.SetTeaching(new(strategy, personalization.ExplicitPreferences));
             lesson.LinkToSkill(skill);
             if (kind == SkillLessonKind.Review) lesson.MarkAsReview();
@@ -286,7 +309,7 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
             var result = await teacher.ExplainAsync(lesson, request, kind, token);
             token.ThrowIfCancellationRequested();
             lesson.AddExplanation(kind, request, result.Explanation);
-            return new LearningResult.Explanation(result.Explanation, lesson.Topic, lesson.Question);
+            return new LearningResult.Explanation(result.Explanation, lesson.Topic, lesson.ResponseQuestion);
         }
         catch (Exception exception) when (exception is LessonProviderException or ArgumentException)
         {
@@ -300,7 +323,7 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
         Transfer = lesson.Transfer, Content = lesson.Content
     };
 
-    public static LearningResult.Session Session(Lesson lesson) => new(lesson.Topic, lesson.Question, lesson.Status)
+    public static LearningResult.Session Session(Lesson lesson) => new(lesson.Topic, lesson.ResponseQuestion, lesson.Status)
     {
         Provenance = lesson.Provenance, ProjectActionId = lesson.ProjectActionId, Transfer = lesson.Transfer,
         Content = lesson.Content, Theory = lesson.Content is null ? null : lesson.Theory,

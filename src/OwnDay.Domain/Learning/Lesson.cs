@@ -31,11 +31,13 @@ public sealed class Lesson
     public LessonTeaching? Teaching { get; private set; }
     public AnswerAssistance Assistance { get; private set; }
     public LearningContent? Content { get; private set; }
+    public LessonRubricEvaluation? RubricEvaluation { get; private set; }
+    public string ResponseQuestion => RubricEvaluation is { Final: false, Clarification: { } clarification } ? clarification : Question;
     public InterdisciplinaryPractice? Transfer { get; private set; }
     public IReadOnlyCollection<LessonInteraction> Interactions => _interactions.AsReadOnly();
 
     public static Lesson Start(UserId user, string topic, string theory, string question,
-        LessonProvenance? provenance = null, string? expectedAnswer = null)
+        LessonProvenance? provenance = null, string? expectedAnswer = null, LearningContent? content = null)
     {
         if (!user.IsValid) throw new ArgumentException("Invalid user.", nameof(user));
         Validate(topic, 500);
@@ -43,8 +45,10 @@ public sealed class Lesson
         Validate(question, 1000);
         provenance?.Validate();
         if (expectedAnswer is not null) Validate(expectedAnswer, 500);
-        return new Lesson { Id = Guid.NewGuid(), UserId = user, Topic = topic, Theory = theory, Question = question,
+        var lesson = new Lesson { Id = Guid.NewGuid(), UserId = user, Topic = topic, Theory = theory, Question = question,
             Provenance = provenance, ExpectedAnswer = expectedAnswer, Assistance = AnswerAssistance.Independent };
+        if (content is not null) lesson.SetContent(content);
+        return lesson;
     }
 
     public void SetContent(LearningContent content)
@@ -58,13 +62,51 @@ public sealed class Lesson
 
     public void Complete(string answer, string feedback, bool correct)
     {
+        if (Content?.StructuredRubric is not null)
+            throw new InvalidOperationException("A rubric assessment is required.");
+        CommitAssessment(answer, feedback, correct);
+    }
+
+    public void ApplyRubricAssessment(string answer, string feedback, RubricAssessment assessment, Guid? operationId)
+    {
+        RequireAwaitingAnswer();
+        if (Content?.StructuredRubric is not { } rubric)
+            throw new InvalidOperationException("This exercise has no structured rubric.");
+        Validate(answer, 3000);
+        Validate(feedback, 3000);
+        if (operationId == Guid.Empty) throw new ArgumentException("Invalid operation identity.", nameof(operationId));
+        assessment.Validate(rubric);
+
+        var unclear = assessment.Criteria.FirstOrDefault(item => item.Result == RubricCriterionResult.Unclear);
+        if (unclear is not null && RubricEvaluation is null)
+        {
+            var clarification = rubric.Criteria.Single(criterion => criterion.Code == unclear.Code).Requirement;
+            RubricEvaluation = new(assessment, answer, operationId, clarification, Final: false);
+            return;
+        }
+
+        RubricEvaluation = new(assessment, RubricEvaluation?.InitialAnswer ?? answer, operationId,
+            RubricEvaluation?.Clarification, Final: true, RubricEvaluation?.Assessment, RubricEvaluation?.OperationId);
+        var correct = assessment.Criteria.All(item => item.Result == RubricCriterionResult.Met);
+        CommitAssessment(answer, feedback, correct, RubricEvaluation.InitialAnswer);
+        if (unclear is not null)
+        {
+            AssessmentStatus = AnswerAssessmentStatus.Inconclusive;
+            AiIsCorrect = null;
+            DeterministicIsCorrect = null;
+            IsCorrect = false;
+        }
+    }
+
+    private void CommitAssessment(string answer, string feedback, bool correct, string? referenceCandidate = null)
+    {
         RequireAwaitingAnswer();
         Validate(answer, 3000);
         Validate(feedback, 3000);
         Answer = answer;
         Feedback = feedback;
         AiIsCorrect = correct;
-        DeterministicIsCorrect = ExpectedAnswer is null ? null : _answerCheck.Check(answer, ExpectedAnswer);
+        DeterministicIsCorrect = ExpectedAnswer is null ? null : _answerCheck.Check(referenceCandidate ?? answer, ExpectedAnswer);
         AssessmentStatus = DeterministicIsCorrect is null ? AnswerAssessmentStatus.AiOnly
             : DeterministicIsCorrect == correct ? AnswerAssessmentStatus.Agreement : AnswerAssessmentStatus.Conflict;
         IsCorrect = correct && AssessmentStatus != AnswerAssessmentStatus.Conflict;

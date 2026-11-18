@@ -385,6 +385,7 @@ public sealed partial class PostgresLearningProviderTests : IAsyncLifetime
         public CurriculumProposal Curriculum { get; init; } = new("English", [new("root", "Read an email", [])], null);
         public Func<CurriculumRequest, CurriculumProposal>? Plan { get; init; }
         public LessonMaterial Material { get; init; } = new("Theory", "Question");
+        public Func<LessonSnapshot, string, LessonAssessment>? Assessment { get; init; }
         public System.Collections.Concurrent.ConcurrentQueue<LearningIntentInput> IntentInputs { get; } = new();
         public System.Collections.Concurrent.ConcurrentQueue<string> AssessedAnswers { get; } = new();
         public System.Collections.Concurrent.ConcurrentQueue<LessonSnapshot> AssessedLessons { get; } = new();
@@ -431,7 +432,7 @@ public sealed partial class PostgresLearningProviderTests : IAsyncLifetime
                     usage = new { prompt_tokens = 30, completion_tokens = 10, total_tokens = 40,
                         prompt_tokens_details = new { cached_tokens = 5 } },
                     choices = new[] { new { index = 0, finish_reason = "stop", message = new
-                    { role = "assistant", content = "{\"Theory\":\"Theory\",\"Question\":\"Question\",\"ExpectedAnswer\":null,\"SourceQuote\":null}" } } }
+                    { role = "assistant", content = """{"Theory":"Theory","Question":"Question","ExpectedAnswer":null,"SourceQuote":null,"Criteria":[{"Code":"explain","Requirement":"Explain your answer."}]}""" } } }
                 }), Encoding.UTF8, "application/json")
             })));
             var teacher = new OpenAILessonTeacher(() => new ChatClient("test", new ApiKeyCredential("dummy-key"), new OpenAIClientOptions
@@ -441,7 +442,7 @@ public sealed partial class PostgresLearningProviderTests : IAsyncLifetime
             return await teacher.GenerateAsync(request, token);
         }
         public async Task<LessonAssessment> AssessAsync(LessonSnapshot lesson, string answer, CancellationToken token)
-        { probe.AssessedAnswers.Enqueue(answer); probe.AssessedLessons.Enqueue(lesson); await BlockAsync("assess", token); return new("Feedback", true); }
+        { probe.AssessedAnswers.Enqueue(answer); probe.AssessedLessons.Enqueue(lesson); await BlockAsync("assess", token); return probe.Assessment?.Invoke(lesson, answer) ?? new("Feedback", true); }
         public async Task<LearningIntentProposal> ResolveAsync(LearningIntentInput input, CancellationToken token)
         { probe.IntentInputs.Enqueue(input); await BlockAsync("intent", token); return new(probe.Intent); }
         public async Task<LessonExplanation> ExplainAsync(LessonSnapshot lesson, string request, LessonInteractionKind kind, CancellationToken token)

@@ -96,7 +96,7 @@ public sealed class OpenAILessonTeacherTests
         {
             id = "test", model = "test", created = 1, @object = "chat.completion",
             choices = new[] { new { index = 0, finish_reason = "stop",
-                message = new { role = "assistant", content = "{\"Theory\":\"Context\",\"Question\":\"Application\"}" } } }
+                message = new { role = "assistant", content = Generated("Context", "Application") } } }
         }));
         using var http = new HttpClient(handler);
         var profile = new LearningPersonalization(new("dialogue", "in depth", "slow", "music"),
@@ -133,6 +133,7 @@ public sealed class OpenAILessonTeacherTests
             id = "test", model = "actual-model", created = 1, @object = "chat.completion",
             choices = new[] { new { index = 0, finish_reason = "stop", message = new { role = "assistant",
                 content = JsonSerializer.Serialize(new { Theory = quote, Question = "Which case?", ExpectedAnswer = "lowercase", SourceQuote = quote,
+                    Criteria = new[] { new ExerciseCriterion("case", "Identify the required case.") },
                     Provenance = new { Status = "verified", Reference = "http://127.0.0.1/private" } }) } } }
         }));
         using var http = new HttpClient(handler);
@@ -161,7 +162,7 @@ public sealed class OpenAILessonTeacherTests
         {
             id = "test", model = "test", created = 1, @object = "chat.completion",
             choices = new[] { new { index = 0, finish_reason = "stop",
-                message = new { role = "assistant", content = "{\"Theory\":\"Context\",\"Question\":\"Application\"}" } } }
+                message = new { role = "assistant", content = Generated("Context", "Application") } } }
         }));
         using var http = new HttpClient(handler);
         await Teacher(http, new RecordingLogger()).GenerateAsync(new("Mechanics", new("Physics", "Goal", "Beginner", null, null),
@@ -184,7 +185,7 @@ public sealed class OpenAILessonTeacherTests
         {
             id = "test", model = "test", created = 1, @object = "chat.completion",
             choices = new[] { new { index = 0, finish_reason = "stop",
-                message = new { role = "assistant", content = "{\"Theory\":\"Potential application\",\"Question\":\"Exercise\"}" } } }
+                message = new { role = "assistant", content = Generated("Potential application", "Exercise") } } }
         }));
         using var http = new HttpClient(handler);
         var context = new ProjectPracticeContext(1, "Build a site", 2, "Compute page size");
@@ -206,7 +207,7 @@ public sealed class OpenAILessonTeacherTests
         {
             id = "test", model = "test", created = 1, @object = "chat.completion",
             choices = new[] { new { index = 0, finish_reason = "stop",
-                message = new { role = "assistant", content = "{\"Theory\":\"Context\",\"Question\":\"New application\"}" } } }
+                message = new { role = "assistant", content = Generated("Context", "New application") } } }
         }));
         using var http = new HttpClient(handler);
         await Teacher(http, new RecordingLogger()).GenerateAsync(new("Fractions", IsReview: true), CancellationToken.None);
@@ -261,7 +262,7 @@ public sealed class OpenAILessonTeacherTests
         {
             id = "test", model = "test", created = 1, @object = "chat.completion",
             choices = new[] { new { index = 0, finish_reason = "stop",
-                message = new { role = "assistant", content = "{\"Theory\":\"Example\",\"Question\":\"Question\"}" } } }
+                message = new { role = "assistant", content = Generated("Example", "Question") } } }
         }));
         using var http = new HttpClient(handler);
         await Teacher(http, new RecordingLogger()).GenerateAsync(new("Basics", new("Math", "Goal", "Beginner", null, null),
@@ -333,7 +334,7 @@ public sealed class OpenAILessonTeacherTests
         {
             id = "test", model = "test", created = 1, @object = "chat.completion",
             choices = new[] { new { index = 0, finish_reason = "stop",
-                message = new { role = "assistant", content = "{\"Theory\":\"Theory\",\"Question\":\"Question?\"}" } } }
+                message = new { role = "assistant", content = Generated("Theory", "Question?") } } }
         }));
         using var http = new HttpClient(handler);
         var context = withProgram ? new LessonProgramContext("Mathematics", "Prepare for an interview",
@@ -442,6 +443,28 @@ public sealed class OpenAILessonTeacherTests
         Assert.Equal(LessonProviderFailure.Timeout, error.Reason);
         Assert.Contains(logger.Messages, m => m.Contains("Timeout", StringComparison.Ordinal));
     }
+
+    [Fact]
+    public async Task GenerateAsync_CompletionOmitsCriteria_RejectsTheExercise()
+    {
+        using var handler = new ResponseHandler(JsonSerializer.Serialize(new
+        {
+            id = "test", model = "test", created = 1, @object = "chat.completion",
+            choices = new[] { new { index = 0, finish_reason = "stop",
+                message = new { role = "assistant", content = """{"Theory":"Theory","Question":"Question"}""" } } }
+        }));
+        using var http = new HttpClient(handler);
+        var error = await Assert.ThrowsAsync<LessonProviderException>(() =>
+            Teacher(http, new RecordingLogger()).GenerateAsync(new("Topic"), CancellationToken.None));
+        Assert.Equal(LessonProviderFailure.InvalidResponse, error.Reason);
+    }
+
+    private static string Generated(string theory, string question) => JsonSerializer.Serialize(new
+    {
+        Theory = theory,
+        Question = question,
+        Criteria = new[] { new ExerciseCriterion("meaning", "Explain the answer.") }
+    });
 
     private static OpenAILessonTeacher Teacher(HttpClient http, RecordingLogger logger) => new(
         () => new ChatClient("test", new ApiKeyCredential("dummy-key"), new OpenAIClientOptions

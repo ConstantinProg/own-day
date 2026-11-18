@@ -1599,6 +1599,10 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
 
         modelBuilder.Entity("OwnDay.Domain.Learning.LearningProgram", b =>
             b.Property<string>("EnglishDiagnostic").HasColumnType("jsonb"));
+        modelBuilder.Entity("OwnDay.Domain.Learning.Lesson", b =>
+            b.Property<string>("RubricEvaluation").HasColumnType("jsonb"));
+        modelBuilder.Entity("OwnDay.Domain.Learning.LearningEvidence", b =>
+            b.Property<string>("RubricEvidence").HasColumnType("jsonb"));
         modelBuilder.Entity("OwnDay.Domain.Dialogue.DialogueContext", b =>
             b.Property<string>("DiagnosticTarget").HasColumnType("jsonb").HasColumnName("diagnostic_target"));
         foreach (var target in new[] { "OwnDay.Domain.Learning.Lesson", "OwnDay.Domain.Learning.LearningEvidence" })
