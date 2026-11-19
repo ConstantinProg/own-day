@@ -61,6 +61,9 @@ public abstract record CurriculumResult
     public sealed record Diagnostic(LearningProgram Value, string? Notice = null) : CurriculumResult;
     public sealed record SubjectDiagnosticQuestion(LearningProgram Value) : CurriculumResult;
     public sealed record NoProgress(int Page) : CurriculumResult;
+    public sealed record RouteView(CurriculumRoute Route, bool Full, string? OptionalCheck = null) : CurriculumResult;
+    public sealed record RouteHistory(IReadOnlyList<CurriculumRoute> Routes) : CurriculumResult;
+    public sealed record RouteEditRejected : CurriculumResult;
 }
 
 public sealed partial class CurriculumService(ICurriculumStore store, ICurriculumPlanner planner,
@@ -294,11 +297,13 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
             return new CurriculumResult.Lesson(LearningService.Session(suspended));
         }
         var completed = await store.CompletedTopicsAsync(user, program.Id, program.CurrentRoute.Version, token);
+        var route = program.CurrentRoute;
         var topic = program.NextTopic(completed);
         if (selection == LessonSelection.Focus)
         {
             topic = program.CurrentRoute.Topics.SingleOrDefault(t => t.Code == focus);
-            if (topic is null || !topic.Prerequisites.All(completed.Contains)) return new CurriculumResult.InvalidInput();
+            if (topic is null || !route.IsSkipped(topic.Code) && !route.PrerequisitesSatisfied(topic, completed))
+                return new CurriculumResult.InvalidInput();
         }
         if (topic is null) return new CurriculumResult.RouteCompleted();
         try
@@ -317,7 +322,8 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
                 var proposal = await teachingPlanner.ProposeAsync(new(program.Goal, program.Discipline, program.CurrentRoute.Topics,
                     topic.Code, completed, state, feedback), token);
                 token.ThrowIfCancellationRequested();
-                if (!AdaptiveTeaching.TryValidate(proposal, topic, program.CurrentRoute.Topics, completed, state, out var action))
+                var satisfied = completed.Concat(route.Path?.SkippedTopics ?? []).ToHashSet(StringComparer.Ordinal);
+                if (!AdaptiveTeaching.TryValidate(proposal, topic, route.Topics, satisfied, state, out var action))
                     return new CurriculumResult.ProviderUnavailable();
                 var reason = $"{proposal.Action}: {topic.Code} -> {proposal.TopicCode}. Evidence: {state.PositiveAssessments} positive, {state.NegativeAssessments} negative AI assessments. AI rationale: {proposal.Reason}";
                 revision = program.ProposeAdaptation(proposal.TopicCode, reason);
@@ -328,7 +334,8 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
             var sharedLink = (await knowledge.LinksAsync(program, token)).SingleOrDefault(l => l.TopicCode == topic.Code);
             var shared = sharedLink is not null && status is not null ? new SharedSkillContext(status.Skill.Description, status.State) : null;
             var personalization = await knowledge.PersonalizationAsync(user, token);
-            var authored = program.EnglishDiagnostic is { Supported: true } &&
+            var depth = selection == LessonSelection.Focus && route.IsSkipped(topic.Code) ? CurriculumDepth.Brief : route.DepthFor(topic.Code);
+            var authored = depth == CurriculumDepth.Standard && program.EnglishDiagnostic is { Supported: true } &&
                 topic.Code == EnglishLearningContent.FirstTopicCode;
             var scaffold = authored && program.EnglishDiagnostic!.Results.Any(result =>
                 !result.AssessedCorrect || result.Assistance != AnswerAssistance.Independent);
@@ -336,7 +343,10 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
                 : await teacher.GenerateAsync(new LessonRequest(topic.Title,
                 new LessonProgramContext(program.Discipline, program.Goal, program.Experience,
                     program.DiagnosticQuestion, program.DiagnosticAnswer), teaching, SharedSkill: shared,
-                Personalization: personalization.ForGeneration()), token);
+                Personalization: personalization.ForGeneration())
+                {
+                    RouteDepth = depth == CurriculumDepth.Standard ? null : depth
+                }, token);
             if (scaffold) material = material with { Theory = material.Theory + "\n\n" + EnglishLearningContent.LessonScaffold };
             token.ThrowIfCancellationRequested();
             var lesson = Lesson.Start(user, topic.Title, material.Theory, material.Question, material.Provenance, material.ExpectedAnswer, material.Content);

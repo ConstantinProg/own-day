@@ -30,7 +30,8 @@ public sealed partial class CurriculumService
         {
             statuses.TryGetValue(topic.Code, out var status);
             return new TopicProgress(topic, completed.Contains(topic.Code),
-                !program.DiagnosticPending && topic.Prerequisites.All(completed.Contains), status,
+                !program.DiagnosticPending && (program.CurrentRoute.IsSkipped(topic.Code) ||
+                    program.CurrentRoute.PrerequisitesSatisfied(topic, completed)), status,
                 status?.Review is not null && knowledge.IsDue(status.Review),
                 links.SingleOrDefault(link => link.TopicCode == topic.Code));
         }).ToArray();

@@ -52,6 +52,16 @@ Pause/restart/resume preserves the Lesson and does not generate a replacement.
 Resume of an already active question produces a recap. Existing Domain prerequisites
 still govern Next, program selection and creation.
 
+`/learn_route` shows the active route. Use `/learn_route tree [version]` for
+prerequisites and `/learn_route history` for recent versions. The route view
+shows topic codes for requests such as `пропустить тему basics`,
+`перенеси тему examples перед practice`, and `откатить маршрут к версии 1`.
+`/learn_route_edit` supports the same changes with `skip`, `unskip`, `before`,
+`brief`, `detailed`, `standard` and `restore`. Each change needs confirmation
+for the selected program and version. A skipped prerequisite can be checked
+later through `/learn_focus`. Restoring a route appends a version and preserves
+the original exercise and assessment history.
+
 Deploy schema and a compatible reader before enabling a limited cohort. Roll back
 only to a reader/writer preserving v3/text inputs, pending states and the deployed schema;
 the migration refuses destructive downgrade over dialogue state/history. Stop or

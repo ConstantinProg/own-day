@@ -940,6 +940,8 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
             {
                 b.Property<Guid>("Id")
                     .HasColumnType("uuid");
+                b.Property<string>("Path")
+                    .HasColumnType("jsonb");
                 b.Property<int?>("ProgressVersion")
                     .HasColumnType("integer");
                 b.Property<Guid>("ProgramId")

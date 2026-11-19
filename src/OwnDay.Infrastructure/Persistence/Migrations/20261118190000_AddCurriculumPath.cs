@@ -1,0 +1,24 @@
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
+
+namespace OwnDay.Infrastructure.Persistence.Migrations;
+
+[DbContext(typeof(OwnDayDbContext))]
+[Migration("20261118190000_AddCurriculumPath")]
+public sealed class AddCurriculumPath : Migration
+{
+    protected override void Up(MigrationBuilder migrationBuilder) =>
+        migrationBuilder.AddColumn<string>("Path", "learning_routes", type: "jsonb", nullable: true);
+
+    protected override void Down(MigrationBuilder migrationBuilder)
+    {
+        migrationBuilder.Sql("""
+            DO $$ BEGIN
+                IF EXISTS (SELECT 1 FROM learning_routes WHERE "Path" IS NOT NULL) THEN
+                    RAISE EXCEPTION 'Retain curriculum path revisions; roll back to a compatible reader';
+                END IF;
+            END $$;
+            """);
+        migrationBuilder.DropColumn("Path", "learning_routes");
+    }
+}

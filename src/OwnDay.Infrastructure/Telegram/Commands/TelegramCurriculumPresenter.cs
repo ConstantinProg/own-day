@@ -8,6 +8,10 @@ public static class TelegramCurriculumPresenter
     public static IReadOnlyList<string> Render(CurriculumResult result) => result switch
     {
         CurriculumResult.Program program => RenderProgram(program.Value),
+        CurriculumResult.RouteView route => RenderRoute(route),
+        CurriculumResult.RouteHistory history => ["Последние версии маршрута. Для просмотра используйте /learn_route tree <версия>.",
+            .. history.Routes.Select(route => $"v{route.Version} — {route.Reason}")],
+        CurriculumResult.RouteEditRejected => ["Изменение или версия недоступны. Проверьте активную программу, текущую версию, коды тем и порядок предпосылок. /learn_route tree · /learn_route history"],
         CurriculumResult.Diagnostic diagnostic => RenderDiagnostic(diagnostic),
         CurriculumResult.SubjectDiagnosticQuestion diagnostic =>
             [diagnostic.Value.DiagnosticQuestion! + "\nAnswer the question or write “skip”. /learn_diagnose <answer>"],
@@ -37,10 +41,30 @@ public static class TelegramCurriculumPresenter
             $"/learn_programs [page]; /learn_select <program id>; /learn_links; /learn_link <topic code> | <skill id> | <reason, 1–{ProgramSkillLink.MaxReasonLength} characters>. /learn_project_report [page]; /learn_project_practice <topic code> | <active project task id>. Finish diagnosis first. Only your skills are allowed; a topic's existing identity cannot be replaced."],
         CurriculumResult.ProjectNotFound => ["Project not found for this user. /projects"],
         CurriculumResult.InvalidTransition => ["Diagnosis has already ended. /learn_route · /learn_next"],
-        CurriculumResult.RouteCompleted => ["All route questions have been answered correctly according to AI. This does not establish long-term mastery. /learn_route"],
+        CurriculumResult.RouteCompleted => ["В текущем маршруте больше нет доступных тем. Прогресс и пропуски можно посмотреть командами /learn_progress и /learn_route tree."],
         CurriculumResult.ProviderUnavailable => ["The planner is temporarily unavailable or returned an invalid route. Retry the command."],
         _ => throw new ArgumentOutOfRangeException(nameof(result))
     };
+
+    private static IReadOnlyList<string> RenderRoute(CurriculumResult.RouteView view)
+    {
+        var route = view.Route;
+        var heading = $"Маршрут v{route.Version}\n{route.Reason}";
+        if (route.Path?.RestoredFrom is { } restoredFrom) heading += $"\nВосстановлен из v{restoredFrom}.";
+        var topics = route.Topics.Select(topic =>
+        {
+            var line = $"{topic.Title} ({topic.Code})";
+            if (route.IsSkipped(topic.Code)) line += " · пропущена";
+            if (view.Full && topic.Prerequisites.Count > 0) line += $" · предпосылки: {string.Join(", ", topic.Prerequisites)}";
+            if (view.Full && route.DepthFor(topic.Code) is CurriculumDepth.Brief) line += " · кратко";
+            if (view.Full && route.DepthFor(topic.Code) is CurriculumDepth.Detailed) line += " · подробно";
+            return line;
+        });
+        return [heading, .. topics.Chunk(4).Select(chunk => string.Join('\n', chunk)),
+            view.OptionalCheck is { } code
+                ? $"Эта тема служит предпосылкой. Можно продолжить с /learn_next или выбрать короткую проверку после текущего упражнения: /learn_focus {code}."
+                : "Напишите «покажи дерево тем» или «история маршрута». /learn_route tree · /learn_route history"];
+    }
 
     private static IReadOnlyList<string> RenderDiagnostic(CurriculumResult.Diagnostic result)
     {

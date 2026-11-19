@@ -13,7 +13,11 @@ public sealed record LessonProgramContext(string Discipline, string Goal, string
     string? DiagnosticQuestion, string? DiagnosticAnswer);
 public sealed record LessonRequest(string Topic, LessonProgramContext? Program = null, TeachingContext? Teaching = null,
     bool IsReview = false, SharedSkillContext? SharedSkill = null, ProjectPracticeContext? ProjectPractice = null,
-    LearningPersonalization? Personalization = null, TransferPracticeContext? Transfer = null);
+    LearningPersonalization? Personalization = null, TransferPracticeContext? Transfer = null)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CurriculumDepth? RouteDepth { get; init; }
+}
 public sealed record TransferPracticeContext(string SourceTopic, InterdisciplinaryPractice Relation);
 public sealed record ProjectPracticeContext(long ProjectId, string ProjectTitle, long ActionId, string ActionTitle);
 public sealed record SharedSkillContext(string Description, LearnerSkillState State);

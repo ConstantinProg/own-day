@@ -28,6 +28,7 @@ public static class TelegramProgressPresenter
             var state = status?.State;
             var text = $"{item.Topic.Code}: {item.Topic.Title}\nRoute credit: {item.Completed}; " +
                 $"practice available: {item.Available}\n";
+            if (route.IsSkipped(item.Topic.Code)) text += $"Skipped in this route. Optional check: /learn_focus {item.Topic.Code}\n";
             if (!item.Available)
                 text += program.DiagnosticPending ? "Finish diagnosis: /learn_diagnose <answer|skip>\n"
                     : $"Prerequisites: {string.Join(", ", item.Topic.Prerequisites)}\n";

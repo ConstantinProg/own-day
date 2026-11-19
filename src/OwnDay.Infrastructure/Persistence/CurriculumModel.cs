@@ -72,6 +72,9 @@ internal static class CurriculumModel
             entity.Property(r => r.Id).ValueGeneratedNever();
             entity.HasAlternateKey(r => new { r.ProgramId, r.Version });
             entity.Property(r => r.Reason).HasMaxLength(CurriculumRoute.MaxReasonLength);
+            entity.Property(r => r.Path).HasConversion(
+                value => JsonSerializer.Serialize(value, JsonSerializerOptions.Web),
+                value => JsonSerializer.Deserialize<CurriculumPath>(value, JsonSerializerOptions.Web)).HasColumnType("jsonb");
             entity.Property(r => r.Topics).HasConversion(value => Serialize(value), value => Deserialize(value))
                 .HasColumnType("jsonb").Metadata.SetValueComparer(new ValueComparer<IReadOnlyList<CurriculumTopic>>(
                     (left, right) => Serialize(left!) == Serialize(right!), value => Serialize(value).GetHashCode(), value => value));

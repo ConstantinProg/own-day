@@ -56,7 +56,8 @@ public static class TelegramDialoguePresenter
                 ? "Упражнение на паузе. Напишите «Продолжим», чтобы вернуться к этому вопросу."
                 : "Напишите ответ или вопрос по упражнению. «Пауза» сохраняет вопрос, «помощь» показывает текущую точку возврата.")];
         if (reply.Kind is DialogueReplyKind.ConfirmFinish or DialogueReplyKind.ConfirmProgramSelection or
-            DialogueReplyKind.ConfirmProgramCreation or DialogueReplyKind.ConfirmGoalIntent or DialogueReplyKind.ConfirmProgramSwitch or DialogueReplyKind.ConfirmGoalSwitch)
+            DialogueReplyKind.ConfirmProgramCreation or DialogueReplyKind.ConfirmGoalIntent or DialogueReplyKind.ConfirmProgramSwitch or
+            DialogueReplyKind.ConfirmGoalSwitch or DialogueReplyKind.ConfirmRouteEdit)
         {
             var summary = reply.Kind switch
             {
@@ -65,11 +66,15 @@ public static class TelegramDialoguePresenter
                 DialogueReplyKind.ConfirmProgramSwitch => "Выбрать программу «" + values[0] + "»? Текущий вопрос и помощь сохраним для возврата. Ограниченную практику остановим; ответы и история сохранятся.",
                 DialogueReplyKind.ConfirmGoalSwitch => "Создать и выбрать программу по новой цели «" + values[0] + "»? Текущий вопрос и помощь сохраним для возврата, ограниченную практику остановим. Старую цель и её результаты сохраним.",
                 DialogueReplyKind.ConfirmGoalIntent => "Сохранить намерение сменить цель: «" + values[0] + "»? Текущее упражнение и программа сохранятся.",
+                DialogueReplyKind.ConfirmRouteEdit => values[0],
                 _ => "Создать и выбрать новую программу по запросу «" + values[0] + "»? История прежней программы сохранится."
             };
             return [summary + " Напишите «подтверждаю " + values[1] + "» или /learn_confirm " + values[1] +
                 ". Для отмены: /cancel. Код действует 10 минут."];
         }
+        if (reply.Kind == DialogueReplyKind.RouteEditHelp)
+            return ["Укажите код темы из /learn_route tree. Например, «пропустить тему basics» или «перенеси тему examples перед practice».\n" +
+                "/learn_route_edit skip <код> · unskip <код> · brief <код> · detailed <код> · standard <код> · before <код> <код> · restore <версия>"];
         return [reply.Kind switch
         {
             DialogueReplyKind.Interrupted => "Учебная реплика поступила до смены режима ввода и устарела. Завершите текущий ввод, затем напишите «Продолжим».",

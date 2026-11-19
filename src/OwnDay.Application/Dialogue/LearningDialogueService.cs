@@ -47,6 +47,11 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
         const string appealPrefix = "оспорить оценку ";
         if (command is null && normalized.StartsWith(appealPrefix, StringComparison.Ordinal))
             return new(context, DialogueOperationKind.AppealAssessment, turn.Text.Trim()[appealPrefix.Length..]);
+        var routeView = command == DialogueOperationKind.ViewRoute ? normalized : command is null ? RouteDialogue.View(normalized) : null;
+        if (routeView is not null) return new(context, DialogueOperationKind.ViewRoute, routeView);
+        var routeEdit = command == DialogueOperationKind.EditRoute ? turn.Text.Trim() : command is null ? RouteDialogue.Edit(normalized) : null;
+        if (routeEdit is not null)
+            return await DecideActionAsync(context, turn, DialogueOperationKind.EditRoute, routeEdit, lesson, program, stamp, false, false, token);
         if (sessions is not null && turn.SourceOrder > 0)
         {
             if (command == DialogueOperationKind.EndSession ||
@@ -328,7 +333,15 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
             }
         }
         if (action == DialogueOperationKind.ChangeGoal && programSwitchEnabled) return Reply(context, DialogueReplyKind.AskNewGoal);
-        var consequential = action == DialogueOperationKind.Finish && lesson is not null || action == DialogueOperationKind.ChangeGoal ||
+        string? routeEditLabel = null;
+        if (action == DialogueOperationKind.EditRoute)
+        {
+            if (program is null) return Reply(context, DialogueReplyKind.ProgramUnavailable);
+            if (!confirmed && turn.SourceOrder <= context.ResponseAfterSourceOrder) return Reply(context, DialogueReplyKind.NeedBinding);
+            routeEditLabel = RouteDialogue.DescribeEdit(arguments);
+            if (routeEditLabel is null) return Reply(context, DialogueReplyKind.RouteEditHelp);
+        }
+        var consequential = action == DialogueOperationKind.Finish && lesson is not null || action is DialogueOperationKind.ChangeGoal or DialogueOperationKind.EditRoute ||
             action is DialogueOperationKind.CreateProgram or DialogueOperationKind.CreateProjectProgram && program is not null ||
             action == DialogueOperationKind.SelectProgram && Guid.TryParse(arguments.Trim(), out var selected) && selected != program?.Id ||
             action is DialogueOperationKind.SwitchProgram or DialogueOperationKind.SwitchGoal or DialogueOperationKind.SwitchCreateProgram or DialogueOperationKind.SwitchCreateProjectProgram;
@@ -338,7 +351,7 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
             if (action is DialogueOperationKind.SelectProgram or DialogueOperationKind.SwitchProgram && targetProgram is null) return Reply(context, DialogueReplyKind.ProgramUnavailable);
             var confirmationStamp = action is DialogueOperationKind.SelectProgram or DialogueOperationKind.SwitchProgram ? WithProgramTarget(stamp, targetProgram) : stamp;
             var label = action is DialogueOperationKind.SelectProgram or DialogueOperationKind.SwitchProgram ? Bounded(targetProgram!.Goal)
-                : action == DialogueOperationKind.Finish ? Bounded(lesson!.Topic) : Bounded(arguments);
+                : action == DialogueOperationKind.Finish ? Bounded(lesson!.Topic) : routeEditLabel ?? Bounded(arguments);
             context.OpenConfirmation(turn.RequestId, action, arguments, confirmationStamp, turn.Now,
                 new(targetProgram?.Id, targetProgram?.RouteVersion, lesson?.Id, context.QuestionFingerprint,
                     targetProgram?.Version, turn.LessonVersion), label, turn.SourceOrder);
@@ -375,6 +388,7 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
             DialogueOperationKind.SwitchProgram => DialogueReplyKind.ConfirmProgramSwitch,
             DialogueOperationKind.SwitchGoal or DialogueOperationKind.SwitchCreateProgram or DialogueOperationKind.SwitchCreateProjectProgram => DialogueReplyKind.ConfirmGoalSwitch,
             DialogueOperationKind.ChangeGoal => DialogueReplyKind.ConfirmGoalIntent,
+            DialogueOperationKind.EditRoute => DialogueReplyKind.ConfirmRouteEdit,
             _ => DialogueReplyKind.ConfirmProgramCreation
         }, [proposal.Label ?? "", proposal.Code]));
     private static DialogueDecision Reply(DialogueContext context, DialogueReplyKind kind) => new(context, null, "", new(kind));

@@ -100,7 +100,9 @@ public sealed partial class LearningProgram
     public CurriculumTopic? NextTopic(IReadOnlySet<string> completed)
     {
         if (DiagnosticPending) throw new InvalidOperationException("Finish or skip diagnosis first.");
-        return CurrentRoute.Topics.FirstOrDefault(t => !completed.Contains(t.Code) && t.Prerequisites.All(completed.Contains));
+        var route = CurrentRoute;
+        return route.Topics.FirstOrDefault(t => !completed.Contains(t.Code) && !route.IsSkipped(t.Code) &&
+            route.PrerequisitesSatisfied(t, completed));
     }
 
     public CurriculumRoute ProposeAdaptation(string topicCode, string reason)
@@ -120,6 +122,7 @@ public sealed partial class LearningProgram
         var route = CurriculumRoute.Create(Id, CurrentRoute.Version + 1, reason,
             CurrentRoute.Topics.OrderBy(t => priority.Contains(t.Code) ? 0 : 1));
         route.PreserveProgress(CurrentRoute.ProgressRootVersion);
+        route.SetPath(CurrentRoute.Path?.ForSuccessor());
         return route;
     }
 
@@ -139,10 +142,92 @@ public sealed partial class LearningProgram
             .Select(r => r.Version).ToArray();
     }
 
+    public bool ReviseRoute(int expectedVersion, IReadOnlyList<CurriculumTopic> topics, string reason)
+    {
+        var current = CurrentRoute;
+        if (DiagnosticPending || current.Version != expectedVersion) return false;
+        Validate(reason, CurriculumRoute.MaxReasonLength);
+        var next = CurriculumRoute.Create(Id, current.Version + 1, reason, topics);
+        // Editing the path preserves the meaning of every topic in this progress family.
+        if (next.Topics.Count != current.Topics.Count || next.Topics.Any(topic => !current.Topics.Any(previous =>
+                previous.Code == topic.Code && previous.Title == topic.Title)))
+            throw new ArgumentException("Route edits must preserve topic identities.", nameof(topics));
+        if (!next.Topics.SequenceEqual(topics) || next.HasSameOrderedTopics(current)) return false;
+        next.PreserveProgress(current.ProgressRootVersion);
+        next.SetPath(current.Path?.ForSuccessor());
+        _routes.Add(next);
+        return true;
+    }
+
+    public bool SetTopicSkipped(int expectedVersion, string code, bool skipped, string reason)
+    {
+        var current = CurrentRoute;
+        if (DiagnosticPending || current.Version != expectedVersion || current.IsSkipped(code) == skipped ||
+            !current.Topics.Any(topic => topic.Code == code)) return false;
+        var codes = current.Path?.SkippedTopics ?? [];
+        var next = skipped ? codes.Append(code) : codes.Where(value => value != code);
+        AppendPath(current, new(next.ToArray(), current.Path?.DepthOverrides ?? [], null), reason);
+        return true;
+    }
+
+    public bool SetTopicDepth(int expectedVersion, string code, CurriculumDepth depth, string reason)
+    {
+        var current = CurrentRoute;
+        if (!Enum.IsDefined(depth)) throw new ArgumentOutOfRangeException(nameof(depth));
+        if (DiagnosticPending || current.Version != expectedVersion || current.DepthFor(code) == depth ||
+            !current.Topics.Any(topic => topic.Code == code)) return false;
+        var depths = (current.Path?.DepthOverrides ?? []).Where(topic => topic.Code != code);
+        if (depth != CurriculumDepth.Standard) depths = depths.Append(new(code, depth));
+        AppendPath(current, new(current.Path?.SkippedTopics ?? [], depths.ToArray(), null), reason);
+        return true;
+    }
+
+    public bool RestoreRoute(int expectedVersion, int version, string reason)
+    {
+        var current = CurrentRoute;
+        if (DiagnosticPending || current.Version != expectedVersion || version >= expectedVersion ||
+            _routes.SingleOrDefault(route => route.Version == version) is not { } source) return false;
+        if (current.ProgressRootVersion == source.ProgressRootVersion && current.HasSameOrderedTopics(source) &&
+            current.Topics.All(topic => current.IsSkipped(topic.Code) == source.IsSkipped(topic.Code) &&
+                current.DepthFor(topic.Code) == source.DepthFor(topic.Code))) return false;
+        AppendPath(source, new(source.Path?.SkippedTopics ?? [], source.Path?.DepthOverrides ?? [], source.Version), reason);
+        return true;
+    }
+
+    private void AppendPath(CurriculumRoute source, CurriculumPath path, string reason)
+    {
+        Validate(reason, CurriculumRoute.MaxReasonLength);
+        var next = CurriculumRoute.Create(Id, CurrentRoute.Version + 1, reason, source.Topics);
+        next.PreserveProgress(source.ProgressRootVersion);
+        next.SetPath(path);
+        _routes.Add(next);
+    }
+
     internal static void Validate(string value, int maximum)
     {
         if (string.IsNullOrWhiteSpace(value) || value.Length > maximum) throw new ArgumentException("Invalid curriculum text.");
     }
+}
+
+public enum CurriculumDepth { Standard, Brief, Detailed }
+
+public sealed record CurriculumTopicDepth(string Code, CurriculumDepth Depth);
+
+public sealed record CurriculumPath
+{
+    public CurriculumPath(IReadOnlyList<string> skippedTopics, IReadOnlyList<CurriculumTopicDepth> depthOverrides, int? restoredFrom)
+    {
+        SkippedTopics = Array.AsReadOnly(skippedTopics.ToArray());
+        DepthOverrides = Array.AsReadOnly(depthOverrides.ToArray());
+        RestoredFrom = restoredFrom;
+    }
+
+    public IReadOnlyList<string> SkippedTopics { get; }
+    public IReadOnlyList<CurriculumTopicDepth> DepthOverrides { get; }
+    public int? RestoredFrom { get; }
+
+    internal CurriculumPath? ForSuccessor() => RestoredFrom is null ? this
+        : SkippedTopics.Count == 0 && DepthOverrides.Count == 0 ? null : new(SkippedTopics, DepthOverrides, null);
 }
 
 public sealed class CurriculumRoute
@@ -158,8 +243,21 @@ public sealed class CurriculumRoute
     public int? ProgressVersion { get; private set; }
     public int ProgressRootVersion => ProgressVersion ?? Version;
     public IReadOnlyList<CurriculumTopic> Topics { get; private set; } = [];
+    public CurriculumPath? Path { get; private set; }
+
+    public bool IsSkipped(string code) => Path?.SkippedTopics.Contains(code, StringComparer.Ordinal) == true;
+
+    public CurriculumDepth DepthFor(string code) => Path?.DepthOverrides.SingleOrDefault(topic => topic.Code == code)?.Depth ?? CurriculumDepth.Standard;
+
+    public bool PrerequisitesSatisfied(CurriculumTopic topic, IReadOnlySet<string> completed) =>
+        topic.Prerequisites.All(code => completed.Contains(code) || IsSkipped(code));
+
+    internal bool HasSameOrderedTopics(CurriculumRoute other) => Topics.Count == other.Topics.Count && Topics.Zip(other.Topics).All(pair =>
+        pair.First.Code == pair.Second.Code && pair.First.Title == pair.Second.Title &&
+        pair.First.Prerequisites.SequenceEqual(pair.Second.Prerequisites));
 
     internal void PreserveProgress(int version) => ProgressVersion = version;
+    internal void SetPath(CurriculumPath? path) => Path = path;
 
     internal static CurriculumRoute Create(Guid programId, int version, string reason, IEnumerable<CurriculumTopic> topics)
     {

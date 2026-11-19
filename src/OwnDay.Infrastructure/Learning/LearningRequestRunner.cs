@@ -179,6 +179,21 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
             return new(null, decision.Audit?.Code ?? "dialogue_reply")
                 { Replies = Introduce(introduce, TelegramDialoguePresenter.Render(decision.Reply ?? new(DialogueReplyKind.Unavailable))), DialogueOutcomeJson = audit };
         }
+        if (operation is DialogueOperationKind.ViewRoute or DialogueOperationKind.EditRoute)
+        {
+            var curriculum = CreateCurriculum(services, session);
+            CurriculumResult result;
+            if (operation == DialogueOperationKind.ViewRoute)
+                result = await curriculum.ViewRouteAsync(request.UserId, decision.Arguments, token);
+            else if (decision.Audit?.Confirmation?.Target is { ProgramId: { } programId, RouteVersion: { } version })
+                result = await curriculum.EditRouteAsync(request.UserId, programId, version, decision.Arguments, token);
+            else
+                result = new CurriculumResult.RouteEditRejected();
+            session.EnsureComplete();
+            if (operation == DialogueOperationKind.EditRoute) decision.Context.Synchronize(lesson, now, turn.SourceOrder);
+            return new(null, result is CurriculumResult.RouteEditRejected ? "route_rejected" : "route_reply")
+                { Replies = Introduce(introduce, TelegramCurriculumPresenter.Render(result)), DialogueOutcomeJson = audit };
+        }
         if (operation is DialogueOperationKind.ExplainAssessment or DialogueOperationKind.AppealAssessment)
         {
             var assessments = new AssessmentReviewService(services.GetRequiredService<IAssessmentReviewStore>(),
@@ -278,6 +293,7 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
         "learn_end_session" => DialogueOperationKind.EndSession,
         "learn_solution" => DialogueOperationKind.RevealSolution,
         "learn_assessment" => DialogueOperationKind.ExplainAssessment, "learn_appeal" => DialogueOperationKind.AppealAssessment,
+        "learn_route" => DialogueOperationKind.ViewRoute, "learn_route_edit" => DialogueOperationKind.EditRoute,
         "learn_next" => DialogueOperationKind.Next, "learn_progress" => DialogueOperationKind.Progress,
         "learn_request" or "learn_program" => DialogueOperationKind.CreateProgram,
         "learn_project" => DialogueOperationKind.CreateProjectProgram, "learn_select" => DialogueOperationKind.SelectProgram,
@@ -325,7 +341,7 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
                     // A legacy program has the same checkpoint stamp on either side of the additive migration.
                     .Where(property => property.Name is not (nameof(LearningProgram.GoalCriterion) or nameof(LearningProgram.SubjectDiagnostic) or
                         nameof(Lesson.RubricEvaluation) or nameof(LearningEvidence.RubricEvidence) or
-                        nameof(LearningEvidence.ReviewHistory) or nameof(LearningEvidence.ReassessmentCredit)) ||
+                        nameof(LearningEvidence.ReviewHistory) or nameof(LearningEvidence.ReassessmentCredit) or nameof(CurriculumRoute.Path)) ||
                         entry.OriginalValues[property] is not null)
                     .OrderBy(property => property.Name, StringComparer.Ordinal)
                     .ToDictionary(property => property.Name, property => entry.OriginalValues[property]), JsonSerializerOptions.Web))
