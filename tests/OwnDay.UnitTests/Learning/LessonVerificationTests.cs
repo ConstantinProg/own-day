@@ -92,10 +92,10 @@ public sealed class LessonVerificationTests
     }
 
     [Fact]
-    public void Complete_LegacyGeneratedSample_DoesNotVetoAnEquivalentAnswer()
+    public void Complete_AnswerExample_DoesNotVetoAnEquivalentAnswer()
     {
-        var provenance = new LessonProvenance("OpenAI:historical-model", null, null, null, null, MaterialSourceStatus.None);
-        var lesson = Lesson.Start(new UserId(1), "Roles", "Theory", "Who routes the order?", provenance, "broker");
+        var lesson = Lesson.Start(new UserId(1), "Roles", "Theory", "Who routes the order?", expectedAnswer: "broker",
+            referenceKind: AnswerReferenceKind.Example);
         lesson.Complete("a brokerage firm", "Identifies the intermediary.", true);
 
         Assert.True(lesson.IsCorrect);

@@ -66,7 +66,7 @@ public sealed partial class CurriculumService
                     shared?.State ?? status?.State ?? LearnerSkillState.Evaluate([]), []), SharedSkill: shared,
                 ProjectPractice: new(project.Id, project.Title, action.Id, action.Title), Personalization: personalization.ForGeneration()), token);
             token.ThrowIfCancellationRequested();
-            var lesson = Lesson.Start(user, topic.Title, material.Theory, material.Question, material.Provenance, material.ExpectedAnswer, material.Content);
+            var lesson = material.CreateLesson(user, topic.Title);
             lesson.SetTeaching(new(PedagogicalStrategy.Practice, personalization.EffectivePreferences()));
             lesson.LinkToProgram(program, code);
             lesson.LinkToProjectAction(program, action);

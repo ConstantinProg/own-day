@@ -38,7 +38,7 @@ public sealed partial class CurriculumService
                 SharedSkill: shared, Personalization: personalization.ForGeneration(),
                 Transfer: new(sourceTopic.Title, relation)), token);
             token.ThrowIfCancellationRequested();
-            var generated = Lesson.Start(user, topic.Title, material.Theory, material.Question, material.Provenance, material.ExpectedAnswer, material.Content);
+            var generated = material.CreateLesson(user, topic.Title);
             generated.LinkToProgram(program, code);
             generated.LinkToSkill(sourceStatus.Skill);
             generated.LinkTransfer(program, source, sourceCode, link);

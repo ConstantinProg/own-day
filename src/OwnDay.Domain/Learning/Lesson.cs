@@ -19,11 +19,13 @@ public sealed class Lesson
     public bool? DeterministicIsCorrect { get; private set; }
     public AnswerAssessmentStatus AssessmentStatus { get; private set; }
     public string? ExpectedAnswer { get; private set; }
+    public AnswerReferenceKind ReferenceKind { get; private set; }
     public LessonProvenance? Provenance { get; private set; }
     public LessonStatus Status { get; private set; }
     public LessonStatus? SuspendedFrom { get; private set; }
     public Guid? SuspendedForProgramId { get; private set; }
     public Guid? ProgramId { get; private set; }
+    public Guid? PracticeProgramId { get; private set; }
     public int? RouteVersion { get; private set; }
     public string? TopicCode { get; private set; }
     public Guid? SkillId { get; private set; }
@@ -43,9 +45,7 @@ public sealed class Lesson
                 [new("question", Question.Length <= 200 ? Question : "Assess the question as asked.")])
         }
         : Content;
-    public bool UsesReferenceCheck => ExpectedAnswer is not null &&
-        Provenance?.Generator.StartsWith("OpenAI:", StringComparison.Ordinal) != true && Content?.Id != LearningContent.GeneratedExerciseId &&
-        Content?.StructuredRubric?.Version != ExerciseRubric.QuestionScopedVersion;
+    public bool UsesReferenceCheck => ExpectedAnswer is not null && ReferenceKind == AnswerReferenceKind.ExactKey;
     public bool HasPendingLegacyAssessment => Content is { Id: LearningContent.GeneratedExerciseId, StructuredRubric.Version: 1 } &&
         RubricEvaluation is { Final: false, ScopedToQuestion: false };
     public string ResponseQuestion => !HasPendingLegacyAssessment &&
@@ -61,7 +61,8 @@ public sealed class Lesson
     public IReadOnlyCollection<LessonInteraction> Interactions => _interactions.AsReadOnly();
 
     public static Lesson Start(UserId user, string topic, string theory, string question,
-        LessonProvenance? provenance = null, string? expectedAnswer = null, LearningContent? content = null)
+        LessonProvenance? provenance = null, string? expectedAnswer = null, LearningContent? content = null,
+        AnswerReferenceKind referenceKind = AnswerReferenceKind.ExactKey)
     {
         if (!user.IsValid) throw new ArgumentException("Invalid user.", nameof(user));
         Validate(topic, 500);
@@ -69,8 +70,9 @@ public sealed class Lesson
         Validate(question, 1000);
         provenance?.Validate();
         if (expectedAnswer is not null) Validate(expectedAnswer, 500);
+        if (!Enum.IsDefined(referenceKind)) throw new ArgumentOutOfRangeException(nameof(referenceKind));
         var lesson = new Lesson { Id = Guid.NewGuid(), UserId = user, Topic = topic, Theory = theory, Question = question,
-            Provenance = provenance, ExpectedAnswer = expectedAnswer, Assistance = AnswerAssistance.Independent };
+            Provenance = provenance, ExpectedAnswer = expectedAnswer, ReferenceKind = referenceKind, Assistance = AnswerAssistance.Independent };
         if (content is not null) lesson.SetContent(content);
         return lesson;
     }
@@ -80,8 +82,11 @@ public sealed class Lesson
         RequireAwaitingAnswer();
         content.Validate();
         content.StructuredRubric?.ValidateQuestion(Question);
-        if (Content is not null || content.Kind == LearningContentKind.OpenWriting && ExpectedAnswer is not null)
+        if (Content is not null) throw new InvalidOperationException("Lesson content is already set.");
+        if (UsesReferenceCheck && content.Kind == LearningContentKind.OpenWriting)
             throw new InvalidOperationException("Writing uses a rubric, not an exact answer key.");
+        if (UsesReferenceCheck && content.StructuredRubric?.Version == ExerciseRubric.QuestionScopedVersion)
+            throw new ArgumentException("This exercise uses a rubric and cannot require an exact answer key.", nameof(content));
         Content = content;
     }
 
@@ -175,12 +180,20 @@ public sealed class Lesson
     public void LinkToProgram(LearningProgram program, string topicCode)
     {
         RequireAwaitingAnswer();
-        if (IsReview || ProgramId is not null || program.UserId != UserId || program.DiagnosticPending ||
+        if (IsReview || ProgramId is not null || PracticeProgramId is not null || program.UserId != UserId || program.DiagnosticPending ||
             !program.CurrentRoute.Topics.Any(t => t.Code == topicCode))
             throw new ArgumentException("Invalid program topic.");
         ProgramId = program.Id;
         RouteVersion = program.CurrentRoute.Version;
         TopicCode = topicCode;
+    }
+
+    public void LinkPracticeToProgram(LearningProgram program)
+    {
+        RequireAwaitingAnswer();
+        if (ProgramId is not null || PracticeProgramId is not null || program.UserId != UserId)
+            throw new ArgumentException("Invalid practice program.", nameof(program));
+        PracticeProgramId = program.Id;
     }
 
     public void LinkToProjectAction(LearningProgram program, OwnDay.Domain.Actions.Action action)

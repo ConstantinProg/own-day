@@ -376,7 +376,7 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
                 }, token);
             if (scaffold) material = material with { Theory = material.Theory + "\n\n" + EnglishLearningContent.LessonScaffold };
             token.ThrowIfCancellationRequested();
-            var lesson = Lesson.Start(user, topic.Title, material.Theory, material.Question, material.Provenance, material.ExpectedAnswer, material.Content);
+            var lesson = material.CreateLesson(user, topic.Title);
             if (authored) lesson.SetContent(EnglishLearningContent.FirstLesson);
             if (scaffold) lesson.AddExplanation(LessonInteractionKind.Clarification, "Опора после диагностики", EnglishLearningContent.LessonScaffold);
             lesson.SetTeaching(new(teaching is null ? PedagogicalStrategy.Standard : AdaptiveTeaching.StrategyFor(teaching.Action),

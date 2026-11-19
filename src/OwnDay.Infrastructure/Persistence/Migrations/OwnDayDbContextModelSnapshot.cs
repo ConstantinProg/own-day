@@ -1055,6 +1055,9 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
                     .HasMaxLength(500)
                     .HasColumnType("character varying(500)");
 
+                b.Property<int>("ReferenceKind").HasColumnType("integer");
+                b.Property<Guid?>("PracticeProgramId").HasColumnType("uuid");
+
                 b.Property<string>("Provenance")
                     .HasColumnType("jsonb");
 

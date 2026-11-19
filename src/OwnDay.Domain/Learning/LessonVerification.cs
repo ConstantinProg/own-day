@@ -1,5 +1,7 @@
 namespace OwnDay.Domain.Learning;
 
+public enum AnswerReferenceKind { ExactKey, Example }
+
 public enum MaterialSourceStatus
 {
     None,

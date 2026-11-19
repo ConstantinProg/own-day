@@ -150,6 +150,9 @@ public sealed class KnowledgeServiceTests
 
     private sealed class Lessons(Lesson? active) : ILessonStore
     {
+        public Task<Lesson?> FindLatestAssessedAsync(UserId user, Guid? programId, CancellationToken token) =>
+            Task.FromResult<Lesson?>(null);
+
         public Lesson? Added { get; private set; }
         public Task<Lesson?> FindActiveAsync(UserId user, CancellationToken token) => Task.FromResult(active);
         public void Add(Lesson lesson) => Added = lesson;

@@ -8,6 +8,17 @@ namespace OwnDay.UnitTests.Learning;
 public sealed class ExerciseRubricTests
 {
     [Fact]
+    public void Start_QuestionContainsAnUnassessedPrefix_RejectsTheExercise()
+    {
+        const string task = "Объясните, как проходит клиринг.";
+        var content = new LearningContent("market", "rubric-v2", LearningContentKind.StructuredExercise,
+            "Клиринг", task, task, new(ExerciseRubric.QuestionScopedVersion, ExerciseEvidenceKind.Understanding, [new("clearing", task)]));
+
+        Assert.Throws<ArgumentException>(() => Lesson.Start(new UserId(1), "Биржа", "Контекст сделки.",
+            "Кто передаёт поручение?\n\n" + task, content: content));
+    }
+
+    [Fact]
     public void ApplyRubricAssessment_RepeatedWrongAnswers_BoundsHelpAndRetainsTheOriginalAttempts()
     {
         var lesson = Lesson.Start(new UserId(1), "Types", "Theory", "Compare these types.",

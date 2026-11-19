@@ -492,7 +492,7 @@ public sealed partial class PostgresLearningProviderTests : IAsyncLifetime
                     usage = new { prompt_tokens = 30, completion_tokens = 10, total_tokens = 40,
                         prompt_tokens_details = new { cached_tokens = 5 } },
                     choices = new[] { new { index = 0, finish_reason = "stop", message = new
-                    { role = "assistant", content = """{"Theory":"Theory","Question":"Question","EvidenceKind":"Understanding","SourceQuote":null,"Criteria":[{"Code":"explain","Requirement":"Question"}]}""" } } }
+                    { role = "assistant", content = """{"Theory":"Theory","EvidenceKind":"Understanding","SourceQuote":null,"Criteria":[{"Code":"explain","Requirement":"Question"}]}""" } } }
                 }), Encoding.UTF8, "application/json")
             })));
             var teacher = new OpenAILessonTeacher(() => new ChatClient("test", new ApiKeyCredential("dummy-key"), new OpenAIClientOptions

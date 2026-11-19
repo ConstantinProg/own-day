@@ -18,6 +18,13 @@ public sealed class EfLessonStore(OwnDayDbContext db) : ILessonStore
         return stored?.Status is LessonStatus.AwaitingAnswer or LessonStatus.Paused ? stored : null;
     }
 
+    public Task<Lesson?> FindLatestAssessedAsync(UserId user, Guid? programId, CancellationToken token) =>
+        (from evidence in db.Set<LearningEvidence>()
+         join lesson in db.Set<Lesson>() on new { evidence.LessonId, evidence.UserId } equals new { LessonId = lesson.Id, lesson.UserId }
+         where evidence.UserId == user && lesson.Status == LessonStatus.Completed && (lesson.ProgramId ?? lesson.PracticeProgramId) == programId
+         orderby evidence.ObservedAt descending, lesson.Id descending
+         select lesson).FirstOrDefaultAsync(token);
+
     public Task<string[]> RecentQuestionsAsync(UserId user, Guid skillId, CancellationToken token) =>
         (from evidence in db.Set<LearningEvidence>()
          join lesson in db.Set<Lesson>() on new { evidence.LessonId, evidence.UserId } equals new { LessonId = lesson.Id, lesson.UserId }

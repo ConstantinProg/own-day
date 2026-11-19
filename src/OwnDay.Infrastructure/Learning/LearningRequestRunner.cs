@@ -129,7 +129,8 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
 
     private static LearningPracticeService CreatePractice(IServiceProvider services, LearningProviderSession session) =>
         new(services.GetRequiredService<ICurriculumStore>(), services.GetRequiredService<ILessonStore>(),
-            new(services.GetRequiredService<ILessonStore>(), session, services.GetRequiredService<KnowledgeService>()),
+            new(services.GetRequiredService<ILessonStore>(), session, services.GetRequiredService<KnowledgeService>(),
+                curriculum: services.GetRequiredService<ICurriculumStore>()),
             CreateCurriculum(services, session));
 
     private static async Task<LearningRequestExecution> ExecuteDialogueAsync(IServiceProvider services, OwnDayDbContext db,
@@ -315,8 +316,9 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
         IReadOnlyList<string> replies;
         if (operation == DialogueOperationKind.PracticeLastSkill)
         {
-            var learning = new LearningService(services.GetRequiredService<ILessonStore>(), session, services.GetRequiredService<KnowledgeService>());
-            var practice = await learning.PracticeLastAsync(request.UserId, program?.Id, services.GetRequiredService<IAssessmentReviewStore>(), token);
+            var learning = new LearningService(services.GetRequiredService<ILessonStore>(), session, services.GetRequiredService<KnowledgeService>(),
+                curriculum: services.GetRequiredService<ICurriculumStore>());
+            var practice = await learning.PracticeLastAsync(request.UserId, program?.Id, token);
             replies = practice is LearningResult.NoActiveLesson
                 ? ["Сначала откройте упражнение. После ответа можно попросить следующее задание по тому же навыку."]
                 : TelegramLearningPresenter.Render(practice);

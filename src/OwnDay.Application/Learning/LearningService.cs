@@ -6,6 +6,7 @@ namespace OwnDay.Application.Learning;
 public interface ILessonStore
 {
     Task<Lesson?> FindActiveAsync(UserId user, CancellationToken token);
+    Task<Lesson?> FindLatestAssessedAsync(UserId user, Guid? programId, CancellationToken token);
     Task<string[]> RecentQuestionsAsync(UserId user, Guid skillId, CancellationToken token) => Task.FromResult(Array.Empty<string>());
     void Add(Lesson lesson);
 }
@@ -38,7 +39,12 @@ public sealed record LessonMaterial(string Theory, string Question)
 {
     public LessonProvenance? Provenance { get; init; }
     public string? ExpectedAnswer { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public AnswerReferenceKind ReferenceKind { get; init; }
     public LearningContent? Content { get; init; }
+
+    internal Lesson CreateLesson(UserId user, string topic) =>
+        Lesson.Start(user, topic, Theory, Question, Provenance, ExpectedAnswer, Content, ReferenceKind);
 }
 public sealed record LessonAssessment(string Feedback, bool IsCorrect)
 {
@@ -150,10 +156,12 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
 
         try
         {
+            var program = curriculum is null ? null : await curriculum.FindAsync(user, token);
             var personalization = await knowledge.PersonalizationAsync(user, token);
             var material = await teacher.GenerateAsync(new LessonRequest(topic, Personalization: personalization.ForGeneration()), token);
             token.ThrowIfCancellationRequested();
-            var lesson = Lesson.Start(user, topic, material.Theory, material.Question, material.Provenance, material.ExpectedAnswer, material.Content);
+            var lesson = material.CreateLesson(user, topic);
+            if (program is not null) lesson.LinkPracticeToProgram(program);
             lesson.SetTeaching(new(PedagogicalStrategy.Standard, personalization.EffectivePreferences()));
             await knowledge.AttachAsync(lesson, lesson.Topic, token);
             store.Add(lesson);
@@ -266,12 +274,12 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
     public Task<LearningResult> PracticeAsync(UserId user, Guid skillId, CancellationToken token) =>
         StartSkillLessonAsync(user, skillId, SkillLessonKind.Practice, token);
 
-    public async Task<LearningResult> PracticeLastAsync(UserId user, Guid? programId, IAssessmentReviewStore attempts, CancellationToken token)
+    public async Task<LearningResult> PracticeLastAsync(UserId user, Guid? programId, CancellationToken token)
     {
         ValidateUser(user, token);
-        var latest = await attempts.FindLatestAsync(user, null, token);
-        return latest is not null && (latest.Lesson.ProgramId is null || latest.Lesson.ProgramId == programId)
-            ? await PracticeAsync(user, latest.Evidence.SkillId, token)
+        var latest = await store.FindLatestAssessedAsync(user, programId, token);
+        return latest?.SkillId is Guid skillId
+            ? await PracticeAsync(user, skillId, token)
             : new LearningResult.NoActiveLesson();
     }
 
@@ -312,6 +320,7 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
         }
         try
         {
+            var program = curriculum is null ? null : await curriculum.FindAsync(user, token);
             TeachingContext? teaching = null;
             if (kind == SkillLessonKind.Practice)
             {
@@ -331,7 +340,7 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
                     : null
             }, token);
             token.ThrowIfCancellationRequested();
-            var lesson = Lesson.Start(user, skill.Title, material.Theory, material.Question, material.Provenance, material.ExpectedAnswer, material.Content);
+            var lesson = material.CreateLesson(user, skill.Title);
             if (lesson.Content?.StructuredRubric?.Version == ExerciseRubric.QuestionScopedVersion)
             {
                 var fingerprint = RubricEvidence.FingerprintQuestion(lesson.Question);
@@ -340,6 +349,7 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
             }
             lesson.SetTeaching(new(strategy, personalization.EffectivePreferences()));
             lesson.LinkToSkill(skill);
+            if (program is not null) lesson.LinkPracticeToProgram(program);
             if (kind == SkillLessonKind.Review) lesson.MarkAsReview();
             store.Add(lesson);
             return Material(lesson);

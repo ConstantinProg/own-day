@@ -142,6 +142,9 @@ public sealed class LearningServiceTests
 
     private sealed class Store : ILessonStore
     {
+        public Task<Lesson?> FindLatestAssessedAsync(UserId user, Guid? programId, CancellationToken token) =>
+            Task.FromResult<Lesson?>(null);
+
         public Lesson? Active { get; init; }
         public bool Accessed { get; private set; }
         public Task<Lesson?> FindActiveAsync(UserId user, CancellationToken token)

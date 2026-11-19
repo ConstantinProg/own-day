@@ -255,7 +255,8 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
         if (lesson is null && program is { PendingDiagnosticQuestion: { } question } && command is null)
             return DecideDiagnostic(context, turn, normalized, program, question);
         if (anotherExercise)
-            return lesson is null ? new(context, DialogueOperationKind.PracticeLastSkill, "") : Recap(context, lesson);
+            return lesson is not null ? Recap(context, lesson)
+                : PracticeAction(context, turn, DialogueOperationKind.PracticeLastSkill);
         if (lesson is null && program is not null && (command == DialogueOperationKind.Resume ||
             command is null && Deterministic(normalized) == DialogueOperationKind.Resume))
             return new(context, DialogueOperationKind.Next, "") { SuggestReviewsOnReturn = returning && program.PendingDiagnosticQuestion is null };

@@ -26,16 +26,19 @@ public sealed record ExerciseRubric(int Version, ExerciseEvidenceKind Kind, Immu
             LearningProgram.Validate(criterion.Code, 40);
             LearningProgram.Validate(criterion.Requirement, 200);
         }
+        if (Version == QuestionScopedVersion &&
+            (Criteria.Any(criterion => criterion.Requirement != criterion.Requirement.Trim() ||
+                criterion.Requirement.Contains('\n') || criterion.Requirement.Contains('\r')) ||
+                Criteria.Select(criterion => criterion.Requirement).Distinct(StringComparer.OrdinalIgnoreCase).Count() != Criteria.Length ||
+                QuestionText().Length > 1000))
+            throw new ArgumentException("Question tasks must be distinct single lines within the question length limit.");
     }
+
+    public string QuestionText() => string.Join('\n', Criteria.Select(criterion => criterion.Requirement));
 
     public void ValidateQuestion(string question)
     {
-        if (Version != QuestionScopedVersion) return;
-        var requirements = Criteria.Select(criterion => criterion.Requirement).ToArray();
-        var tasks = string.Join('\n', requirements);
-        if (requirements.Any(requirement => requirement != requirement.Trim() || requirement.Contains('\n') || requirement.Contains('\r')) ||
-            requirements.Distinct(StringComparer.OrdinalIgnoreCase).Count() != requirements.Length ||
-            (question != tasks && !question.EndsWith("\n\n" + tasks, StringComparison.Ordinal)))
+        if (Version == QuestionScopedVersion && question != QuestionText())
             throw new ArgumentException("The question must publish every rubric requirement as a task.");
     }
 }

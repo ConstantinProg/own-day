@@ -14,6 +14,90 @@ namespace OwnDay.IntegrationTests.Telegram;
 
 public sealed partial class PostgresLearningProviderTests
 {
+    [Fact]
+    public async Task Post_AnotherExerciseAfterProgramSwitch_UsesLatestAssessmentInSelectedProgram()
+    {
+        Guid firstProgram;
+        Guid secondProgram;
+        Guid firstSkill;
+        Guid secondSkill;
+        await using (var db = Open())
+        {
+            var first = LearningProgram.Create(_user, "First skill", "Beginner", null, "First", [new("root", "First skill", [])], null);
+            var second = LearningProgram.Create(_user, "Second skill", "Beginner", null, "Second", [new("root", "Second skill", [])], null);
+            var firstAssessment = SeedAssessment(first, _now.AddDays(-1));
+            var secondAssessment = SeedAssessment(second, _now.AddDays(-2));
+            firstProgram = first.Id;
+            secondProgram = second.Id;
+            firstSkill = firstAssessment.SkillId;
+            secondSkill = secondAssessment.SkillId;
+            db.Add(LearningContext.Create(first));
+            await db.SaveChangesAsync();
+
+            LearningEvidence SeedAssessment(LearningProgram program, DateTimeOffset at)
+            {
+                var skill = Skill.Create(_user, program.Goal);
+                var lesson = Lesson.Start(_user, program.Goal, "Theory", "Original question");
+                lesson.LinkToProgram(program, "root");
+                lesson.LinkToSkill(skill);
+                lesson.Complete("Original answer", "Accepted", true);
+                var evidence = LearningEvidence.FromAnswer(lesson, at, "test");
+                db.AddRange(program, skill, lesson, evidence);
+                return evidence;
+            }
+        }
+
+        var probe = new Probe("") { Generate = request => new("Theory", "New exercise for " + request.Topic) };
+        using (var host = SwitchHost(probe))
+        using (var client = host.CreateClient())
+        {
+            await SendEnglishAsync(client, 1, "ещё задание");
+            await SendEnglishAsync(client, 2, "/answer First practice answer");
+        }
+
+        using (var host = SwitchHost(probe))
+        using (var client = host.CreateClient())
+        {
+            await SendEnglishAsync(client, 3, "/learn_select " + secondProgram);
+            await SendEnglishAsync(client, 4, "подтверждаю " + await SwitchCodeAsync());
+            await SendEnglishAsync(client, 5, "ещё задание");
+        }
+
+        await using var result = Open();
+        var practice = await result.Set<Lesson>().SingleAsync(item => item.Answer == "First practice answer");
+        Assert.Equal(firstSkill, practice.SkillId);
+        Assert.Equal(firstProgram, practice.PracticeProgramId);
+        Assert.Null(practice.ProgramId);
+        var active = await result.Set<Lesson>().SingleAsync(item => item.Status == LessonStatus.AwaitingAnswer);
+        Assert.Equal(secondSkill, active.SkillId);
+        Assert.Equal(secondProgram, active.PracticeProgramId);
+        Assert.False(result.Database.HasPendingModelChanges());
+    }
+
+    [Fact]
+    public async Task Migrate_LegacyGeneratedSampleAndExplicitKey_PreservesTextAndSetsReferenceRole()
+    {
+        await using var db = Open();
+        var example = Lesson.Start(_user, "Examples", "Theory", "Who routes the order?",
+            new("OpenAI:historical-model", null, null, null, null, MaterialSourceStatus.None), "broker");
+        var key = Lesson.Start(_user, "Keys", "Theory", "Which option?", expectedAnswer: "A");
+        key.Finish();
+        db.AddRange(example, key);
+        await db.SaveChangesAsync();
+        await db.GetService<IMigrator>().MigrateAsync("20261118220000_TrackExplanationProvenance");
+        await db.Database.MigrateAsync();
+        db.ChangeTracker.Clear();
+
+        var migratedExample = await db.Set<Lesson>().SingleAsync(item => item.Id == example.Id);
+        Assert.Equal("broker", migratedExample.ExpectedAnswer);
+        Assert.Equal(AnswerReferenceKind.Example, migratedExample.ReferenceKind);
+        migratedExample.Complete("a brokerage firm", "Accepted", true);
+        Assert.True(migratedExample.IsCorrect);
+        var migratedKey = await db.Set<Lesson>().SingleAsync(item => item.Id == key.Id);
+        Assert.Equal("A", migratedKey.ExpectedAnswer);
+        Assert.True(migratedKey.UsesReferenceCheck);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -32,7 +116,10 @@ public sealed partial class PostgresLearningProviderTests
                 new("execution", "Объясняет, от чего зависит исполнение заявки."),
                 new("settlement", "Отличает торги от расчётов и учёта прав.")
             ]));
-        var original = new LessonMaterial("Инвестор передаёт поручение через посредника.", question) { Content = content, ExpectedAnswer = answer };
+        var original = new LessonMaterial("Инвестор передаёт поручение через посредника.", question)
+        {
+            Content = content, ExpectedAnswer = answer, ReferenceKind = AnswerReferenceKind.Example
+        };
         var probe = new Probe("")
         {
             Curriculum = new("Рыночная механика", [new("roles", "Участники биржевых торгов", [])], null),

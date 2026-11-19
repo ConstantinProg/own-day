@@ -132,7 +132,7 @@ public sealed class OpenAILessonTeacherTests
         {
             id = "test", model = "actual-model", created = 1, @object = "chat.completion",
             choices = new[] { new { index = 0, finish_reason = "stop", message = new { role = "assistant",
-                content = JsonSerializer.Serialize(new { Theory = quote, Question = "Which case?", EvidenceKind = "Recognition", SourceQuote = quote,
+                content = JsonSerializer.Serialize(new { Theory = quote, EvidenceKind = "Recognition", SourceQuote = quote,
                     Criteria = new[] { new ExerciseCriterion("case", "Which case?") },
                     Provenance = new { Status = "verified", Reference = "http://127.0.0.1/private" } }) } } }
         }));
@@ -452,7 +452,7 @@ public sealed class OpenAILessonTeacherTests
         {
             id = "test", model = "test", created = 1, @object = "chat.completion",
             choices = new[] { new { index = 0, finish_reason = "stop",
-                message = new { role = "assistant", content = """{"Theory":"Theory","Question":"Question"}""" } } }
+                message = new { role = "assistant", content = """{"Theory":"Theory","EvidenceKind":"Understanding"}""" } } }
         }));
         using var http = new HttpClient(handler);
         var error = await Assert.ThrowsAsync<LessonProviderException>(() =>
@@ -461,20 +461,58 @@ public sealed class OpenAILessonTeacherTests
     }
 
     [Theory]
-    [InlineData("Кто передаёт поручение?")]
-    [InlineData("Кто передаёт поручение?\nОбъясните, как проходит клиринг.")]
-    [InlineData("Кто передаёт поручение?\n\nКто передаёт поручение?")]
-    public async Task GenerateAsync_CriterionMissingFromPublishedTasks_RejectsTheExercise(string question)
+    [InlineData(false, "Application")]
+    [InlineData(true, "Retrieval")]
+    public async Task GenerateAsync_FollowUpToMarketFact_UsesHypotheticalScenarioAndBuildsQuestionFromTasks(bool review, string evidenceKind)
+    {
+        const string task = "Explain how to check whether the rule applies to this trade.";
+        const string theory = "In this hypothetical market, the rule applies only to the main session.";
+        var completion = JsonSerializer.Serialize(new
+        {
+            Theory = theory,
+            EvidenceKind = evidenceKind,
+            Criteria = new[] { new ExerciseCriterion("scope", task) }
+        });
+        using var handler = new ResponseHandler(JsonSerializer.Serialize(new
+        {
+            id = "test", model = "test", created = 1, @object = "chat.completion",
+            choices = new[] { new { index = 0, finish_reason = "stop", message = new { role = "assistant", content = completion } } }
+        }));
+        using var http = new HttpClient(handler);
+        var request = new LessonRequest("Settlement code for Moscow Exchange equities", IsReview: review,
+            Teaching: review ? null : new(TeachingAction.Practice, "New scenario", LearnerSkillState.Evaluate([]), []))
+        {
+            PreviousQuestions = ["What would you check before applying the rule?"]
+        };
+
+        var material = await Teacher(http, new RecordingLogger()).GenerateAsync(request, default);
+
+        Assert.Equal(1, handler.Requests);
+        Assert.Equal(task, material.Question);
+        Assert.Equal(theory, material.Theory);
+        Assert.Equal(evidenceKind, material.Content!.StructuredRubric!.Kind.ToString());
+        Assert.Equal(MaterialSourceStatus.None, material.Provenance!.Status);
+        using var body = JsonDocument.Parse(handler.RequestBody!);
+        var messages = body.RootElement.GetProperty("messages");
+        Assert.Contains("Do not assert current market rules", messages[0].GetProperty("content").GetString());
+        Assert.False(body.RootElement.GetProperty("response_format").GetProperty("json_schema").GetProperty("schema")
+            .GetProperty("properties").TryGetProperty("Question", out _));
+    }
+
+    [Theory]
+    [InlineData("Explain the answer.")]
+    [InlineData("Explain the answer.\nGive an example.")]
+    [InlineData(" Explain the answer.")]
+    public async Task GenerateAsync_InvalidTaskLines_RejectsTheExercise(string requirement)
     {
         var completion = JsonSerializer.Serialize(new
         {
-            Theory = "Торговля ценными бумагами.",
-            Question = question,
+            Theory = "Context",
             EvidenceKind = "Understanding",
             Criteria = new[]
             {
-                new ExerciseCriterion("role", "Кто передаёт поручение?"),
-                new ExerciseCriterion("clearing", "Объясните, как проходит клиринг после сделки.")
+                new ExerciseCriterion("first", "Explain the answer."),
+                new ExerciseCriterion("second", requirement)
             }
         });
         using var handler = new ResponseHandler(JsonSerializer.Serialize(new
@@ -485,7 +523,7 @@ public sealed class OpenAILessonTeacherTests
         using var http = new HttpClient(handler);
 
         var error = await Assert.ThrowsAsync<LessonProviderException>(() =>
-            Teacher(http, new RecordingLogger()).GenerateAsync(new("Биржевые торги"), default));
+            Teacher(http, new RecordingLogger()).GenerateAsync(new("Topic"), default));
 
         Assert.Equal(LessonProviderFailure.InvalidResponse, error.Reason);
         Assert.Equal(1, handler.Requests);
@@ -494,7 +532,6 @@ public sealed class OpenAILessonTeacherTests
     private static string Generated(string theory, string question) => JsonSerializer.Serialize(new
     {
         Theory = theory,
-        Question = question,
         EvidenceKind = "Recognition",
         Criteria = new[] { new ExerciseCriterion("meaning", question) }
     });
