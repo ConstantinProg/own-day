@@ -76,6 +76,8 @@ public static class TelegramDialoguePresenter
         if (reply.Kind == DialogueReplyKind.RouteEditHelp)
             return ["Укажите код темы из /learn_route tree. Например, «пропустить тему basics» или «перенеси тему examples перед practice».\n" +
                 "/learn_route_edit skip <код> · unskip <код> · brief <код> · detailed <код> · standard <код> · before <код> <код> · restore <версия>"];
+        if (reply.Kind == DialogueReplyKind.ChooseMatchingProgram)
+            return ["Подходят несколько программ. Выберите нужную командой под названием или уточните запрос. Все программы доступны через /learn_programs.", .. values];
         return [reply.Kind switch
         {
             DialogueReplyKind.Interrupted => "Учебная реплика поступила до смены режима ввода и устарела. Завершите текущий ввод, затем напишите «Продолжим».",

@@ -4,6 +4,9 @@
 and durable ingress. It adds `выбрать программу <id>` and
 `сменить цель на <exact goal>`, and allows existing `/learn_select`, `/learn_request`
 and `/learn_project` to propose a switch while a question is active or paused.
+Use `переключись на <name>` or `switch to <name>` to find a program by goal
+or discipline. If multiple programs match, choose an explicit command from the
+options before confirming the switch.
 Ambiguous goal intent asks for the actual goal. The selected owner/program versions,
 current question and suspended destination question version bind the proposal.
 
@@ -20,6 +23,9 @@ does not rewrite the Lesson's original ProgramId/SkillId/route. Existing route
 prerequisite/progress rules still govern new Lessons. A confirmed new goal creates
 a separate program with experience explicitly unknown; old goal/evidence stays
 unchanged. Failed planning leaves the current question/selection untouched.
+Returning to an exercise from an incompatible route shows how to finish it or
+open an exercise from the active route. The original question and rubric are
+still available.
 
 For a goal in the current discipline, use
 `обновить цель на <goal> | <observable criterion>` or `/learn_goal_update`.

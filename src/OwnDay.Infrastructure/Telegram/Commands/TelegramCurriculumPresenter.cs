@@ -7,7 +7,8 @@ public static class TelegramCurriculumPresenter
 {
     public static IReadOnlyList<string> Render(CurriculumResult result) => result switch
     {
-        CurriculumResult.Program program => RenderProgram(program.Value),
+        CurriculumResult.Program program => program.ResumeNotice is null ? RenderProgram(program.Value) :
+            [.. RenderProgram(program.Value), program.ResumeNotice],
         CurriculumResult.RouteView route => RenderRoute(route),
         CurriculumResult.RouteHistory history => ["Последние версии маршрута. Для просмотра используйте /learn_route tree <версия>.",
             .. history.Routes.Select(route => $"v{route.Version} — {route.Reason}")],

@@ -89,19 +89,29 @@ public sealed record LearnerSkillState(SkillMastery Mastery, int Answers, int Po
 
     private static MasteryEvidenceSummary SummarizeRubricEvidence(IEnumerable<LearningEvidence> observations)
     {
-        var eligible = observations
-            .Where(e => e.EffectiveCorrect && e.Assistance == AnswerAssistance.Independent &&
-                e.EffectiveAssessmentStatus != AnswerAssessmentStatus.Conflict &&
-                e.RubricEvidence is { Evaluation.OperationId: not null } && e.Content?.StructuredRubric is not null)
-            .OrderBy(e => e.ObservedAt)
-            .DistinctBy(e => e.RubricEvidence!.QuestionFingerprint, StringComparer.Ordinal)
-            .DistinctBy(e => NormalizedTextAnswerCheck.Normalize(e.Answer), StringComparer.OrdinalIgnoreCase)
-            .ToArray();
+        var eligible = IndependentRubricEvidence(observations);
         var understanding = eligible.Count(e => e.Content!.StructuredRubric!.Kind == ExerciseEvidenceKind.Understanding) >= 2;
         var application = eligible.Any(e => e.Content!.StructuredRubric!.Kind == ExerciseEvidenceKind.Application);
-        var retention = eligible.Any(review => review.IsReview &&
-            review.Content!.StructuredRubric!.Kind == ExerciseEvidenceKind.Retrieval &&
-            eligible.Any(earlier => !earlier.IsReview && review.ObservedAt - earlier.ObservedAt >= TimeSpan.FromDays(1)));
+        var retention = eligible.Any(review => IsDelayedRetrieval(eligible, review));
         return new(understanding, application, retention);
     }
+
+    public static bool HasRecentRetention(IEnumerable<LearningEvidence> observations, DateTimeOffset now, TimeSpan maxAge)
+    {
+        var eligible = IndependentRubricEvidence(observations.Where(evidence => evidence.ObservedAt <= now));
+        return eligible.Any(review => now - review.ObservedAt <= maxAge && IsDelayedRetrieval(eligible, review));
+    }
+
+    private static LearningEvidence[] IndependentRubricEvidence(IEnumerable<LearningEvidence> observations) => observations
+        .Where(e => e.EffectiveCorrect && e.Assistance == AnswerAssistance.Independent &&
+            e.EffectiveAssessmentStatus != AnswerAssessmentStatus.Conflict &&
+            e.RubricEvidence is { Evaluation.OperationId: not null } && e.Content?.StructuredRubric is not null)
+        .OrderBy(e => e.ObservedAt)
+        .DistinctBy(e => e.RubricEvidence!.QuestionFingerprint, StringComparer.Ordinal)
+        .DistinctBy(e => NormalizedTextAnswerCheck.Normalize(e.Answer), StringComparer.OrdinalIgnoreCase)
+        .ToArray();
+
+    private static bool IsDelayedRetrieval(LearningEvidence[] eligible, LearningEvidence review) => review.IsReview &&
+        review.Content!.StructuredRubric!.Kind == ExerciseEvidenceKind.Retrieval &&
+        eligible.Any(earlier => !earlier.IsReview && review.ObservedAt - earlier.ObservedAt >= TimeSpan.FromDays(1));
 }

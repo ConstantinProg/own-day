@@ -48,4 +48,8 @@ public sealed class EfDialogueStore(OwnDayDbContext db) : IDialogueStore
         }
         catch (JsonException) { return null; }
     }
+
+    public async Task<IReadOnlyList<DialogueProgramReference>> ListProgramsAsync(UserId user, CancellationToken token) =>
+        await db.Set<LearningProgram>().Where(program => program.UserId == user).OrderBy(program => program.Id)
+            .Select(program => new DialogueProgramReference(program.Id, program.Goal, program.Discipline)).ToArrayAsync(token);
 }

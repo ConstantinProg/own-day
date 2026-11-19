@@ -92,6 +92,7 @@ public sealed class LearningDialogueServiceTests
         public void Add(DialogueContext context) => Context = context;
         public Task<DialogueProgramSnapshot?> ReadProgramAsync(UserId user, CancellationToken token) => Task.FromResult<DialogueProgramSnapshot?>(null);
         public Task<DialogueProgramSnapshot?> ReadProgramByIdAsync(UserId user, Guid programId, CancellationToken token) => Task.FromResult<DialogueProgramSnapshot?>(null);
+        public Task<IReadOnlyList<DialogueProgramReference>> ListProgramsAsync(UserId user, CancellationToken token) => Task.FromResult<IReadOnlyList<DialogueProgramReference>>([]);
         public Task<DialogueOriginalInput?> ReadOriginalAsync(UserId user, Guid requestId, CancellationToken token) => Task.FromResult(Original);
     }
 }

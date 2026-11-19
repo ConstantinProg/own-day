@@ -32,9 +32,10 @@ public sealed partial class CurriculumService
             var personalization = await knowledge.PersonalizationAsync(user, token);
             // Validate and construct the provenance before provider I/O or adding tracked state.
             var relation = InterdisciplinaryPractice.Create(program, source, sourceCode, link);
+            var shared = knowledge.SharedContext(sourceStatus, link);
             var material = await teacher.GenerateAsync(new(topic.Title,
                 new(program.Discipline, program.Goal, program.Experience, program.DiagnosticQuestion, program.DiagnosticAnswer),
-                SharedSkill: new(sourceStatus.Skill.Description, sourceStatus.State), Personalization: personalization.ForGeneration(),
+                SharedSkill: shared, Personalization: personalization.ForGeneration(),
                 Transfer: new(sourceTopic.Title, relation)), token);
             token.ThrowIfCancellationRequested();
             var generated = Lesson.Start(user, topic.Title, material.Theory, material.Question, material.Provenance, material.ExpectedAnswer, material.Content);
@@ -43,11 +44,18 @@ public sealed partial class CurriculumService
             generated.LinkTransfer(program, source, sourceCode, link);
             generated.SetTeaching(new(PedagogicalStrategy.InterdisciplinaryPractice, personalization.ExplicitPreferences));
             lessons.Add(generated);
-            return new CurriculumResult.Lesson(LearningService.Material(generated));
+            return new CurriculumResult.Lesson(LearningService.Material(generated)) { Introduction = SharedSkillNotice(shared) };
         }
         catch (Exception exception) when (exception is LessonProviderException or ArgumentException)
         {
             return new CurriculumResult.ProviderUnavailable();
         }
     }
+
+    private static string? SharedSkillNotice(SharedSkillContext? shared) => shared switch
+    {
+        { NeedsVerification: true } => "Общий навык связан с этой темой. Проверим его в новом контексте самостоятельным ответом.",
+        { IdentityBasis: { } basis } => $"Опираемся на подтверждённый общий навык. Основание связи — {basis}.",
+        _ => null
+    };
 }

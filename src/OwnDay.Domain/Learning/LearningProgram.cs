@@ -142,6 +142,11 @@ public sealed partial class LearningProgram
             .Select(r => r.Version).ToArray();
     }
 
+    public bool IsCurrentTopic(string code, int publishedVersion) =>
+        _routes.Any(route => route.Version == publishedVersion && route.ProgressRootVersion == CurrentRoute.ProgressRootVersion &&
+            route.Topics.Any(topic => topic.Code == code)) && CurrentRoute.Topics.Any(topic => topic.Code == code) &&
+        !CurrentRoute.IsSkipped(code);
+
     public bool ReviseRoute(int expectedVersion, IReadOnlyList<CurriculumTopic> topics, string reason)
     {
         var current = CurrentRoute;

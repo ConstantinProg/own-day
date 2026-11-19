@@ -1,5 +1,6 @@
 using OwnDay.Domain;
 using OwnDay.Domain.Learning;
+using OwnDay.Application.Learning;
 using Xunit;
 
 namespace OwnDay.UnitTests.Learning;
@@ -106,6 +107,46 @@ public sealed class ExerciseRubricTests
         Assert.False(evidence.AssessedCorrect);
         Assert.Equal(AnswerAssessmentStatus.Inconclusive, evidence.AssessmentStatus);
         Assert.Equal(2, evidence.ReviewHistory!.Revisions.Length);
+    }
+
+    [Theory]
+    [InlineData(2, false, false)]
+    [InlineData(2, true, true)]
+    [InlineData(5, false, true)]
+    [InlineData(31, false, true)]
+    public void SharedContext_IndependentEvidenceAndFreshness_ControlVerification(int days, bool conflicting, bool verify)
+    {
+        var owner = new UserId(1);
+        var skill = Skill.Create(owner, "Printed comparison");
+        var program = LearningProgram.Create(owner, "Interpret test results", "Beginner", null, "Testing",
+            [new("comparison", "Compare values", [])], null);
+        var now = DateTimeOffset.UnixEpoch.AddDays(90);
+        var reviewAt = now.AddDays(-days);
+        LearningEvidence[] evidence =
+        [
+            Record(skill, "First understanding", "First reasoning", ExerciseEvidenceKind.Understanding, reviewAt.AddDays(-3)),
+            Record(skill, "Second understanding", "Second reasoning", ExerciseEvidenceKind.Understanding, reviewAt.AddDays(-2)),
+            Record(skill, "Applied understanding", "Applied reasoning", ExerciseEvidenceKind.Application, reviewAt.AddDays(-1)),
+            Record(skill, "Delayed check", "Retrieval reasoning", ExerciseEvidenceKind.Retrieval, reviewAt)
+        ];
+        if (conflicting) evidence = [.. evidence, ReviewScheduleTests.Answer(skill, reviewAt.AddHours(1), false)];
+        if (days == 31) evidence = [.. evidence,
+            Record(skill, "Delayed check", "Repeated practice", ExerciseEvidenceKind.Retrieval, now.AddDays(-1))];
+        var schedule = ReviewSchedule.FromAnswer(evidence[0]);
+        foreach (var item in evidence.Skip(1)) schedule.Record(item);
+        var status = new SkillStatus(skill, LearnerSkillState.Evaluate(evidence), evidence) { Review = schedule };
+        var link = ProgramSkillLink.Confirm(program, "comparison", skill, "The same comparison rule applies", now);
+
+        var context = new KnowledgeService(new KnowledgeStore(), new TransferClock(now)).SharedContext(status, link);
+
+        Assert.Equal(verify, context.NeedsVerification);
+        Assert.Equal(verify ? SkillMastery.Unknown : SkillMastery.Demonstrated, context.State.Mastery);
+        Assert.Equal(link.Reason, context.IdentityBasis);
+    }
+
+    private sealed class TransferClock(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
     }
 
     private static LearningContent Content(ExerciseEvidenceKind kind) => new("types", "rubric-v1", LearningContentKind.StructuredExercise,

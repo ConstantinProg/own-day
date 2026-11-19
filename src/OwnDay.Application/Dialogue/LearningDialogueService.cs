@@ -150,6 +150,8 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
             const string prefix = "сменить цель на ";
             const string englishPrefix = "change goal to ";
             const string selectPrefix = "выбрать программу ";
+            const string russianSwitchPrefix = "переключись на ";
+            const string englishSwitchPrefix = "switch to ";
             var newGoalPrefix = normalized.StartsWith(prefix, StringComparison.Ordinal) ? prefix :
                 normalized.StartsWith(englishPrefix, StringComparison.Ordinal) ? englishPrefix : null;
             if (newGoalPrefix is not null)
@@ -161,9 +163,28 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
                 var goalOperation = parts.Length == 2 ? DialogueOperationKind.SwitchGoalWithCriterion : DialogueOperationKind.SwitchGoal;
                 return await DecideActionAsync(context, turn, goalOperation, goal, lesson, program, stamp, false, true, token);
             }
-            if (normalized.StartsWith(selectPrefix, StringComparison.Ordinal))
-                return await DecideActionAsync(context, turn, DialogueOperationKind.SelectProgram, turn.Text.Trim()[selectPrefix.Length..].Trim(),
+            var programPrefix = normalized.StartsWith(selectPrefix, StringComparison.Ordinal) ? selectPrefix :
+                normalized.StartsWith(russianSwitchPrefix, StringComparison.Ordinal) ? russianSwitchPrefix :
+                normalized.StartsWith(englishSwitchPrefix, StringComparison.Ordinal) ? englishSwitchPrefix : null;
+            if (programPrefix is not null)
+            {
+                var query = turn.Text.Trim()[programPrefix.Length..].Trim().TrimEnd('.', '!');
+                var id = Guid.TryParse(query, out var parsed) ? parsed : (Guid?)null;
+                if (id is null)
+                {
+                    if (query.Length is < 1 or > LearningProgram.MaxGoalLength) return Reply(context, DialogueReplyKind.ProgramUnavailable);
+                    var candidates = (await store.ListProgramsAsync(turn.UserId, token)).Where(item =>
+                        item.Goal.Contains(query, StringComparison.OrdinalIgnoreCase) || item.Discipline.Contains(query, StringComparison.OrdinalIgnoreCase))
+                        .OrderBy(item => item.Goal, StringComparer.OrdinalIgnoreCase).Take(6).ToArray();
+                    if (candidates.Length != 1)
+                        return candidates.Length == 0 ? Reply(context, DialogueReplyKind.ProgramUnavailable) : new(context, null, "",
+                            new(DialogueReplyKind.ChooseMatchingProgram, candidates.Take(5).Select(item =>
+                                $"{item.Goal} ({item.Discipline})\n/learn_select {item.Id}").ToArray()));
+                    id = candidates[0].Id;
+                }
+                return await DecideActionAsync(context, turn, DialogueOperationKind.SelectProgram, id.Value.ToString(),
                     lesson, program, stamp, false, true, token);
+            }
         }
 
         if (practiceEnabled || program?.PracticeStatus is not null)

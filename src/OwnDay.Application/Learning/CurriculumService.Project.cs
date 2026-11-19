@@ -58,12 +58,12 @@ public sealed partial class CurriculumService
         {
             var status = await knowledge.TopicStatusAsync(user, program.Id, program.CurrentRoute.Version, code, token);
             var sharedLink = (await knowledge.LinksAsync(program, token)).SingleOrDefault(l => l.TopicCode == code);
-            var shared = sharedLink is not null && status is not null ? new SharedSkillContext(status.Skill.Description, status.State) : null;
+            var shared = sharedLink is not null && status is not null ? knowledge.SharedContext(status, sharedLink) : null;
             var personalization = await knowledge.PersonalizationAsync(user, token);
             var material = await teacher.GenerateAsync(new(topic.Title,
                 new(program.Discipline, program.Goal, program.Experience, program.DiagnosticQuestion, program.DiagnosticAnswer),
                 new(TeachingAction.Practice, "User selected practice related to a project task; this is educational work only.",
-                    status?.State ?? LearnerSkillState.Evaluate([]), []), SharedSkill: shared,
+                    shared?.State ?? status?.State ?? LearnerSkillState.Evaluate([]), []), SharedSkill: shared,
                 ProjectPractice: new(project.Id, project.Title, action.Id, action.Title), Personalization: personalization.ForGeneration()), token);
             token.ThrowIfCancellationRequested();
             var lesson = Lesson.Start(user, topic.Title, material.Theory, material.Question, material.Provenance, material.ExpectedAnswer, material.Content);
@@ -74,7 +74,7 @@ public sealed partial class CurriculumService
             else await knowledge.AttachAsync(lesson, $"{topic.Title}\nDiscipline: {program.Discipline}\nLearning goal: {program.Goal}", token);
             token.ThrowIfCancellationRequested();
             lessons.Add(lesson);
-            return new CurriculumResult.Lesson(LearningService.Material(lesson));
+            return new CurriculumResult.Lesson(LearningService.Material(lesson)) { Introduction = SharedSkillNotice(shared) };
         }
         catch (Exception exception) when (exception is LessonProviderException or ArgumentException)
         {

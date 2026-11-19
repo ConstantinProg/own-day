@@ -20,7 +20,14 @@ public sealed record LessonRequest(string Topic, LessonProgramContext? Program =
 }
 public sealed record TransferPracticeContext(string SourceTopic, InterdisciplinaryPractice Relation);
 public sealed record ProjectPracticeContext(long ProjectId, string ProjectTitle, long ActionId, string ActionTitle);
-public sealed record SharedSkillContext(string Description, LearnerSkillState State);
+public sealed record SharedSkillContext(string Description, LearnerSkillState State)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? IdentityBasis { get; init; }
+
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool NeedsVerification { get; init; }
+}
 
 public sealed record LessonMaterial(string Theory, string Question)
 {

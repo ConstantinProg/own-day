@@ -101,6 +101,21 @@ public sealed partial class KnowledgeService(IKnowledgeStore store, TimeProvider
 
     public bool IsDue(ReviewSchedule schedule) => schedule.IsDue(clock.GetUtcNow());
 
+    public SharedSkillContext SharedContext(SkillStatus status, ProgramSkillLink link)
+    {
+        if (link.UserId != status.Skill.UserId || link.SkillId != status.Skill.Id)
+            throw new ArgumentException("The link and assessment must refer to the same learner and skill.", nameof(link));
+        var now = clock.GetUtcNow();
+        var current = status.State is { Mastery: SkillMastery.Demonstrated, EvidenceSummary.Retention: true } &&
+            status.Review is { } review && !review.IsDue(now) &&
+            LearnerSkillState.HasRecentRetention(status.Evidence, now, TimeSpan.FromDays(30));
+        return new(status.Skill.Description, current ? status.State : LearnerSkillState.Evaluate([]))
+        {
+            IdentityBasis = link.Reason,
+            NeedsVerification = !current
+        };
+    }
+
     public void Defer(ReviewSchedule schedule, ReviewDeferral deferral) => schedule.Defer(clock.GetUtcNow(), deferral);
 
     public async Task<ReviewPage> ReviewsAsync(UserId user, CancellationToken token, int page = 1)

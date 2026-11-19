@@ -38,12 +38,14 @@ public sealed record DialogueProgramSnapshot(Guid Id, string Goal, string Discip
     Guid? SuspendedLessonId = null, uint? SuspendedLessonVersion = null, [property: JsonIgnore] string? PendingDiagnosticQuestion = null,
     [property: JsonIgnore] bool HasSubjectDiagnostic = false);
 public sealed record DialogueOriginalInput(string Text, Guid? LessonId, Guid? PromptId);
+public sealed record DialogueProgramReference(Guid Id, string Goal, string Discipline);
 public interface IDialogueStore
 {
     Task<DialogueContext?> FindAsync(UserId user, CancellationToken token);
     void Add(DialogueContext context);
     Task<DialogueProgramSnapshot?> ReadProgramAsync(UserId user, CancellationToken token);
     Task<DialogueProgramSnapshot?> ReadProgramByIdAsync(UserId user, Guid programId, CancellationToken token);
+    Task<IReadOnlyList<DialogueProgramReference>> ListProgramsAsync(UserId user, CancellationToken token);
     Task<DialogueOriginalInput?> ReadOriginalAsync(UserId user, Guid requestId, CancellationToken token);
 }
 
@@ -59,7 +61,7 @@ public enum DialogueReplyKind
     ConfirmProgramSelection, ConfirmProgramCreation, ConfirmGoalIntent,
     AskGoal, AskPracticalUse, AskExperience, ConsultationRetry, ConsultationUnavailable, FirstProgramReady, ConsultationPaused, MustEndPractice,
     AskNewGoal, ConfirmProgramSwitch, ConfirmGoalSwitch, GoalChanged, DiagnosticOffer, DiagnosticQuestion, AskRelevantExperience,
-    SessionEnded, ConfirmRouteEdit, RouteEditHelp, ConfirmGoalUpdate
+    SessionEnded, ConfirmRouteEdit, RouteEditHelp, ConfirmGoalUpdate, ChooseMatchingProgram
 }
 public sealed record DialogueReply(DialogueReplyKind Kind, IReadOnlyList<string>? Values = null, bool InEnglish = false);
 public sealed record DialogueDecision(DialogueContext Context, DialogueOperationKind? Execute, string Arguments,

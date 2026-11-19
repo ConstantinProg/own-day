@@ -35,7 +35,7 @@ public interface ICurriculumPlanner
 
 public abstract record CurriculumResult
 {
-    public sealed record Program(LearningProgram Value) : CurriculumResult;
+    public sealed record Program(LearningProgram Value, string? ResumeNotice = null) : CurriculumResult;
     public sealed record Lesson(LearningResult Value) : CurriculumResult
     {
         public string? Introduction { get; init; }
@@ -147,7 +147,7 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
         else if (active is not null && suspended is not null) return new CurriculumResult.LessonInProgress();
         await store.SelectAsync(program, token);
         suspended?.RestoreForProgram(program);
-        return new CurriculumResult.Program(program);
+        return new CurriculumResult.Program(program, suspended is null ? null : SuspendedExerciseNotice(program, suspended));
     }
 
     private async Task<bool> CanSuspendAsync(UserId user, LearningProgram? current, Lesson? active, CancellationToken token) =>
@@ -296,7 +296,8 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
         if (suspended is not null)
         {
             suspended.RestoreForProgram(program);
-            return new CurriculumResult.Lesson(LearningService.Session(suspended));
+            return new CurriculumResult.Lesson(LearningService.Session(suspended))
+                { Introduction = SuspendedExerciseNotice(program, suspended) };
         }
         var completed = await store.CompletedTopicsAsync(user, program.Id, program.CurrentRoute.Version, token);
         var route = program.CurrentRoute;
@@ -311,7 +312,10 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
         try
         {
             var status = await knowledge.TopicStatusAsync(user, program.Id, program.CurrentRoute.Version, topic.Code, token);
-            var state = status?.State ?? LearnerSkillState.Evaluate([]);
+            var links = await knowledge.LinksAsync(program, token);
+            var sharedLink = links.SingleOrDefault(link => link.TopicCode == topic.Code);
+            var shared = sharedLink is not null && status is not null ? knowledge.SharedContext(status, sharedLink) : null;
+            var state = shared?.State ?? status?.State ?? LearnerSkillState.Evaluate([]);
             TeachingContext? teaching = null;
             CurriculumRoute? revision = null;
             if (selection == LessonSelection.Focus)
@@ -320,7 +324,8 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
             }
             else if (selection == LessonSelection.Adapt || state.RepeatedDifficulty)
             {
-                var feedback = status?.Evidence.TakeLast(3).Select(e => e.AssessmentFeedback[..Math.Min(e.AssessmentFeedback.Length, 500)]).ToArray() ?? [];
+                var feedback = shared is not null ? [] : status?.Evidence.TakeLast(3)
+                    .Select(e => e.AssessmentFeedback[..Math.Min(e.AssessmentFeedback.Length, 500)]).ToArray() ?? [];
                 var proposal = await teachingPlanner.ProposeAsync(new(program.Goal, program.Discipline, program.CurrentRoute.Topics,
                     topic.Code, completed, state, feedback), token);
                 token.ThrowIfCancellationRequested();
@@ -332,9 +337,9 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
                 topic = program.CurrentRoute.Topics.Single(t => t.Code == proposal.TopicCode);
                 teaching = new(action, reason, state, feedback);
                 status = await knowledge.TopicStatusAsync(user, program.Id, program.CurrentRoute.Version, topic.Code, token);
+                sharedLink = links.SingleOrDefault(link => link.TopicCode == topic.Code);
+                shared = sharedLink is not null && status is not null ? knowledge.SharedContext(status, sharedLink) : null;
             }
-            var sharedLink = (await knowledge.LinksAsync(program, token)).SingleOrDefault(l => l.TopicCode == topic.Code);
-            var shared = sharedLink is not null && status is not null ? new SharedSkillContext(status.Skill.Description, status.State) : null;
             var personalization = await knowledge.PersonalizationAsync(user, token);
             var depth = selection == LessonSelection.Focus && route.IsSkipped(topic.Code) ? CurriculumDepth.Brief : route.DepthFor(topic.Code);
             var diagnosticApplies = route.Path?.GoalChange is not { } change || change.Effective == change.Original;
@@ -364,7 +369,8 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
             lesson.LinkToProgram(program, topic.Code);
             lessons.Add(lesson);
             var result = LearningService.Material(lesson);
-            return revision is null ? new CurriculumResult.Lesson(result) : new CurriculumResult.Adapted(result, revision.Reason);
+            return revision is null ? new CurriculumResult.Lesson(result) { Introduction = SharedSkillNotice(shared) } :
+                new CurriculumResult.Adapted(result, revision.Reason);
         }
         catch (Exception exception) when (exception is LessonProviderException or ArgumentException)
         {
@@ -377,4 +383,9 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
         token.ThrowIfCancellationRequested();
         if (!user.IsValid) throw new ArgumentException("Invalid user.", nameof(user));
     }
+
+    private static string? SuspendedExerciseNotice(LearningProgram program, Lesson lesson) =>
+        lesson.ProgramId == program.Id && lesson.TopicCode is { } code && lesson.RouteVersion is { } version && !program.IsCurrentTopic(code, version)
+            ? "Упражнение было открыто для другой версии маршрута. Можно ответить по сохранённым критериям или завершить его через /learn_finish, а затем открыть задание текущего маршрута через /learn_next."
+            : null;
 }
