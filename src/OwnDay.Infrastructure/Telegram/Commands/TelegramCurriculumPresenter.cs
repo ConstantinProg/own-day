@@ -12,6 +12,10 @@ public static class TelegramCurriculumPresenter
         CurriculumResult.RouteHistory history => ["Последние версии маршрута. Для просмотра используйте /learn_route tree <версия>.",
             .. history.Routes.Select(route => $"v{route.Version} — {route.Reason}")],
         CurriculumResult.RouteEditRejected => ["Изменение или версия недоступны. Проверьте активную программу, текущую версию, коды тем и порядок предпосылок. /learn_route tree · /learn_route history"],
+        CurriculumResult.GoalEditRejected => ["Обновление цели недоступно. Укажите цель в рамках текущей дисциплины и наблюдаемый результат через /learn_goal_update <цель> | <критерий>. Для отдельной программы напишите «сменить цель на <цель>»."],
+        CurriculumResult.GoalUpdateOffered proposal => ["Предложение для текущей программы. Действующие упражнения и оценки сохраняются. " +
+            (proposal.RetainsRouteCredit ? "Зачёт по тем же темам переносится." : "У нового набора тем будет собственный зачёт."),
+            .. RenderRoute(new(proposal.Route, true), preview: true)],
         CurriculumResult.Diagnostic diagnostic => RenderDiagnostic(diagnostic),
         CurriculumResult.SubjectDiagnosticQuestion diagnostic =>
             [diagnostic.Value.DiagnosticQuestion! + "\nAnswer the question or write “skip”. /learn_diagnose <answer>"],
@@ -46,10 +50,12 @@ public static class TelegramCurriculumPresenter
         _ => throw new ArgumentOutOfRangeException(nameof(result))
     };
 
-    private static IReadOnlyList<string> RenderRoute(CurriculumResult.RouteView view)
+    private static IReadOnlyList<string> RenderRoute(CurriculumResult.RouteView view, bool preview = false)
     {
         var route = view.Route;
-        var heading = $"Маршрут v{route.Version}\n{route.Reason}";
+        var heading = preview ? $"Предлагаемый маршрут v{route.Version}" : $"Маршрут v{route.Version}\n{route.Reason}";
+        if (route.Path?.GoalChange?.Effective is { } goal)
+            heading += $"\nЦель — {goal.Description}" + (goal.Criterion is not null ? $"\nКритерий — {goal.Criterion}" : "");
         if (route.Path?.RestoredFrom is { } restoredFrom) heading += $"\nВосстановлен из v{restoredFrom}.";
         var topics = route.Topics.Select(topic =>
         {
@@ -60,10 +66,10 @@ public static class TelegramCurriculumPresenter
             if (view.Full && route.DepthFor(topic.Code) is CurriculumDepth.Detailed) line += " · подробно";
             return line;
         });
-        return [heading, .. topics.Chunk(4).Select(chunk => string.Join('\n', chunk)),
-            view.OptionalCheck is { } code
+        return [heading, .. topics.Chunk(4).Select(chunk => string.Join('\n', chunk)), .. preview ? [] : new[]
+            { view.OptionalCheck is { } code
                 ? $"Эта тема служит предпосылкой. Можно продолжить с /learn_next или выбрать короткую проверку после текущего упражнения: /learn_focus {code}."
-                : "Напишите «покажи дерево тем» или «история маршрута». /learn_route tree · /learn_route history"];
+                : "Напишите «покажи дерево тем» или «история маршрута». /learn_route tree · /learn_route history" }];
     }
 
     private static IReadOnlyList<string> RenderDiagnostic(CurriculumResult.Diagnostic result)

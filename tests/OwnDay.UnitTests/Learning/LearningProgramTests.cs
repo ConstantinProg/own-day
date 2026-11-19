@@ -163,6 +163,31 @@ public sealed class LearningProgramTests
         Assert.Equal([1, 3], program.ProgressVersions(3));
     }
 
+    [Fact]
+    public void ReviseGoal_ConfirmedChangeAndRollback_RetainsPreviousCriteriaAndPublishedExercise()
+    {
+        var program = LearningProgram.Create(new UserId(1), "Read TypeScript", "Beginner", null, "TypeScript",
+            [new("unions", "Union types", [])], null, "Read one API response type");
+        var lesson = Lesson.Start(program.UserId, "Union types", "Theory", "Original question?");
+        lesson.LinkToProgram(program, "unions");
+        var update = new CurriculumGoal("Write TypeScript handlers", "Implement a handler for both variants");
+        var preview = program.ProposeGoalRevision(1, update, program.CurrentRoute.Topics, "New goal");
+
+        Assert.Equal("Read TypeScript", program.Goal);
+        Assert.Throws<ArgumentException>(() => program.ApplyAdaptation(preview));
+        Assert.True(program.ReviseGoal(1, update, program.CurrentRoute.Topics, "Confirmed"));
+        Assert.Equal(update.Description, program.Goal);
+        Assert.Equal(update.Criterion, program.GoalCriterion);
+        Assert.Equal([1, 2], program.ProgressVersions(2));
+        Assert.Equal(1, lesson.RouteVersion);
+
+        Assert.False(program.ReviseGoal(1, update, program.CurrentRoute.Topics, "Stale consent"));
+        Assert.True(program.RestoreRoute(2, 1, "Return to previous goal"));
+        Assert.Equal("Read TypeScript", program.Goal);
+        Assert.Equal("Read one API response type", program.GoalCriterion);
+        Assert.Equal(update, program.Routes.Single(route => route.Version == 2).Path!.GoalChange!.Effective);
+    }
+
     private static LearningProgram Create(CurriculumTopic[] topics, string? question = null) =>
         LearningProgram.Create(new UserId(1), "Goal", "Experience", null, "Discipline", topics, question);
 }

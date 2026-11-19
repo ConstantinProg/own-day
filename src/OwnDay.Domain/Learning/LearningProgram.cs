@@ -129,7 +129,7 @@ public sealed partial class LearningProgram
     public void ApplyAdaptation(CurriculumRoute route)
     {
         if (route.ProgramId != Id || route.Version != CurrentRoute.Version + 1 ||
-            route.ProgressVersion != CurrentRoute.ProgressRootVersion)
+            route.ProgressVersion != CurrentRoute.ProgressRootVersion || route.Path?.GoalChange != CurrentRoute.Path?.GoalChange)
             throw new ArgumentException("Invalid adaptation revision.", nameof(route));
         _routes.Add(route);
     }
@@ -166,7 +166,7 @@ public sealed partial class LearningProgram
             !current.Topics.Any(topic => topic.Code == code)) return false;
         var codes = current.Path?.SkippedTopics ?? [];
         var next = skipped ? codes.Append(code) : codes.Where(value => value != code);
-        AppendPath(current, new(next.ToArray(), current.Path?.DepthOverrides ?? [], null), reason);
+        AppendPath(current, new(next.ToArray(), current.Path?.DepthOverrides ?? [], null, current.Path?.GoalChange), reason);
         return true;
     }
 
@@ -178,7 +178,7 @@ public sealed partial class LearningProgram
             !current.Topics.Any(topic => topic.Code == code)) return false;
         var depths = (current.Path?.DepthOverrides ?? []).Where(topic => topic.Code != code);
         if (depth != CurriculumDepth.Standard) depths = depths.Append(new(code, depth));
-        AppendPath(current, new(current.Path?.SkippedTopics ?? [], depths.ToArray(), null), reason);
+        AppendPath(current, new(current.Path?.SkippedTopics ?? [], depths.ToArray(), null, current.Path?.GoalChange), reason);
         return true;
     }
 
@@ -187,12 +187,54 @@ public sealed partial class LearningProgram
         var current = CurrentRoute;
         if (DiagnosticPending || current.Version != expectedVersion || version >= expectedVersion ||
             _routes.SingleOrDefault(route => route.Version == version) is not { } source) return false;
+        var original = OriginalGoal();
+        var goal = source.Path?.GoalChange?.Effective ?? original;
         if (current.ProgressRootVersion == source.ProgressRootVersion && current.HasSameOrderedTopics(source) &&
+            Goal == goal.Description && GoalCriterion == goal.Criterion &&
             current.Topics.All(topic => current.IsSkipped(topic.Code) == source.IsSkipped(topic.Code) &&
                 current.DepthFor(topic.Code) == source.DepthFor(topic.Code))) return false;
-        AppendPath(source, new(source.Path?.SkippedTopics ?? [], source.Path?.DepthOverrides ?? [], source.Version), reason);
+        var goalChange = current.Path?.GoalChange is not null || source.Path?.GoalChange is not null ? new CurriculumGoalChange(original, goal) : null;
+        AppendPath(source, new(source.Path?.SkippedTopics ?? [], source.Path?.DepthOverrides ?? [], source.Version, goalChange), reason);
+        Goal = goal.Description;
+        GoalCriterion = goal.Criterion;
         return true;
     }
+
+    public CurriculumRoute ProposeGoalRevision(int expectedVersion, CurriculumGoal goal, IReadOnlyList<CurriculumTopic> topics, string reason)
+    {
+        var current = CurrentRoute;
+        if (DiagnosticPending || ProjectId is not null || expectedVersion != current.Version)
+            throw new InvalidOperationException("The current program cannot revise its goal.");
+        Validate(goal.Description, MaxGoalLength);
+        Validate(goal.Criterion ?? "", MaxGoalCriterionLength);
+        Validate(reason, CurriculumRoute.MaxReasonLength);
+        var route = CurriculumRoute.Create(Id, current.Version + 1, reason, topics);
+        var known = current.Topics.ToDictionary(topic => topic.Code, StringComparer.Ordinal);
+        if (route.Topics.Any(topic => known.TryGetValue(topic.Code, out var previous) && previous.Title != topic.Title))
+            throw new ArgumentException("A topic code cannot change its learning identity.", nameof(topics));
+        if (goal.Description == Goal && goal.Criterion == GoalCriterion && route.HasSameOrderedTopics(current))
+            throw new ArgumentException("The proposal does not change the program.", nameof(goal));
+
+        // With an exact topic identity set, existing evidence and explicit links still address the same skills.
+        var compatible = route.Topics.Count == known.Count && route.Topics.All(topic => known.ContainsKey(topic.Code));
+        if (compatible) route.PreserveProgress(current.ProgressRootVersion);
+        route.SetPath(new(compatible ? current.Path?.SkippedTopics ?? [] : [],
+            compatible ? current.Path?.DepthOverrides ?? [] : [], null, new(OriginalGoal(), goal)));
+        return route;
+    }
+
+    public bool ReviseGoal(int expectedVersion, CurriculumGoal goal, IReadOnlyList<CurriculumTopic> topics, string reason)
+    {
+        if (CurrentRoute.Version != expectedVersion || DiagnosticPending || ProjectId is not null) return false;
+        var route = ProposeGoalRevision(expectedVersion, goal, topics, reason);
+        Goal = goal.Description;
+        GoalCriterion = goal.Criterion;
+        _routes.Add(route);
+        return true;
+    }
+
+    private CurriculumGoal OriginalGoal() => _routes.FirstOrDefault(route => route.Path?.GoalChange is not null)?.Path?.GoalChange?.Original ??
+        new(Goal, GoalCriterion);
 
     private void AppendPath(CurriculumRoute source, CurriculumPath path, string reason)
     {
@@ -213,21 +255,29 @@ public enum CurriculumDepth { Standard, Brief, Detailed }
 
 public sealed record CurriculumTopicDepth(string Code, CurriculumDepth Depth);
 
+public sealed record CurriculumGoal(string Description, string? Criterion);
+
+public sealed record CurriculumGoalChange(CurriculumGoal Original, CurriculumGoal Effective);
+
 public sealed record CurriculumPath
 {
-    public CurriculumPath(IReadOnlyList<string> skippedTopics, IReadOnlyList<CurriculumTopicDepth> depthOverrides, int? restoredFrom)
+    public CurriculumPath(IReadOnlyList<string> skippedTopics, IReadOnlyList<CurriculumTopicDepth> depthOverrides, int? restoredFrom,
+        CurriculumGoalChange? goalChange = null)
     {
         SkippedTopics = Array.AsReadOnly(skippedTopics.ToArray());
         DepthOverrides = Array.AsReadOnly(depthOverrides.ToArray());
         RestoredFrom = restoredFrom;
+        GoalChange = goalChange;
     }
 
     public IReadOnlyList<string> SkippedTopics { get; }
     public IReadOnlyList<CurriculumTopicDepth> DepthOverrides { get; }
     public int? RestoredFrom { get; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CurriculumGoalChange? GoalChange { get; }
 
     internal CurriculumPath? ForSuccessor() => RestoredFrom is null ? this
-        : SkippedTopics.Count == 0 && DepthOverrides.Count == 0 ? null : new(SkippedTopics, DepthOverrides, null);
+        : SkippedTopics.Count == 0 && DepthOverrides.Count == 0 && GoalChange is null ? null : new(SkippedTopics, DepthOverrides, null, GoalChange);
 }
 
 public sealed class CurriculumRoute

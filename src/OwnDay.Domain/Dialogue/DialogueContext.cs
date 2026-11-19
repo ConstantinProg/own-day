@@ -13,7 +13,7 @@ public enum DialogueOperationKind
     CreateProgram, CreateProjectProgram, SelectProgram, ChangeGoal, Cancel, Confirm, Diagnose,
     BeginPractice, NextPractice, PausePractice, ResumePractice, StopPractice, PracticeInfo, StartOtherLesson,
     SwitchProgram, SwitchGoal, SwitchCreateProgram, SwitchCreateProjectProgram, CompleteDiagnostic, EndSession, RevealSolution,
-    ExplainAssessment, AppealAssessment, ViewRoute, EditRoute
+    ExplainAssessment, AppealAssessment, ViewRoute, EditRoute, ProposeGoalUpdate, ApplyGoalUpdate, SwitchGoalWithCriterion
 }
 
 public sealed record DialogueClarification(Guid OriginalRequestId, ImmutableArray<DialogueOperationKind> Allowed,
@@ -138,7 +138,7 @@ public sealed partial class DialogueContext
             (DialogueOperationKind.Finish or DialogueOperationKind.SelectProgram or DialogueOperationKind.CreateProgram or
              DialogueOperationKind.CreateProjectProgram or DialogueOperationKind.ChangeGoal or DialogueOperationKind.SwitchProgram or
              DialogueOperationKind.SwitchGoal or DialogueOperationKind.SwitchCreateProgram or DialogueOperationKind.SwitchCreateProjectProgram or
-             DialogueOperationKind.EditRoute) ||
+             DialogueOperationKind.EditRoute or DialogueOperationKind.ApplyGoalUpdate or DialogueOperationKind.SwitchGoalWithCriterion) ||
             arguments.Length > 4000 || label?.Length > 500)
             throw new ArgumentException("Invalid consequential proposal.", nameof(operation));
         ValidateStamp(stamp);

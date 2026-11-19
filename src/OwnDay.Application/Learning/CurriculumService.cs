@@ -64,6 +64,8 @@ public abstract record CurriculumResult
     public sealed record RouteView(CurriculumRoute Route, bool Full, string? OptionalCheck = null) : CurriculumResult;
     public sealed record RouteHistory(IReadOnlyList<CurriculumRoute> Routes) : CurriculumResult;
     public sealed record RouteEditRejected : CurriculumResult;
+    public sealed record GoalUpdateOffered(CurriculumGoal Goal, CurriculumRoute Route, string Snapshot, bool RetainsRouteCredit) : CurriculumResult;
+    public sealed record GoalEditRejected : CurriculumResult;
 }
 
 public sealed partial class CurriculumService(ICurriculumStore store, ICurriculumPlanner planner,
@@ -335,14 +337,15 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
             var shared = sharedLink is not null && status is not null ? new SharedSkillContext(status.Skill.Description, status.State) : null;
             var personalization = await knowledge.PersonalizationAsync(user, token);
             var depth = selection == LessonSelection.Focus && route.IsSkipped(topic.Code) ? CurriculumDepth.Brief : route.DepthFor(topic.Code);
-            var authored = depth == CurriculumDepth.Standard && program.EnglishDiagnostic is { Supported: true } &&
+            var diagnosticApplies = route.Path?.GoalChange is not { } change || change.Effective == change.Original;
+            var authored = diagnosticApplies && depth == CurriculumDepth.Standard && program.EnglishDiagnostic is { Supported: true } &&
                 topic.Code == EnglishLearningContent.FirstTopicCode;
             var scaffold = authored && program.EnglishDiagnostic!.Results.Any(result =>
                 !result.AssessedCorrect || result.Assistance != AnswerAssistance.Independent);
             var material = authored ? new LessonMaterial(EnglishLearningContent.LessonTheory, EnglishLearningContent.LessonQuestion)
                 : await teacher.GenerateAsync(new LessonRequest(topic.Title,
                 new LessonProgramContext(program.Discipline, program.Goal, program.Experience,
-                    program.DiagnosticQuestion, program.DiagnosticAnswer), teaching, SharedSkill: shared,
+                    diagnosticApplies ? program.DiagnosticQuestion : null, diagnosticApplies ? program.DiagnosticAnswer : null), teaching, SharedSkill: shared,
                 Personalization: personalization.ForGeneration())
                 {
                     RouteDepth = depth == CurriculumDepth.Standard ? null : depth

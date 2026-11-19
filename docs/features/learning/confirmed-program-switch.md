@@ -21,6 +21,15 @@ prerequisite/progress rules still govern new Lessons. A confirmed new goal creat
 a separate program with experience explicitly unknown; old goal/evidence stays
 unchanged. Failed planning leaves the current question/selection untouched.
 
+For a goal in the current discipline, use
+`обновить цель на <goal> | <observable criterion>` or `/learn_goal_update`.
+The bot shows the criterion and proposed topics before accepting confirmation.
+If the new route uses a different topic set, it starts its own coverage while
+the original evidence remains available. Restoring an earlier route restores
+its goal and criterion. To create a separate program, use
+`сменить цель на <goal> | <observable criterion>`. Existing requests without
+a criterion still use the previous creation flow.
+
 The Domain owns suspension/restoration. Application validates the source and target,
 then flushes suspension in the existing outer apply transaction before restoring
 another question, avoiding transient active-index collisions. Request completion,

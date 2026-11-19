@@ -282,7 +282,8 @@ public sealed partial class PostgresLearningProviderTests
         using var host = SwitchHost(probe);
         using var client = host.CreateClient();
         const string newGoal = "Научиться решать линейные уравнения";
-        await SendEnglishAsync(client, 1, "сменить цель на " + newGoal);
+        const string criterion = "Самостоятельно решить два уравнения с разными коэффициентами";
+        await SendEnglishAsync(client, 1, $"сменить цель на {newGoal} | {criterion}");
         var code = await SwitchCodeAsync();
         Assert.Equal(0, probe.Calls);
         await SendEnglishAsync(client, 2, "подтверждаю " + code);
@@ -295,7 +296,9 @@ public sealed partial class PostgresLearningProviderTests
         Assert.Empty(await result.Set<LearningEvidence>().ToListAsync());
         if (!fail)
         {
-            Assert.Equal(newGoal, (await result.Set<LearningProgram>().SingleAsync(value => value.Id == selected)).Goal);
+            var created = await result.Set<LearningProgram>().SingleAsync(value => value.Id == selected);
+            Assert.Equal(newGoal, created.Goal);
+            Assert.Equal(criterion, created.GoalCriterion);
             await SendEnglishAsync(client, 3, "Продолжим");
             var exercise = await result.Set<Lesson>().AsNoTracking().SingleAsync(value => value.ProgramId == selected);
             Assert.Equal(LessonStatus.AwaitingAnswer, exercise.Status);

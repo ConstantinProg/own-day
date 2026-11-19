@@ -57,16 +57,17 @@ public static class TelegramDialoguePresenter
                 : "Напишите ответ или вопрос по упражнению. «Пауза» сохраняет вопрос, «помощь» показывает текущую точку возврата.")];
         if (reply.Kind is DialogueReplyKind.ConfirmFinish or DialogueReplyKind.ConfirmProgramSelection or
             DialogueReplyKind.ConfirmProgramCreation or DialogueReplyKind.ConfirmGoalIntent or DialogueReplyKind.ConfirmProgramSwitch or
-            DialogueReplyKind.ConfirmGoalSwitch or DialogueReplyKind.ConfirmRouteEdit)
+            DialogueReplyKind.ConfirmGoalSwitch or DialogueReplyKind.ConfirmRouteEdit or DialogueReplyKind.ConfirmGoalUpdate)
         {
             var summary = reply.Kind switch
             {
                 DialogueReplyKind.ConfirmFinish => "Завершить упражнение «" + values[0] + "» без оценки, сохранив историю?",
                 DialogueReplyKind.ConfirmProgramSelection => "Выбрать программу «" + values[0] + "» вместо текущей?",
                 DialogueReplyKind.ConfirmProgramSwitch => "Выбрать программу «" + values[0] + "»? Текущий вопрос и помощь сохраним для возврата. Ограниченную практику остановим; ответы и история сохранятся.",
-                DialogueReplyKind.ConfirmGoalSwitch => "Создать и выбрать программу по новой цели «" + values[0] + "»? Текущий вопрос и помощь сохраним для возврата, ограниченную практику остановим. Старую цель и её результаты сохраним.",
+                DialogueReplyKind.ConfirmGoalSwitch => "Создать и выбрать программу по новой цели «" + values[0] + "»? Текущий вопрос и помощь сохраним для возврата, ограниченную практику остановим. Чтобы обновить текущую программу, напишите «обновить цель на <цель> | <проверяемый критерий>».",
                 DialogueReplyKind.ConfirmGoalIntent => "Сохранить намерение сменить цель: «" + values[0] + "»? Текущее упражнение и программа сохранятся.",
                 DialogueReplyKind.ConfirmRouteEdit => values[0],
+                DialogueReplyKind.ConfirmGoalUpdate => "Применить показанный маршрут к текущей программе и установить цель «" + values[0] + "»?",
                 _ => "Создать и выбрать новую программу по запросу «" + values[0] + "»? История прежней программы сохранится."
             };
             return [summary + " Напишите «подтверждаю " + values[1] + "» или /learn_confirm " + values[1] +

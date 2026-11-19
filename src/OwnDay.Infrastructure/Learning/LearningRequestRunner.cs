@@ -194,6 +194,29 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
             return new(null, result is CurriculumResult.RouteEditRejected ? "route_rejected" : "route_reply")
                 { Replies = Introduce(introduce, TelegramCurriculumPresenter.Render(result)), DialogueOutcomeJson = audit };
         }
+        if (operation is DialogueOperationKind.ProposeGoalUpdate or DialogueOperationKind.ApplyGoalUpdate)
+        {
+            var curriculum = CreateCurriculum(services, session);
+            CurriculumResult result = new CurriculumResult.GoalEditRejected();
+            if (operation == DialogueOperationKind.ProposeGoalUpdate && program is not null)
+                result = await curriculum.ProposeGoalUpdateAsync(request.UserId, program.Id, program.RouteVersion, decision.Arguments, token);
+            if (operation == DialogueOperationKind.ApplyGoalUpdate && decision.Audit?.Confirmation?.Target is { ProgramId: { } programId, RouteVersion: { } version })
+                result = await curriculum.ApplyGoalUpdateAsync(request.UserId, programId, version, decision.Arguments, token);
+            session.EnsureComplete();
+            var goalReplies = TelegramCurriculumPresenter.Render(result);
+            if (result is CurriculumResult.GoalUpdateOffered proposal)
+            {
+                var confirmation = LearningGoalChange.OpenUpdate(decision.Context, turn, program!, lesson, pedagogicalStamp, proposal);
+                goalReplies = [.. goalReplies, .. TelegramDialoguePresenter.Render(new(DialogueReplyKind.ConfirmGoalUpdate,
+                    [confirmation.Label!, confirmation.Code]))];
+                audit = JsonSerializer.Serialize(new DialogueAudit("confirmation_published", Confirmation: confirmation,
+                    OriginalRequestId: turn.RequestId), JsonSerializerOptions.Web);
+            }
+            else if (operation == DialogueOperationKind.ApplyGoalUpdate)
+                decision.Context.Synchronize(lesson, now, turn.SourceOrder);
+            return new(null, result is CurriculumResult.GoalEditRejected ? "goal_update_rejected" : "goal_update_reply")
+                { Replies = Introduce(introduce, goalReplies), DialogueOutcomeJson = audit };
+        }
         if (operation is DialogueOperationKind.ExplainAssessment or DialogueOperationKind.AppealAssessment)
         {
             var assessments = new AssessmentReviewService(services.GetRequiredService<IAssessmentReviewStore>(),
@@ -234,16 +257,18 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
             session.EnsureComplete();
             return new(null, "diagnostic_reply") { Replies = Introduce(introduce, TelegramCurriculumPresenter.Render(result)) };
         }
-        if (operation is DialogueOperationKind.SwitchProgram or DialogueOperationKind.SwitchGoal or
+        if (operation is DialogueOperationKind.SwitchProgram or DialogueOperationKind.SwitchGoal or DialogueOperationKind.SwitchGoalWithCriterion or
             DialogueOperationKind.SwitchCreateProgram or DialogueOperationKind.SwitchCreateProjectProgram)
         {
             IReadOnlyList<string> switched;
-            if (operation == DialogueOperationKind.SwitchGoal)
+            if (operation is DialogueOperationKind.SwitchGoal or DialogueOperationKind.SwitchGoalWithCriterion)
             {
-                var result = await CreateCurriculum(services, session).CreateAsync(request.UserId, decision.Arguments,
+                var goal = operation == DialogueOperationKind.SwitchGoalWithCriterion
+                    ? decision.Arguments.Split('|', 2, StringSplitOptions.TrimEntries) : [decision.Arguments];
+                var result = await CreateCurriculum(services, session).CreateAsync(request.UserId, goal[0],
                     "Опыт по новой цели не уточнён", null, token,
                     englishDiagnostic: processing.EnglishDiagnosticEnabled || text?.EnglishDiagnosticAllowed == true || program?.HasEnglishDiagnostic == true,
-                    suspendCurrent: true);
+                    suspendCurrent: true, goalCriterion: goal.Length == 2 ? goal[1] : null);
                 var reply = LearningGoalChange.Complete(decision.Context, result, turn);
                 switched = result is CurriculumResult.Program ? TelegramDialoguePresenter.Render(reply) : TelegramCurriculumPresenter.Render(result);
             }
@@ -294,6 +319,7 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
         "learn_solution" => DialogueOperationKind.RevealSolution,
         "learn_assessment" => DialogueOperationKind.ExplainAssessment, "learn_appeal" => DialogueOperationKind.AppealAssessment,
         "learn_route" => DialogueOperationKind.ViewRoute, "learn_route_edit" => DialogueOperationKind.EditRoute,
+        "learn_goal_update" => DialogueOperationKind.ProposeGoalUpdate,
         "learn_next" => DialogueOperationKind.Next, "learn_progress" => DialogueOperationKind.Progress,
         "learn_request" or "learn_program" => DialogueOperationKind.CreateProgram,
         "learn_project" => DialogueOperationKind.CreateProjectProgram, "learn_select" => DialogueOperationKind.SelectProgram,
