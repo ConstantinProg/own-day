@@ -41,7 +41,11 @@ public sealed record LessonAssessment(string Feedback, bool IsCorrect)
     public RubricAssessment? Rubric { get; init; }
     public ExerciseCorrectionProposal? Correction { get; init; }
 }
-public sealed record LessonExplanation(string Explanation);
+public sealed record LessonExplanation(string Explanation)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public LessonProvenance? Provenance { get; init; }
+}
 public sealed record CriterionFeedback(string Requirement, RubricCriterionResult Result, string Reason);
 
 public interface ILessonTeacher
@@ -105,7 +109,7 @@ public abstract record LearningResult
         public long? ProjectActionId { get; init; }
         public InterdisciplinaryPractice? Transfer { get; init; }
     }
-    public sealed record Explanation(string Text, string Topic, string Question) : LearningResult;
+    public sealed record Explanation(string Text, string Topic, string Question, LessonProvenance? Provenance = null) : LearningResult;
     public sealed record AssessmentClarification(string Criterion) : LearningResult;
     public sealed record AssessmentCorrection(string Guidance, string Question, bool AnotherHintAvailable) : LearningResult;
     public sealed record HelpLimit : LearningResult;
@@ -336,27 +340,31 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
         if (kind == LessonInteractionKind.FullAnswer)
         {
             if (lesson.Interactions.FirstOrDefault(interaction => interaction.Kind == LessonInteractionKind.FullAnswer) is { } solution)
-                return new LearningResult.Explanation(solution.Explanation, lesson.Topic, lesson.ResponseQuestion);
+                return new LearningResult.Explanation(solution.Explanation, lesson.Topic, lesson.ResponseQuestion, solution.Provenance);
         }
         else if (!lesson.CanOfferMoreHelp) return new LearningResult.HelpLimit();
         try
         {
             LearningPreferenceValues? preferences = null;
+            string? factDiscipline = null;
             if (curriculum is not null)
             {
                 var program = lesson.ProgramId is { } id ? await curriculum.FindAsync(user, id, token) : null;
                 var profile = await knowledge.PersonalizationAsync(user, token, program?.Discipline);
                 var effective = profile.EffectivePreferences();
                 preferences = (ExplanationPreference.Parse(request)?.ForExplanation() ?? effective).WithFallback(effective);
+                if (program is not null && MarketLearningContent.Identify(request, lesson.Topic + " " + program.Discipline) != MarketFactRequest.None)
+                    factDiscipline = program.Discipline;
             }
             var preferenceSnapshot = preferences is { } values && (!values.IsEmpty() || lesson.Teaching?.Preferences.IsEmpty() == false)
                 ? values : null;
-            var result = preferenceSnapshot is null
+            var result = preferenceSnapshot is null && factDiscipline is null
                 ? await teacher.ExplainAsync(lesson, request, kind, token)
-                : await teacher.ExplainAsync(Requests.LessonSnapshot.From(lesson) with { ExplanationPreferences = preferenceSnapshot }, request, kind, token);
+                : await teacher.ExplainAsync(Requests.LessonSnapshot.From(lesson) with
+                    { ExplanationPreferences = preferenceSnapshot, FactCheckDiscipline = factDiscipline }, request, kind, token);
             token.ThrowIfCancellationRequested();
-            lesson.AddExplanation(kind, request, result.Explanation, preferenceSnapshot);
-            return new LearningResult.Explanation(result.Explanation, lesson.Topic, lesson.ResponseQuestion);
+            lesson.AddExplanation(kind, request, result.Explanation, preferenceSnapshot, result.Provenance);
+            return new LearningResult.Explanation(result.Explanation, lesson.Topic, lesson.ResponseQuestion, result.Provenance);
         }
         catch (Exception exception) when (exception is LessonProviderException or ArgumentException)
         {

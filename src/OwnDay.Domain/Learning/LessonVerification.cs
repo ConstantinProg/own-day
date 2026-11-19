@@ -5,13 +5,18 @@ public enum MaterialSourceStatus
     None,
     Unavailable,
     Retrieved,
-    QuoteMatched
+    QuoteMatched,
+    VerifiedClaim,
+    Unverified
 }
 
 // QuoteMatched confirms only that this excerpt occurs in the retrieved document and lesson.
 public sealed record LessonProvenance(string Generator, string? Reference, string? Version,
     DateTimeOffset? AccessedAt, string? Quote, MaterialSourceStatus Status)
 {
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? VerifiedStatement { get; init; }
+
     public void Validate()
     {
         if (string.IsNullOrWhiteSpace(Generator) || Generator.Length > 200)
@@ -27,7 +32,7 @@ public sealed record LessonProvenance(string Generator, string? Reference, strin
         if (!Enum.IsDefined(Status))
             throw new ArgumentException("Unknown material source status.", nameof(Status));
 
-        if (Status != MaterialSourceStatus.None)
+        if (Status is not (MaterialSourceStatus.None or MaterialSourceStatus.Unverified))
         {
             if (string.IsNullOrWhiteSpace(Reference))
                 throw new ArgumentException("A source requires a reference.", nameof(Reference));
@@ -36,10 +41,14 @@ public sealed record LessonProvenance(string Generator, string? Reference, strin
         }
         if (Status != MaterialSourceStatus.QuoteMatched && Quote is not null)
             throw new ArgumentException("Only a matched excerpt may have a quote.", nameof(Quote));
+        if (Status == MaterialSourceStatus.VerifiedClaim ? string.IsNullOrWhiteSpace(VerifiedStatement) || VerifiedStatement.Length > 500
+            : VerifiedStatement is not null)
+            throw new ArgumentException("Only a bounded, verified claim may carry a statement.", nameof(VerifiedStatement));
 
         switch (Status)
         {
             case MaterialSourceStatus.None:
+            case MaterialSourceStatus.Unverified:
                 if (Reference is not null || Version is not null || AccessedAt is not null)
                     throw new ArgumentException("An absent source cannot have reference, version or access metadata.");
                 break;
@@ -49,6 +58,7 @@ public sealed record LessonProvenance(string Generator, string? Reference, strin
                 break;
             case MaterialSourceStatus.Retrieved:
             case MaterialSourceStatus.QuoteMatched:
+            case MaterialSourceStatus.VerifiedClaim:
                 if (AccessedAt is null)
                     throw new ArgumentException("A retrieved source requires an access time.", nameof(AccessedAt));
                 if (Status == MaterialSourceStatus.QuoteMatched && string.IsNullOrWhiteSpace(Quote))

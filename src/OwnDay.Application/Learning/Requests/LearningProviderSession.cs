@@ -15,7 +15,8 @@ public sealed record LessonSnapshot(Guid Id, UserId UserId, string Topic, string
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] LearningContent? Content = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] LessonRubricEvaluation? RubricEvaluation = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] AssessmentReviewContext? Review = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] LearningPreferenceValues? ExplanationPreferences = null)
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] LearningPreferenceValues? ExplanationPreferences = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? FactCheckDiscipline = null)
 {
     public static LessonSnapshot From(Lesson lesson) => new(lesson.Id, lesson.UserId, lesson.Topic,
         lesson.Theory, lesson.Question, lesson.Status, lesson.Teaching, lesson.Transfer, lesson.Content, lesson.RubricEvaluation);

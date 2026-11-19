@@ -239,7 +239,8 @@ public sealed class Lesson
         Status = LessonStatus.Finished;
     }
 
-    public void AddExplanation(LessonInteractionKind kind, string request, string explanation, LearningPreferenceValues? preferences = null)
+    public void AddExplanation(LessonInteractionKind kind, string request, string explanation, LearningPreferenceValues? preferences = null,
+        LessonProvenance? provenance = null)
     {
         RequireAwaitingAnswer();
         if (!Enum.IsDefined(kind)) throw new ArgumentOutOfRangeException(nameof(kind));
@@ -249,7 +250,8 @@ public sealed class Lesson
             throw new InvalidOperationException("The exercise has reached its help limit.");
         Validate(request, 1000);
         Validate(explanation, 2500);
-        _interactions.Add(new LessonInteraction(Id, kind, request, explanation, preferences));
+        provenance?.Validate();
+        _interactions.Add(new LessonInteraction(Id, kind, request, explanation, preferences, provenance));
         Assistance = AnswerAssistance.Assisted;
     }
 

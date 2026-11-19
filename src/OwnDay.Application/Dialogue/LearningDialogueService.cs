@@ -258,7 +258,8 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
             (context.ResponseAfterSourceOrder == 0 || turn.SourceOrder > context.ResponseAfterSourceOrder);
         if (command is { } explicitAction)
             return await DecideActionAsync(context, turn, explicitAction, turn.Text, lesson, program, stamp, false, bound, token);
-        if (lesson is not null && ExplanationPreference.Parse(turn.Text) is not null)
+        if (lesson is not null && (ExplanationPreference.Parse(turn.Text) is not null || turn.Text.TrimEnd().EndsWith('?') &&
+            MarketLearningContent.Identify(turn.Text, lesson.Topic + " " + program?.Discipline) != MarketFactRequest.None))
             return await DecideActionAsync(context, turn, DialogueOperationKind.Clarify, turn.Text, lesson, program, stamp, false, bound, token);
 
         if (normalized is "помощь" or "help" or "что дальше" or "как продолжить")

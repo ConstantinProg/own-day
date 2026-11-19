@@ -1123,6 +1123,8 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
 
                 b.Property<string>("ExplanationPreferences")
                     .HasColumnType("jsonb");
+
+                b.Property<string>("Provenance").HasColumnType("jsonb");
                 b.Property<int>("Kind")
                     .HasColumnType("integer");
                 b.Property<Guid>("LessonId")

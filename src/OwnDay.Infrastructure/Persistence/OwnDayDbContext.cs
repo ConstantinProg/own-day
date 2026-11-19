@@ -92,6 +92,10 @@ public sealed class OwnDayDbContext(DbContextOptions<OwnDayDbContext> options)
                 value => System.Text.Json.JsonSerializer.Serialize(value, System.Text.Json.JsonSerializerOptions.Web),
                 value => System.Text.Json.JsonSerializer.Deserialize<LearningPreferenceValues>(value, System.Text.Json.JsonSerializerOptions.Web))
                 .HasColumnType("jsonb");
+            entity.Property(i => i.Provenance).HasConversion(
+                value => System.Text.Json.JsonSerializer.Serialize(value, System.Text.Json.JsonSerializerOptions.Web),
+                value => System.Text.Json.JsonSerializer.Deserialize<LessonProvenance>(value, System.Text.Json.JsonSerializerOptions.Web))
+                .HasColumnType("jsonb");
         });
         InboxAnalysisModel.Configure(modelBuilder);
         InboxObservabilityModel.Configure(modelBuilder);

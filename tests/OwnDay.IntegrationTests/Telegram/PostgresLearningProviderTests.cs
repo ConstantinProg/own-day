@@ -279,6 +279,56 @@ public sealed partial class PostgresLearningProviderTests : IAsyncLifetime
     }
 
     [Theory]
+    [InlineData(true, MaterialSourceStatus.VerifiedClaim)]
+    [InlineData(false, MaterialSourceStatus.Unavailable)]
+    public async Task Process_MarketSourceAcrossRestart_PreservesClaimStatusAndOpenQuestion(bool sourceAvailable, MaterialSourceStatus expected)
+    {
+        var probe = new Probe("")
+        {
+            MarketResponse = request => new(sourceAvailable ? HttpStatusCode.OK : HttpStatusCode.ServiceUnavailable)
+            {
+                RequestMessage = request,
+                Headers = { Date = _now },
+                Content = new StringContent("<strong>Расписание торгов на рынке акций</strong><table>" +
+                    "<tr><td>Стакан Т+1<br />(RUB)</td><td>Y1</td></tr></table>", Encoding.UTF8, "text/html")
+            }
+        };
+        const string topic = "Код расчётов для акций Московской биржи";
+        using (var host = DialogueHost(probe))
+        using (var client = host.CreateClient())
+        {
+            using var response = await PostPublicAsync(client, 1, "/learn " + topic);
+            response.EnsureSuccessStatusCode();
+            await WaitAllPublicAsync(1);
+        }
+        string question;
+        await using (var db = Open())
+        {
+            var lesson = await db.Set<Lesson>().SingleAsync();
+            Assert.Equal(expected, lesson.Provenance!.Status);
+            Assert.Equal(sourceAvailable ? _now : (DateTimeOffset?)null, lesson.Provenance.AccessedAt);
+            question = lesson.Question;
+        }
+        using var restarted = DialogueHost(probe);
+        using var restartedClient = restarted.CreateClient();
+        using var clarification = await PostPublicAsync(restartedClient, 2, "Какой код расчётов для акций Московской биржи?");
+        clarification.EnsureSuccessStatusCode();
+        await WaitAllPublicAsync(2);
+        using var duplicate = await PostPublicAsync(restartedClient, 2, "Какой код расчётов для акций Московской биржи?");
+        duplicate.EnsureSuccessStatusCode();
+        await using var observer = Open();
+        var persisted = await observer.Set<Lesson>().Include(lesson => lesson.Interactions).SingleAsync();
+        var explanation = Assert.Single(persisted.Interactions);
+        Assert.Equal(expected, explanation.Provenance!.Status);
+        Assert.Equal(sourceAvailable ? _now : (DateTimeOffset?)null, explanation.Provenance.AccessedAt);
+        Assert.Equal(question, persisted.Question);
+        Assert.Equal(2, await observer.Set<LearningAppliedOperation>().CountAsync());
+        var replies = await observer.TelegramOutboxMessages.Select(message => message.Text).ToArrayAsync();
+        Assert.Equal(sourceAvailable, replies.Any(reply => reply.Contains("Verified at:", StringComparison.Ordinal)));
+        Assert.Equal(!sourceAvailable, replies.Any(reply => reply.Contains("Source unavailable:", StringComparison.Ordinal)));
+    }
+
+    [Theory]
     [InlineData("learn_adapt")]
     [InlineData("learn_invite_start")]
     public async Task Process_GenerationFails_PreservesRouteSelectionAndUnresolvedInvitation(string command)
@@ -382,6 +432,7 @@ public sealed partial class PostgresLearningProviderTests : IAsyncLifetime
         public System.Collections.Concurrent.ConcurrentDictionary<string, int> KindCalls { get; } = new();
         public bool IgnoreCancellation { get; init; }
         public LearningIntent Intent { get; init; } = LearningIntent.Answer;
+        public Func<HttpRequestMessage, HttpResponseMessage>? MarketResponse { get; init; }
         public CurriculumProposal Curriculum { get; init; } = new("English", [new("root", "Read an email", [])], null);
         public Func<CurriculumRequest, CurriculumProposal>? Plan { get; init; }
         public LessonMaterial Material { get; init; } = new("Theory", "Question");
@@ -418,6 +469,12 @@ public sealed partial class PostgresLearningProviderTests : IAsyncLifetime
         }
         public async Task<LessonMaterial> GenerateAsync(LessonRequest request, CancellationToken token)
         {
+            if (probe.MarketResponse is { } market)
+            {
+                await BlockAsync("generate", token);
+                using var marketReader = new MoexLessonSourceReader(new HttpClient(new MarketHandler(market)), new Clock());
+                return await MarketTeacher(marketReader).GenerateAsync(request, token);
+            }
             if (!source) { await BlockAsync("generate", token); return probe.Material; }
             using var sourceHttp = new HttpClient(new Handler(async cancellationToken =>
             {
@@ -447,13 +504,33 @@ public sealed partial class PostgresLearningProviderTests : IAsyncLifetime
         public async Task<LearningIntentProposal> ResolveAsync(LearningIntentInput input, CancellationToken token)
         { probe.IntentInputs.Enqueue(input); await BlockAsync("intent", token); return new(probe.Intent); }
         public async Task<LessonExplanation> ExplainAsync(LessonSnapshot lesson, string request, LessonInteractionKind kind, CancellationToken token)
-        { probe.ExplanationKinds.Enqueue(kind); await BlockAsync("explain", token); return new("Explanation"); }
+        {
+            probe.ExplanationKinds.Enqueue(kind);
+            await BlockAsync("explain", token);
+            if (probe.MarketResponse is not { } market) return new("Explanation");
+            using var reader = new MoexLessonSourceReader(new HttpClient(new MarketHandler(market)), new Clock());
+            return await MarketTeacher(reader).ExplainAsync(lesson, request, kind, token);
+        }
+
+        private OpenAILessonTeacher MarketTeacher(MoexLessonSourceReader reader) =>
+            new(() => throw new InvalidOperationException("The deterministic market check should not call a paid model."),
+                Options.Create(new OpenAIInboxAnalysisOptions { Enabled = true, ApiKey = "dummy" }),
+                NullLogger<OpenAILessonTeacher>.Instance, usage: usage, marketSource: reader);
         public Task<LessonAssessment> AssessAsync(Lesson lesson, string answer, CancellationToken token) => throw new InvalidOperationException("Tracked lesson crossed provider boundary.");
         public Task<LessonExplanation> ExplainAsync(Lesson lesson, string request, LessonInteractionKind kind, CancellationToken token) => throw new InvalidOperationException("Tracked lesson crossed provider boundary.");
         public async Task<CurriculumProposal> PlanAsync(CurriculumRequest request, CancellationToken token)
         { await BlockAsync("plan", token); return probe.Plan?.Invoke(request) ?? probe.Curriculum; }
         public async Task<TeachingProposal> ProposeAsync(TeachingRequest request, CancellationToken token)
         { await BlockAsync("teach", token); return new("Simplify", "root", "Use a shorter email"); }
+    }
+
+    private sealed class MarketHandler(Func<HttpRequestMessage, HttpResponseMessage> respond) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(respond(request));
+        }
     }
 
     private sealed class Handler(Func<CancellationToken, Task<HttpResponseMessage>> send) : HttpMessageHandler
