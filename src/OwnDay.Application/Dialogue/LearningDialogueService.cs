@@ -96,11 +96,12 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
             if (program is not null && sessionAction is not (DialogueOperationKind.Progress or DialogueOperationKind.Finish or
                     DialogueOperationKind.Confirm or DialogueOperationKind.Cancel or DialogueOperationKind.None))
                 returning = await sessions.RecordActivityAsync(turn, program.Id, lesson, token);
-            if (returning && lesson is not null && sessionAction != DialogueOperationKind.Resume)
+            if (returning && lesson is not null && (sessionAction != DialogueOperationKind.Resume ||
+                lesson.Status == LessonStatus.AwaitingAnswer && context.PendingConfirmation is null && context.PendingClarification is null))
             {
                 context.Synchronize(lesson, turn.Now, turn.SourceOrder);
                 context.AdvanceResponseBoundary(turn.SourceOrder);
-                return Recap(context, lesson);
+                return Recap(context, lesson) with { SuggestReviewsOnReturn = true };
             }
         }
         if (lesson is null && program is null && context.Consultation is { CreatedProgramId: null } &&

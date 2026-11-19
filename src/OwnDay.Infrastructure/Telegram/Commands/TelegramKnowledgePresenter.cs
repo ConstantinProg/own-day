@@ -6,6 +6,9 @@ namespace OwnDay.Infrastructure.Telegram.Commands;
 
 public static class TelegramKnowledgePresenter
 {
+    public static string ReviewAfterResume(ReviewSuggestion suggestion) =>
+        $"После перерыва можно повторить «{suggestion.Skill.Title}». Текущий вопрос сохранён. Продолжите ответом или напишите «что повторить».";
+
     public static IReadOnlyList<string> Suggestions(IReadOnlyList<ReviewSuggestion> suggestions)
     {
         if (suggestions.Count == 0) return ["Сейчас подходящих повторений нет. Чтобы открыть следующую тему, напишите «дальше»."];

@@ -175,9 +175,17 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
         }
         if (decision.Execute is not { } operation)
         {
+            var reply = decision.Reply ?? new(DialogueReplyKind.Unavailable);
+            var dialogueReplies = TelegramDialoguePresenter.Render(reply);
+            if (decision.SuggestReviewsOnReturn && reply.Kind == DialogueReplyKind.Recap)
+            {
+                var suggestions = await CreateCurriculum(services, session).SuggestReviewsAsync(request.UserId, token);
+                if (suggestions.FirstOrDefault() is { } suggestion)
+                    dialogueReplies = [.. dialogueReplies, TelegramKnowledgePresenter.ReviewAfterResume(suggestion)];
+            }
             session.EnsureComplete();
             return new(null, decision.Audit?.Code ?? "dialogue_reply")
-                { Replies = Introduce(introduce, TelegramDialoguePresenter.Render(decision.Reply ?? new(DialogueReplyKind.Unavailable))), DialogueOutcomeJson = audit };
+                { Replies = Introduce(introduce, dialogueReplies), DialogueOutcomeJson = audit };
         }
         if (operation == DialogueOperationKind.ReviewSuggestions || decision.SuggestReviewsOnReturn)
         {
