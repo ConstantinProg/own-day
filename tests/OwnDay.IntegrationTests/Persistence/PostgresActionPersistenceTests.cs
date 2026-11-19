@@ -101,16 +101,10 @@ public sealed class PostgresActionPersistenceTests
                 Assert.Equal(CompleteActionResult.Completed,
                     await service.CompleteAsync(new UserId(101), 42, CancellationToken.None));
 
-                var sqlGenerator = db.GetService<IMigrationsSqlGenerator>();
-                // Remove context/skill links and the program-to-project dependency before project tables.
-                Migration[] rollback = [new AddProgramSuspension(), new AddStudySchedules(), new AddMultipleLearningPrograms(), new AddLearningPrograms(), new AddStructuredItems(), new RenameTasksToActions()];
-                foreach (var migration in rollback)
-                {
-                    foreach (var migrationCommand in sqlGenerator.Generate(migration.DownOperations, db.Model))
-                    {
-                        await db.Database.ExecuteSqlRawAsync(migrationCommand.CommandText);
-                    }
-                }
+                const string legacyTarget = "202609240001_AddTasks";
+                // EF resolves this legacy 12-digit identifier through its migration name lookup.
+                await db.Database.MigrateAsync(db.GetService<IMigrationsIdGenerator>().GetName(legacyTarget));
+                Assert.Equal(legacyTarget, (await db.Database.GetAppliedMigrationsAsync()).Last());
 
                 await db.Database.OpenConnectionAsync();
                 await using var command = db.Database.GetDbConnection().CreateCommand();

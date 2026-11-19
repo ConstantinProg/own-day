@@ -115,6 +115,10 @@ public sealed class PostgresVerificationTests
             await using var rollback = new OwnDayDbContext(options);
             var error = await Assert.ThrowsAsync<PostgresException>(() => rollback.GetService<IMigrator>().MigrateAsync(previous));
             Assert.Contains("Retain diagnostic results and assistance", error.MessageText);
+            Assert.Equal((int)AnswerAssessmentStatus.Conflict, await rollback.Database.SqlQuery<int>($"""
+                SELECT "AssessmentStatus" AS "Value" FROM learning_evidence WHERE "UserId" = {101L}
+                """).SingleAsync());
+            await rollback.Database.MigrateAsync();
             Assert.Equal(AnswerAssessmentStatus.Conflict, (await rollback.Set<LearningEvidence>().SingleAsync(e => e.UserId == new UserId(101))).AssessmentStatus);
         }
         finally
