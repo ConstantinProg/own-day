@@ -115,7 +115,7 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
         var knowledge = services.GetRequiredService<KnowledgeService>();
         var lessons = services.GetRequiredService<ILessonStore>();
         var programs = services.GetRequiredService<ICurriculumStore>();
-        var learning = new LearningService(lessons, session, knowledge, operationId);
+        var learning = new LearningService(lessons, session, knowledge, operationId, programs);
         var curriculum = CreateCurriculum(services, session);
         var study = new StudyService(services.GetRequiredService<IStudyScheduleStore>(), lessons, programs,
             services.GetRequiredService<IKnowledgeStore>(), learning, curriculum, services.GetRequiredService<TimeProvider>());
@@ -305,13 +305,13 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
             return new(null, "practice_reply") { Replies = TelegramPracticePresenter.Render(result) };
         }
         var name = operation is DialogueOperationKind.None or DialogueOperationKind.StartOtherLesson ? command!.Name : CommandName(operation);
-        var replies = await handler.HandleAsync(new(name, decision.Arguments, request.UserId), token);
+        var replies = await handler.HandleAsync(new(name, decision.Arguments, request.UserId), token, program?.Discipline);
         var practiceResult = await CreatePractice(services, session).SynchronizeAsync(request.UserId, operation, token);
         if (practiceResult is not null) replies = [.. replies, .. TelegramPracticePresenter.Render(practiceResult)];
         session.EnsureComplete();
         var active = db.Set<Lesson>().Local.SingleOrDefault(value => value.UserId == request.UserId &&
             value.Status is LessonStatus.AwaitingAnswer or LessonStatus.Paused);
-        if (operation != DialogueOperationKind.Progress)
+        if (operation is not (DialogueOperationKind.Progress or DialogueOperationKind.PreferenceView or DialogueOperationKind.PreferenceSet or DialogueOperationKind.PreferenceReset))
             decision.Context.Synchronize(active, now, turn.SourceOrder);
         return new(null, decision.Audit?.Code ?? "reply_committed") { Replies = Introduce(introduce, replies), DialogueOutcomeJson = audit };
     }
@@ -330,6 +330,9 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
         "learn_route" => DialogueOperationKind.ViewRoute, "learn_route_edit" => DialogueOperationKind.EditRoute,
         "learn_goal_update" => DialogueOperationKind.ProposeGoalUpdate,
         "learn_recommend_reviews" => DialogueOperationKind.ReviewSuggestions,
+        "learn_preferences" => DialogueOperationKind.PreferenceView,
+        "learn_preference" => DialogueOperationKind.PreferenceSet,
+        "learn_preference_reset" => DialogueOperationKind.PreferenceReset,
         "learn_next" => DialogueOperationKind.Next, "learn_progress" => DialogueOperationKind.Progress,
         "learn_request" or "learn_program" => DialogueOperationKind.CreateProgram,
         "learn_project" => DialogueOperationKind.CreateProjectProgram, "learn_select" => DialogueOperationKind.SelectProgram,
@@ -346,6 +349,8 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
         DialogueOperationKind.Next => "learn_next", DialogueOperationKind.Progress => "learn_progress",
         DialogueOperationKind.CreateProgram => "learn_request", DialogueOperationKind.CreateProjectProgram => "learn_project",
         DialogueOperationKind.SelectProgram => "learn_select", DialogueOperationKind.Diagnose => "learn_diagnose",
+        DialogueOperationKind.PreferenceView => "learn_preferences", DialogueOperationKind.PreferenceSet => "learn_preference",
+        DialogueOperationKind.PreferenceReset => "learn_preference_reset",
         _ => throw new InvalidOperationException("Unsupported dialogue action.")
     };
 
@@ -377,8 +382,9 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
                     // A legacy program has the same checkpoint stamp on either side of the additive migration.
                     .Where(property => property.Name is not (nameof(LearningProgram.GoalCriterion) or nameof(LearningProgram.SubjectDiagnostic) or
                         nameof(Lesson.RubricEvaluation) or nameof(LearningEvidence.RubricEvidence) or
-                        nameof(LearningEvidence.ReviewHistory) or nameof(LearningEvidence.ReassessmentCredit) or nameof(CurriculumRoute.Path)) ||
-                        entry.OriginalValues[property] is not null)
+                        nameof(LearningEvidence.ReviewHistory) or nameof(LearningEvidence.ReassessmentCredit) or nameof(CurriculumRoute.Path) or
+                        nameof(LearningPreference.ResetThrough) or nameof(LessonInteraction.ExplanationPreferences)) || entry.OriginalValues[property] is not null)
+                    .Where(property => property.Name != nameof(LearningPreference.Scope) || entry.OriginalValues[property] is not "")
                     .OrderBy(property => property.Name, StringComparer.Ordinal)
                     .ToDictionary(property => property.Name, property => entry.OriginalValues[property]), JsonSerializerOptions.Web))
             .OrderBy(row => row, StringComparer.Ordinal);
@@ -391,7 +397,9 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
         .Select(entry => new
         {
             Type = entry.Metadata.Name,
-            Key = entry.Metadata.FindPrimaryKey()!.Properties.ToDictionary(property => property.Name, property => entry.OriginalValues[property]),
+            Key = entry.Metadata.FindPrimaryKey()!.Properties
+                .Where(property => property.Name != nameof(LearningPreference.Scope) || entry.OriginalValues[property] is not "")
+                .ToDictionary(property => property.Name, property => entry.OriginalValues[property]),
             Version = entry.OriginalValues["TargetVersion"]
         }).OrderBy(target => target.Type, StringComparer.Ordinal).ThenBy(target => JsonSerializer.Serialize(target.Key), StringComparer.Ordinal),
         JsonSerializerOptions.Web);

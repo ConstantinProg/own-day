@@ -14,14 +14,16 @@ public sealed class LearningPreference
     private LearningPreference() { }
     public UserId UserId { get; private set; }
     public LearningPreferenceKind Kind { get; private set; }
+    public string Scope { get; private set; } = "";
     public string Value { get; private set; } = "";
     public DateTimeOffset UpdatedAt { get; private set; }
     public string Source { get; private set; } = "Explicit user preference";
+    public long? ResetThrough { get; private set; }
 
-    public static LearningPreference Create(UserId user, LearningPreferenceKind kind, string value, DateTimeOffset now)
+    public static LearningPreference Create(UserId user, LearningPreferenceKind kind, string value, DateTimeOffset now, string? discipline = null)
     {
         if (!user.IsValid || !Enum.IsDefined(kind)) throw new ArgumentException("Invalid preference owner or kind.");
-        var preference = new LearningPreference { UserId = user, Kind = kind };
+        var preference = new LearningPreference { UserId = user, Kind = kind, Scope = ScopeFor(discipline) };
         preference.Change(value, now);
         return preference;
     }
@@ -32,10 +34,34 @@ public sealed class LearningPreference
         if (value.Length is < 1 or > MaxValueLength) throw new ArgumentException("Invalid preference value.", nameof(value));
         Value = value;
         UpdatedAt = now.ToUniversalTime();
+        Source = "Explicit user preference";
+    }
+
+    public bool IsExplicit() => Source == "Explicit user preference";
+
+    public void Reset(long through, DateTimeOffset now)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(through);
+        Change("default", now);
+        Source = "User reset";
+        ResetThrough = Math.Max(ResetThrough ?? 0, through);
+    }
+
+    public static string ScopeFor(string? discipline)
+    {
+        var scope = discipline?.Trim().ToUpperInvariant() ?? "";
+        if (scope.Length > LearningProgram.MaxDisciplineLength) throw new ArgumentException("Invalid preference scope.", nameof(discipline));
+        return scope;
     }
 }
 
-public sealed record LearningPreferenceValues(string? Format, string? Depth, string? Pace, string? Examples);
+public sealed record LearningPreferenceValues(string? Format, string? Depth, string? Pace, string? Examples)
+{
+    public LearningPreferenceValues WithFallback(LearningPreferenceValues fallback) =>
+        new(Format ?? fallback.Format, Depth ?? fallback.Depth, Pace ?? fallback.Pace, Examples ?? fallback.Examples);
+
+    public bool IsEmpty() => Format is null && Depth is null && Pace is null && Examples is null;
+}
 
 public enum PedagogicalStrategy
 {

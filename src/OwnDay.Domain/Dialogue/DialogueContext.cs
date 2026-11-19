@@ -13,7 +13,8 @@ public enum DialogueOperationKind
     CreateProgram, CreateProjectProgram, SelectProgram, ChangeGoal, Cancel, Confirm, Diagnose,
     BeginPractice, NextPractice, PausePractice, ResumePractice, StopPractice, PracticeInfo, StartOtherLesson,
     SwitchProgram, SwitchGoal, SwitchCreateProgram, SwitchCreateProjectProgram, CompleteDiagnostic, EndSession, RevealSolution,
-    ExplainAssessment, AppealAssessment, ViewRoute, EditRoute, ProposeGoalUpdate, ApplyGoalUpdate, SwitchGoalWithCriterion, ReviewSuggestions
+    ExplainAssessment, AppealAssessment, ViewRoute, EditRoute, ProposeGoalUpdate, ApplyGoalUpdate, SwitchGoalWithCriterion, ReviewSuggestions,
+    PreferenceView, PreferenceSet, PreferenceReset
 }
 
 public sealed record DialogueClarification(Guid OriginalRequestId, ImmutableArray<DialogueOperationKind> Allowed,

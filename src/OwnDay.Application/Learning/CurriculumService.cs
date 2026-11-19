@@ -340,7 +340,7 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
                 sharedLink = links.SingleOrDefault(link => link.TopicCode == topic.Code);
                 shared = sharedLink is not null && status is not null ? knowledge.SharedContext(status, sharedLink) : null;
             }
-            var personalization = await knowledge.PersonalizationAsync(user, token);
+            var personalization = await knowledge.PersonalizationAsync(user, token, program.Discipline);
             var depth = selection == LessonSelection.Focus && route.IsSkipped(topic.Code) ? CurriculumDepth.Brief : route.DepthFor(topic.Code);
             var diagnosticApplies = route.Path?.GoalChange is not { } change || change.Effective == change.Original;
             var authored = diagnosticApplies && depth == CurriculumDepth.Standard && program.EnglishDiagnostic is { Supported: true } &&
@@ -361,7 +361,7 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
             if (authored) lesson.SetContent(EnglishLearningContent.FirstLesson);
             if (scaffold) lesson.AddExplanation(LessonInteractionKind.Clarification, "Опора после диагностики", EnglishLearningContent.LessonScaffold);
             lesson.SetTeaching(new(teaching is null ? PedagogicalStrategy.Standard : AdaptiveTeaching.StrategyFor(teaching.Action),
-                personalization.ExplicitPreferences));
+                personalization.EffectivePreferences()));
             token.ThrowIfCancellationRequested();
             if (status is not null) lesson.LinkToSkill(status.Skill);
             else await knowledge.AttachAsync(lesson, $"{topic.Title}\nDiscipline: {program.Discipline}\nLearning goal: {program.Goal}", token);

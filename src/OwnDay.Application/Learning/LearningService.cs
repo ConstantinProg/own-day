@@ -117,7 +117,8 @@ public abstract record LearningResult
     public sealed record ReviewDeferred(DateTimeOffset DueAt) : LearningResult;
 }
 
-public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, KnowledgeService knowledge, Guid? operationId = null)
+public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, KnowledgeService knowledge, Guid? operationId = null,
+    ICurriculumStore? curriculum = null)
 {
     public async Task<LearningResult> StartAsync(UserId user, string topic, CancellationToken token)
     {
@@ -140,7 +141,7 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
             var material = await teacher.GenerateAsync(new LessonRequest(topic, Personalization: personalization.ForGeneration()), token);
             token.ThrowIfCancellationRequested();
             var lesson = Lesson.Start(user, topic, material.Theory, material.Question, material.Provenance, material.ExpectedAnswer, material.Content);
-            lesson.SetTeaching(new(PedagogicalStrategy.Standard, personalization.ExplicitPreferences));
+            lesson.SetTeaching(new(PedagogicalStrategy.Standard, personalization.EffectivePreferences()));
             await knowledge.AttachAsync(lesson, lesson.Topic, token);
             store.Add(lesson);
             return Material(lesson);
@@ -285,7 +286,7 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
                 Teaching: teaching, Personalization: personalization.ForGeneration()), token);
             token.ThrowIfCancellationRequested();
             var lesson = Lesson.Start(user, skill.Title, material.Theory, material.Question, material.Provenance, material.ExpectedAnswer, material.Content);
-            lesson.SetTeaching(new(strategy, personalization.ExplicitPreferences));
+            lesson.SetTeaching(new(strategy, personalization.EffectivePreferences()));
             lesson.LinkToSkill(skill);
             if (kind == SkillLessonKind.Review) lesson.MarkAsReview();
             store.Add(lesson);
@@ -340,9 +341,21 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
         else if (!lesson.CanOfferMoreHelp) return new LearningResult.HelpLimit();
         try
         {
-            var result = await teacher.ExplainAsync(lesson, request, kind, token);
+            LearningPreferenceValues? preferences = null;
+            if (curriculum is not null)
+            {
+                var program = lesson.ProgramId is { } id ? await curriculum.FindAsync(user, id, token) : null;
+                var profile = await knowledge.PersonalizationAsync(user, token, program?.Discipline);
+                var effective = profile.EffectivePreferences();
+                preferences = (ExplanationPreference.Parse(request)?.ForExplanation() ?? effective).WithFallback(effective);
+            }
+            var preferenceSnapshot = preferences is { } values && (!values.IsEmpty() || lesson.Teaching?.Preferences.IsEmpty() == false)
+                ? values : null;
+            var result = preferenceSnapshot is null
+                ? await teacher.ExplainAsync(lesson, request, kind, token)
+                : await teacher.ExplainAsync(Requests.LessonSnapshot.From(lesson) with { ExplanationPreferences = preferenceSnapshot }, request, kind, token);
             token.ThrowIfCancellationRequested();
-            lesson.AddExplanation(kind, request, result.Explanation);
+            lesson.AddExplanation(kind, request, result.Explanation, preferenceSnapshot);
             return new LearningResult.Explanation(result.Explanation, lesson.Topic, lesson.ResponseQuestion);
         }
         catch (Exception exception) when (exception is LessonProviderException or ArgumentException)

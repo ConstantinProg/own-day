@@ -13,11 +13,11 @@ public sealed class TelegramLearningCommandHandler(LearningService learning,
             "learn_confirm" or "learn_end_session" or "learn_solution" or "learn_assessment" or "learn_appeal" or "learn_route_edit" or
             "learn_goal_update" or "learn_recommend_reviews";
 
-    public Task<IReadOnlyList<string>> HandleAsync(ProcessIncomingCommand command, CancellationToken token) => command.Name switch
+    public Task<IReadOnlyList<string>> HandleAsync(ProcessIncomingCommand command, CancellationToken token, string? currentDiscipline = null) => command.Name switch
     {
         _ when study.Handles(command.Name) => study.HandleAsync(command, token),
         _ when curriculum.Handles(command.Name) => curriculum.HandleAsync(command, token),
-        _ when knowledge.Handles(command.Name) => knowledge.HandleAsync(command, token),
+        _ when knowledge.Handles(command.Name) => knowledge.HandleAsync(command, token, currentDiscipline),
         "learn_end_session" => Task.FromResult<IReadOnlyList<string>>(["Напишите «завершить сессию»."]),
         "learn_assessment" or "learn_appeal" => Task.FromResult<IReadOnlyList<string>>(["Напишите «почему такая оценка»."]),
         "learn_route_edit" => Task.FromResult<IReadOnlyList<string>>(TelegramDialoguePresenter.Render(new(OwnDay.Application.Dialogue.DialogueReplyKind.RouteEditHelp))),

@@ -17,8 +17,9 @@ internal static class KnowledgeModel
                 table.HasCheckConstraint("CK_learning_preference_kind", "\"Kind\" BETWEEN 0 AND 3");
                 table.HasCheckConstraint("CK_learning_preference_value", "length(trim(\"Value\")) BETWEEN 1 AND 200");
             });
-            entity.HasKey(p => new { p.UserId, p.Kind });
+            entity.HasKey(p => new { p.UserId, p.Kind, p.Scope });
             entity.Property(p => p.UserId).HasConversion(id => id.Value, value => new UserId(value));
+            entity.Property(p => p.Scope).HasMaxLength(LearningProgram.MaxDisciplineLength);
             entity.Property(p => p.Value).HasMaxLength(LearningPreference.MaxValueLength);
             entity.Property(p => p.Source).HasMaxLength(50);
         });

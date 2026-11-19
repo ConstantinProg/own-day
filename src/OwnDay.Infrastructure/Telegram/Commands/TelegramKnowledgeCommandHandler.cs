@@ -11,33 +11,37 @@ public sealed class TelegramKnowledgeCommandHandler(KnowledgeService knowledge, 
         "learn_reviews" or "learn_review" or "learn_review_later" or "learn_review_skip" or
         "learn_preferences" or "learn_preference" or "learn_preference_reset";
 
-    public async Task<IReadOnlyList<string>> HandleAsync(ProcessIncomingCommand command, CancellationToken token)
+    public async Task<IReadOnlyList<string>> HandleAsync(ProcessIncomingCommand command, CancellationToken token, string? currentDiscipline = null)
     {
         if (command.Name is "learn_preferences" or "learn_preference" or "learn_preference_reset")
         {
+            var arguments = command.Arguments.Trim();
+            var scoped = arguments.StartsWith("subject ", StringComparison.OrdinalIgnoreCase);
+            if (scoped && currentDiscipline is null) return ["Сначала выберите учебную программу для предметной настройки. /learn_programs"];
+            var discipline = scoped ? currentDiscipline : null;
+            if (scoped) arguments = arguments[8..].Trim();
             if (command.Name == "learn_preferences")
             {
                 if (!string.IsNullOrWhiteSpace(command.Arguments)) return TelegramPersonalizationPresenter.Usage;
             }
             else if (command.Name == "learn_preference")
             {
-                var parts = command.Arguments.Split('|', 2, StringSplitOptions.TrimEntries);
+                var parts = arguments.Split('|', 2, StringSplitOptions.TrimEntries);
                 if (parts.Length != 2 || !TryPreference(parts[0], out var kind) ||
-                    !await knowledge.SetPreferenceAsync(command.UserId, kind, parts[1], token))
+                    !await knowledge.SetPreferenceAsync(command.UserId, kind, parts[1], token, discipline))
                     return TelegramPersonalizationPresenter.Usage;
             }
             else
             {
-                var argument = command.Arguments.Trim();
                 LearningPreferenceKind? kind = null;
-                if (argument != "all")
+                if (arguments != "all")
                 {
-                    if (!TryPreference(argument, out var parsed)) return TelegramPersonalizationPresenter.Usage;
+                    if (!TryPreference(arguments, out var parsed)) return TelegramPersonalizationPresenter.Usage;
                     kind = parsed;
                 }
-                await knowledge.ResetPreferenceAsync(command.UserId, kind, token);
+                await knowledge.ResetPreferenceAsync(command.UserId, kind, token, discipline);
             }
-            return TelegramPersonalizationPresenter.Render(await knowledge.PersonalizationAsync(command.UserId, token));
+            return TelegramPersonalizationPresenter.Render(await knowledge.PersonalizationAsync(command.UserId, token, currentDiscipline));
         }
         if (command.Name is "learn_skills" or "learn_reviews")
         {

@@ -14,7 +14,8 @@ public sealed record LessonSnapshot(Guid Id, UserId UserId, string Topic, string
     LessonStatus Status, LessonTeaching? Teaching, InterdisciplinaryPractice? Transfer,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] LearningContent? Content = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] LessonRubricEvaluation? RubricEvaluation = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] AssessmentReviewContext? Review = null)
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] AssessmentReviewContext? Review = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] LearningPreferenceValues? ExplanationPreferences = null)
 {
     public static LessonSnapshot From(Lesson lesson) => new(lesson.Id, lesson.UserId, lesson.Topic,
         lesson.Theory, lesson.Question, lesson.Status, lesson.Teaching, lesson.Transfer, lesson.Content, lesson.RubricEvaluation);
@@ -85,7 +86,10 @@ public sealed class LearningProviderSession(IReadOnlyList<LearningProviderStep> 
         ConsumeAsync<LessonAssessment>("assess", new LessonAssessmentInput(lesson, answer), token);
 
     public Task<LessonExplanation> ExplainAsync(Lesson lesson, string request, LessonInteractionKind kind, CancellationToken token) =>
-        ConsumeAsync<LessonExplanation>("explain", new LessonExplanationInput(LessonSnapshot.From(lesson), request, kind), token);
+        ExplainAsync(LessonSnapshot.From(lesson), request, kind, token);
+
+    public Task<LessonExplanation> ExplainAsync(LessonSnapshot lesson, string request, LessonInteractionKind kind, CancellationToken token) =>
+        ConsumeAsync<LessonExplanation>("explain", new LessonExplanationInput(lesson, request, kind), token);
 
     public Task<CurriculumProposal> PlanAsync(CurriculumRequest request, CancellationToken token) =>
         ConsumeAsync<CurriculumProposal>("plan", request, token);

@@ -10,7 +10,11 @@ internal sealed class KnowledgeStore : IKnowledgeStore
     public List<StrategyObservation> StrategyObservations { get; } = [];
     public Task<IReadOnlyList<LearningPreference>> PreferencesAsync(UserId user, CancellationToken token) =>
         Task.FromResult<IReadOnlyList<LearningPreference>>(Preferences.Where(p => p.UserId == user).ToArray());
-    public Task<IReadOnlyList<StrategyObservation>> StrategyObservationsAsync(UserId user, CancellationToken token) =>
+
+    public List<PreferenceSignal> Signals { get; } = [];
+    public Task<IReadOnlyList<PreferenceSignal>> PreferenceSignalsAsync(UserId user, string? discipline, CancellationToken token) =>
+        Task.FromResult<IReadOnlyList<PreferenceSignal>>(Signals.ToArray());
+    public Task<IReadOnlyList<StrategyObservation>> StrategyObservationsAsync(UserId user, CancellationToken token, string? discipline = null) =>
         Task.FromResult<IReadOnlyList<StrategyObservation>>(StrategyObservations);
     public void Add(LearningPreference preference) => Preferences.Add(preference);
     public void Remove(LearningPreference preference) => Preferences.Remove(preference);

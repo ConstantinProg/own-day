@@ -87,4 +87,46 @@ public sealed class LearningPersonalizationTests
         Assert.False(await service.ResetPreferenceAsync(new(1), (LearningPreferenceKind)99, default));
         Assert.Empty(store.Preferences);
     }
+
+    [Fact]
+    public async Task PersonalizationAsync_ThreeIndependentConsistentStyleRequests_OffersAnObservedPreferenceUntilReset()
+    {
+        var owner = new UserId(1);
+        var store = new KnowledgeStore();
+        var first = Guid.NewGuid();
+        store.Signals.AddRange([new(1, first, "explain briefly"), new(2, first, "покороче"), new(3, Guid.NewGuid(), "есть 5 минут")]);
+        var service = new KnowledgeService(store, TimeProvider.System);
+        Assert.Null((await service.PersonalizationAsync(owner, default, "TypeScript")).ObservedPreferences);
+
+        store.Signals.AddRange([new(4, Guid.NewGuid(), "объясни короче"), new(5, Guid.NewGuid(), "make it shorter")]);
+        var profile = await service.PersonalizationAsync(owner, default, "TypeScript");
+        Assert.Equal("brief", profile.EffectivePreferences().Depth);
+        Assert.Null(profile.EffectivePreferences().Pace);
+        Assert.Contains(profile.Sources, source => source.Source == "Repeated explanation requests" && source.Scope == "TYPESCRIPT");
+        Assert.Empty(store.Preferences);
+
+        await service.SetPreferenceAsync(owner, LearningPreferenceKind.Depth, "detailed", default);
+        Assert.Equal("detailed", (await service.PersonalizationAsync(owner, default, "TypeScript")).EffectivePreferences().Depth);
+        await service.SetPreferenceAsync(owner, LearningPreferenceKind.Depth, "precise brief", default, "TypeScript");
+        Assert.Equal("precise brief", (await service.PersonalizationAsync(owner, default, "TypeScript")).EffectivePreferences().Depth);
+        await service.ResetPreferenceAsync(owner, LearningPreferenceKind.Depth, default, "TypeScript");
+
+        var reset = await service.PersonalizationAsync(owner, default, "TypeScript");
+        Assert.Null(reset.ObservedPreferences);
+        Assert.Equal("detailed", reset.EffectivePreferences().Depth);
+    }
+
+    [Fact]
+    public async Task PersonalizationAsync_ConflictingRequests_DoesNotInferAStableStyle()
+    {
+        var store = new KnowledgeStore();
+        var initial = Guid.NewGuid();
+        store.Signals.AddRange([new(1, initial, "more detail"), new(2, initial, "explain briefly"),
+            new(3, Guid.NewGuid(), "explain briefly"), new(4, Guid.NewGuid(), "explain briefly")]);
+
+        var profile = await new KnowledgeService(store, TimeProvider.System).PersonalizationAsync(new(1), default);
+
+        Assert.Null(profile.ObservedPreferences);
+        Assert.Empty(profile.Sources);
+    }
 }

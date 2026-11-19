@@ -67,6 +67,12 @@ Overdue skills appear first. When space remains, the bot can suggest reviewing
 a prerequisite for the route. The same options can appear when resuming an
 earlier session without an open question, including when reminders are off.
 
+For the current explanation, ask `объясни короче`, `объясни на другом примере`,
+or `есть 5 минут`. Use `/learn_preference subject depth | brief` to keep a
+preference for the selected discipline. Omit `subject` to set it globally.
+`/learn_preferences` shows active preferences and their source.
+`/learn_preference_reset subject all` resets the selected discipline.
+
 Deploy schema and a compatible reader before enabling a limited cohort. Roll back
 only to a reader/writer preserving v3/text inputs, pending states and the deployed schema;
 the migration refuses destructive downgrade over dialogue state/history. Stop or

@@ -17,13 +17,23 @@ public sealed class EfKnowledgeStore(OwnDayDbContext db) : IKnowledgeStore
     public void Add(LearningPreference preference) => db.Set<LearningPreference>().Add(preference);
     public void Remove(LearningPreference preference) => db.Set<LearningPreference>().Remove(preference);
 
-    public async Task<IReadOnlyList<StrategyObservation>> StrategyObservationsAsync(UserId user, CancellationToken token)
+    public async Task<IReadOnlyList<PreferenceSignal>> PreferenceSignalsAsync(UserId user, string? discipline, CancellationToken token) =>
+        await (from interaction in db.Set<LessonInteraction>() join lesson in db.Set<Lesson>() on interaction.LessonId equals lesson.Id
+               where lesson.UserId == user && interaction.Kind != LessonInteractionKind.FullAnswer &&
+                   (discipline == null ? lesson.ProgramId == null : db.Set<LearningProgram>().Any(program =>
+                       program.Id == lesson.ProgramId && program.UserId == user && program.Discipline == discipline))
+               orderby interaction.Id descending
+               select new PreferenceSignal(interaction.Id, lesson.Id, interaction.Request)).Take(30).ToArrayAsync(token);
+
+    public async Task<IReadOnlyList<StrategyObservation>> StrategyObservationsAsync(UserId user, CancellationToken token, string? discipline = null)
     {
         // One row per assessed lesson; old lessons without a teaching snapshot are not reclassified.
         var recent = await (from evidence in db.Set<LearningEvidence>()
                             join lesson in db.Set<Lesson>() on new { evidence.LessonId, evidence.UserId }
                                 equals new { LessonId = lesson.Id, lesson.UserId }
                             where evidence.UserId == user && lesson.Teaching != null &&
+                                (discipline == null || db.Set<LearningProgram>().Any(program => program.UserId == user &&
+                                    program.Id == lesson.ProgramId && program.Discipline == discipline)) &&
                                 (evidence.ReassessmentCredit != null || evidence.AssessmentStatus != AnswerAssessmentStatus.Inconclusive)
                             orderby evidence.ObservedAt descending, evidence.LessonId
                             select new { evidence.LessonId, lesson.Teaching, evidence.AssessedCorrect, evidence.AssessmentStatus, evidence.ReassessmentCredit })

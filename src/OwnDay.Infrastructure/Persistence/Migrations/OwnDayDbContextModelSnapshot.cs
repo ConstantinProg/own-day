@@ -967,6 +967,13 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
                 b.Property<int>("Kind")
                     .HasColumnType("integer");
 
+                b.Property<string>("Scope")
+                    .HasMaxLength(100)
+                    .HasColumnType("character varying(100)");
+
+                b.Property<long?>("ResetThrough")
+                    .HasColumnType("bigint");
+
                 b.Property<string>("Source")
                     .IsRequired()
                     .HasMaxLength(50)
@@ -980,7 +987,7 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
                     .HasMaxLength(200)
                     .HasColumnType("character varying(200)");
 
-                b.HasKey("UserId", "Kind");
+                b.HasKey("UserId", "Kind", "Scope");
 
                 b.ToTable("learning_preferences", null, t =>
                     {
@@ -1113,6 +1120,9 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
                     .IsRequired()
                     .HasMaxLength(2500)
                     .HasColumnType("character varying(2500)");
+
+                b.Property<string>("ExplanationPreferences")
+                    .HasColumnType("jsonb");
                 b.Property<int>("Kind")
                     .HasColumnType("integer");
                 b.Property<Guid>("LessonId")

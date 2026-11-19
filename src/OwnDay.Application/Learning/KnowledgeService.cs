@@ -18,7 +18,8 @@ public interface IKnowledgeStore
     void Add(ReviewSchedule schedule);
     void Add(ProgramSkillLink link);
     Task<IReadOnlyList<LearningPreference>> PreferencesAsync(UserId user, CancellationToken token);
-    Task<IReadOnlyList<StrategyObservation>> StrategyObservationsAsync(UserId user, CancellationToken token);
+    Task<IReadOnlyList<PreferenceSignal>> PreferenceSignalsAsync(UserId user, string? discipline, CancellationToken token);
+    Task<IReadOnlyList<StrategyObservation>> StrategyObservationsAsync(UserId user, CancellationToken token, string? discipline = null);
     void Add(LearningPreference preference);
     void Remove(LearningPreference preference);
 }

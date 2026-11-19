@@ -29,7 +29,7 @@ public sealed partial class CurriculumService
         if (await lessons.FindActiveAsync(user, token) is not null) return new CurriculumResult.LessonInProgress();
         try
         {
-            var personalization = await knowledge.PersonalizationAsync(user, token);
+            var personalization = await knowledge.PersonalizationAsync(user, token, program.Discipline);
             // Validate and construct the provenance before provider I/O or adding tracked state.
             var relation = InterdisciplinaryPractice.Create(program, source, sourceCode, link);
             var shared = knowledge.SharedContext(sourceStatus, link);
@@ -42,7 +42,7 @@ public sealed partial class CurriculumService
             generated.LinkToProgram(program, code);
             generated.LinkToSkill(sourceStatus.Skill);
             generated.LinkTransfer(program, source, sourceCode, link);
-            generated.SetTeaching(new(PedagogicalStrategy.InterdisciplinaryPractice, personalization.ExplicitPreferences));
+            generated.SetTeaching(new(PedagogicalStrategy.InterdisciplinaryPractice, personalization.EffectivePreferences()));
             lessons.Add(generated);
             return new CurriculumResult.Lesson(LearningService.Material(generated)) { Introduction = SharedSkillNotice(shared) };
         }

@@ -1,3 +1,4 @@
+using OwnDay.Application.Learning;
 using OwnDay.Domain.Dialogue;
 using OwnDay.Domain.Learning;
 using System.Security.Cryptography;
@@ -49,6 +50,20 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
             return new(context, DialogueOperationKind.AppealAssessment, turn.Text.Trim()[appealPrefix.Length..]);
         if (command == DialogueOperationKind.ReviewSuggestions || command is null && normalized.TrimEnd('?') is "что повторить" or "what should i review")
             return new(context, DialogueOperationKind.ReviewSuggestions, turn.Text.Trim());
+        if (command is DialogueOperationKind.PreferenceView or DialogueOperationKind.PreferenceSet or DialogueOperationKind.PreferenceReset)
+            return new(context, command, turn.Text.Trim());
+        if (command is null)
+        {
+            if (normalized is "настройки обучения" or "learning preferences") return new(context, DialogueOperationKind.PreferenceView, "");
+            const string subjectPreference = "запомни для этой дисциплины ";
+            const string globalPreference = "запомни для всех дисциплин ";
+            if (normalized.StartsWith(subjectPreference, StringComparison.Ordinal))
+                return new(context, DialogueOperationKind.PreferenceSet, "subject " + turn.Text.Trim()[subjectPreference.Length..]);
+            if (normalized.StartsWith(globalPreference, StringComparison.Ordinal))
+                return new(context, DialogueOperationKind.PreferenceSet, turn.Text.Trim()[globalPreference.Length..]);
+            if (normalized is "сбрось настройки этой дисциплины") return new(context, DialogueOperationKind.PreferenceReset, "subject all");
+            if (normalized is "сбрось общие учебные настройки") return new(context, DialogueOperationKind.PreferenceReset, "all");
+        }
         var routeView = command == DialogueOperationKind.ViewRoute ? normalized : command is null ? RouteDialogue.View(normalized) : null;
         if (routeView is not null) return new(context, DialogueOperationKind.ViewRoute, routeView);
         var routeEdit = command == DialogueOperationKind.EditRoute ? turn.Text.Trim() : command is null ? RouteDialogue.Edit(normalized) : null;
@@ -243,6 +258,8 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
             (context.ResponseAfterSourceOrder == 0 || turn.SourceOrder > context.ResponseAfterSourceOrder);
         if (command is { } explicitAction)
             return await DecideActionAsync(context, turn, explicitAction, turn.Text, lesson, program, stamp, false, bound, token);
+        if (lesson is not null && ExplanationPreference.Parse(turn.Text) is not null)
+            return await DecideActionAsync(context, turn, DialogueOperationKind.Clarify, turn.Text, lesson, program, stamp, false, bound, token);
 
         if (normalized is "помощь" or "help" or "что дальше" or "как продолжить")
             return lesson is null ? Reply(context, DialogueReplyKind.NoActiveLesson) : Recap(context, lesson);
