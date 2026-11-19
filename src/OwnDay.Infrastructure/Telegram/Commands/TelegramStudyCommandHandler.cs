@@ -15,6 +15,7 @@ public sealed class TelegramStudyCommandHandler(StudyService service)
             "расписание занятий" => "learn_schedule",
             "не присылай приглашения" => "learn_notify_pause",
             "возобнови приглашения" => "learn_notify_resume",
+            "отключи учебные напоминания" or "turn off study reminders" => "learn_notify_off",
             "покажи повторения" => "learn_reviews",
             _ => null
         };
@@ -32,14 +33,15 @@ public sealed class TelegramStudyCommandHandler(StudyService service)
         return null;
     }
 
-    private const string Usage = "Use /learn_schedule <time zone> | <every 1-30 days> | <HH:mm-HH:mm>[,HH:mm-HH:mm] (up to 4 windows).\n" +
-        "Example: /learn_schedule Europe/Moscow | 1 | 18:00-20:00\n/learn_notify_pause · /learn_notify_resume\n" +
+    private const string Usage = "Use /learn_schedule <time zone> | <every 1-30 days> | <HH:mm-HH:mm>[,HH:mm-HH:mm] | [study,review,open].\n" +
+        "Example: /learn_schedule Europe/Moscow | 1 | 18:00-20:00 | review,open\nTimes outside your windows are quiet. The three-part form enables study and review for a new schedule.\n" +
+        "/learn_notify_pause · /learn_notify_resume · /learn_notify_off\n" +
         "В учебном диалоге: «напоминай мне Europe/Moscow | 1 | 18:00-20:00», «расписание занятий», " +
         "«не присылай приглашения», «возобнови приглашения», «покажи повторения». " +
         "Для приглашения: «начать приглашение <код>», «отложить приглашение <код>», «пропустить приглашение <код>».";
     private const string Expired = "Invitation expired or already handled. /learn_schedule · /learn_next · /learn_reviews";
 
-    public bool Handles(string name) => name is "learn_schedule" or "learn_notify_pause" or "learn_notify_resume" or
+    public bool Handles(string name) => name is "learn_schedule" or "learn_notify_pause" or "learn_notify_resume" or "learn_notify_off" or
         "learn_invite_start" or "learn_invite_later" or "learn_invite_skip";
 
     public async Task<IReadOnlyList<string>> HandleAsync(ProcessIncomingCommand command, CancellationToken token)
@@ -49,7 +51,9 @@ public sealed class TelegramStudyCommandHandler(StudyService service)
         {
             if (args.Length == 0) return Show(await service.ShowAsync(command.UserId, token));
             var parts = args.Split('|', StringSplitOptions.TrimEntries);
-            if (parts.Length != 3 || !int.TryParse(parts[1], NumberStyles.None, CultureInfo.InvariantCulture, out var days)) return [Usage];
+            if (parts.Length is < 3 or > 4 || !int.TryParse(parts[1], NumberStyles.None, CultureInfo.InvariantCulture, out var days)) return [Usage];
+            StudyReminderType? allowed = parts.Length == 4 ? ParseTypes(parts[3]) : null;
+            if (parts.Length == 4 && allowed is null) return [Usage];
             var windows = new List<StudyWindow>();
             foreach (var pair in parts[2].Split(',', StringSplitOptions.TrimEntries))
             {
@@ -60,12 +64,18 @@ public sealed class TelegramStudyCommandHandler(StudyService service)
             }
             try
             {
-                return Show(await service.ConfigureAsync(command.UserId, parts[0], days, windows, token));
+                return Show(await service.ConfigureAsync(command.UserId, parts[0], days, windows, token, allowed));
             }
             catch (Exception exception) when (exception is ArgumentException or TimeZoneNotFoundException or InvalidTimeZoneException)
             {
                 return [Usage];
             }
+        }
+        if (command.Name == "learn_notify_off")
+        {
+            if (args.Length != 0) return [Usage];
+            await service.OptOutAsync(command.UserId, token);
+            return ["Учебные напоминания отключены. Повторения доступны через /learn_reviews."];
         }
         if (command.Name is "learn_notify_pause" or "learn_notify_resume")
         {
@@ -86,13 +96,32 @@ public sealed class TelegramStudyCommandHandler(StudyService service)
     }
 
     public static string Invitation(StudyInvitation invitation) =>
-        $"Time to study: {invitation.Topic}" + (invitation.IsReview ? " (review)" : "") +
+        (invitation.IsOpenExercise ? $"Есть открытое упражнение по теме «{invitation.Topic}»." : $"Time to study: {invitation.Topic}" + (invitation.IsReview ? " (review)" : "")) +
         $"\nStart: /learn_invite_start {invitation.Id:N}\nLater: /learn_invite_later {invitation.Id:N}\nSkip: /learn_invite_skip {invitation.Id:N}" +
-        "\nOptional invitation. No commitment or penalty. /learn_notify_pause";
+        "\nOptional invitation. /learn_notify_pause · /learn_notify_off";
 
-    private static IReadOnlyList<string> Show(StudySchedule? schedule) => schedule is null ? [Usage] :
+    private static IReadOnlyList<string> Show(StudySchedule? schedule) => schedule is null || schedule.EffectiveReminderTypes == StudyReminderType.None
+        ? ["Notifications are off.", Usage] :
         [$"Study schedule: {schedule.TimeZoneId}; every {schedule.EveryDays} day(s).\n" +
          string.Join(", ", schedule.Windows.Select(w => $"{w.Start:HH:mm}-{w.End:HH:mm}")) +
-         $"\nNotifications: {(schedule.Paused ? "paused" : "enabled")}. Next eligible time: {schedule.NextAt:O} (UTC).\n" +
+         $"\nNotifications: {(schedule.Paused ? "paused" : "enabled")}. Types: {schedule.EffectiveReminderTypes}. Next eligible time: {schedule.NextAt:O} (UTC).\n" +
          "/learn_notify_pause · /learn_notify_resume\n" + Usage];
+
+    private static StudyReminderType? ParseTypes(string text)
+    {
+        var result = StudyReminderType.None;
+        foreach (var word in text.Split(',', StringSplitOptions.TrimEntries))
+        {
+            var type = word.ToLowerInvariant() switch
+            {
+                "study" => StudyReminderType.Study,
+                "review" => StudyReminderType.Review,
+                "open" => StudyReminderType.OpenExercise,
+                _ => StudyReminderType.None
+            };
+            if (type == StudyReminderType.None || (result & type) != StudyReminderType.None) return null;
+            result |= type;
+        }
+        return result == StudyReminderType.None ? null : result;
+    }
 }

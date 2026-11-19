@@ -297,7 +297,7 @@ public sealed class TelegramOutboxDeliveryServiceTests
                     dbContext,
                     sender,
                     NullLogger<TelegramOutboxDeliveryService>.Instance,
-                    clock ?? new FixedTimeProvider(Now), new EfLessonStore(dbContext)));
+                    clock ?? new FixedTimeProvider(Now)));
         }
 
         public TelegramOutboxMessage AddPendingMessage(DateTime? createdAt = null, long chatId = 1, string text = "pong")

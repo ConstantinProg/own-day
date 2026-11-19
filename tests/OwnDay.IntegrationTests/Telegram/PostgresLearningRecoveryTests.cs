@@ -103,7 +103,7 @@ public sealed partial class PostgresLearningProviderTests
         await using var observer = Open();
         var sender = new OrderedSender();
         await new TelegramOutboxDeliveryService(observer, sender, NullLogger<TelegramOutboxDeliveryService>.Instance,
-            new Clock(), new EfLessonStore(observer)).DeliverBatchAsync(default);
+            new Clock()).DeliverBatchAsync(default);
         Assert.Equal(new[] { "First", "Second" }, sender.Messages);
     }
 

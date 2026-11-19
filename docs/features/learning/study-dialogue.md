@@ -1,5 +1,12 @@
 # Study invitations in learning dialogue
 
+Use `/learn_schedule Europe/Moscow | 1 | 18:00-20:00 | study,review,open`
+to opt in to selected reminder types. Select only the types you want.
+The windows are local to the specified time zone. Outside them the bot stays
+quiet. An open-exercise reminder returns to the existing question.
+`/learn_notify_pause` pauses the schedule. `/learn_notify_off` withdraws
+consent and requires selecting reminder types again to resume delivery.
+
 Enrolled learning dialogue accepts explicit phrases using the existing command
 use cases and durable Learning queue:
 

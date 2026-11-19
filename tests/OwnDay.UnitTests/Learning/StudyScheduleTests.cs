@@ -139,4 +139,27 @@ public sealed class StudyScheduleTests
         Assert.Throws<TimeZoneNotFoundException>(() => StudySchedule.Create(new(1), "missing/timezone", 1, Windows, Now));
         Assert.Throws<ArgumentException>(() => StudySchedule.Create(default, "UTC", 1, Windows, Now));
     }
+
+    [Fact]
+    public void OptOut_OpenExerciseConsent_RequiresAnExplicitNewOptIn()
+    {
+        var user = new UserId(1);
+        var lesson = Lesson.Start(user, "Topic", "Theory", "Original question");
+        var schedule = StudySchedule.Create(user, "Europe/Moscow", 1, Windows, Now, StudyReminderType.OpenExercise);
+        Assert.Throws<InvalidOperationException>(() => schedule.Invite(null, Guid.NewGuid(), Now));
+        var invitation = schedule.InviteExercise(lesson, Now);
+        Assert.True(schedule.IsCurrent(invitation, Now));
+        Assert.True(schedule.MatchesOpenExercise(lesson));
+        Assert.False(schedule.MatchesOpenExercise(Lesson.Start(user, "Topic", "Theory", "Original question")));
+
+        schedule.OptOut();
+        schedule.SetPaused(false, Now);
+        Assert.False(schedule.IsDue(Now.AddDays(100)));
+        Assert.False(schedule.IsCurrent(invitation, Now));
+        Assert.Equal(StudyReminderType.None, schedule.EffectiveReminderTypes);
+        schedule.Configure("Europe/Moscow", 1, Windows, Now, StudyReminderType.Review);
+        Assert.True(schedule.Allows(StudyReminderType.Review));
+        Assert.False(schedule.Allows(StudyReminderType.OpenExercise));
+        Assert.Equal(Now.AddDays(1), schedule.NextAt);
+    }
 }

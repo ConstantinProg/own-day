@@ -30,14 +30,18 @@ internal static class StudyModel
             {
                 table.HasCheckConstraint("CK_learning_study_frequency", "\"EveryDays\" BETWEEN 1 AND 30");
                 table.HasCheckConstraint("CK_learning_study_owner", "\"UserId\" > 0");
-                table.HasCheckConstraint("CK_learning_study_invitation",
-                    "(\"InvitationId\" IS NULL AND \"ProgramId\" IS NULL AND \"SkillId\" IS NULL) OR " +
-                    "(\"InvitationId\" IS NOT NULL AND ((\"ProgramId\" IS NOT NULL AND \"SkillId\" IS NULL) OR " +
-                    "(\"ProgramId\" IS NULL AND \"SkillId\" IS NOT NULL)))");
+                table.HasCheckConstraint("CK_learning_study_invitation", """
+                    (CASE WHEN "ProgramId" IS NULL THEN 0 ELSE 1 END + CASE WHEN "SkillId" IS NULL THEN 0 ELSE 1 END + CASE WHEN "LessonId" IS NULL THEN 0 ELSE 1 END) = (CASE WHEN "InvitationId" IS NULL THEN 0 ELSE 1 END) AND ("LessonId" IS NULL) = ("QuestionFingerprint" IS NULL)
+                    """);
+                table.HasCheckConstraint("CK_learning_study_consent", """
+                    "ReminderTypes" IS NULL OR "ReminderTypes" BETWEEN 1 AND 7 OR ("ReminderTypes" = 0 AND "Paused")
+                    """);
             });
             entity.HasKey(s => s.UserId);
             entity.Property(s => s.UserId).HasConversion(id => id.Value, value => new UserId(value)).ValueGeneratedNever();
             entity.Property(s => s.TimeZoneId).HasMaxLength(100);
+            entity.Property(s => s.QuestionFingerprint).HasMaxLength(64);
+            entity.Ignore(s => s.EffectiveReminderTypes);
             entity.Property(s => s.Windows).HasColumnType("jsonb")
                 .HasConversion(w => JsonSerializer.Serialize(w, (JsonSerializerOptions?)null),
                     json => JsonSerializer.Deserialize<StudyWindow[]>(json, (JsonSerializerOptions?)null)!)
@@ -52,6 +56,9 @@ internal static class StudyModel
                 .HasPrincipalKey(p => new { p.Id, p.UserId }).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<Skill>().WithMany().HasForeignKey(s => new { s.SkillId, s.UserId })
                 .HasPrincipalKey(s => new { s.Id, s.UserId }).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<Lesson>().WithMany().HasForeignKey(s => new { s.LessonId, s.UserId })
+                .HasPrincipalKey(l => new { l.Id, l.UserId }).OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("FK_learning_study_open_exercise");
         });
     }
 }

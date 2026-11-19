@@ -219,6 +219,71 @@ public sealed class PostgresStudyTests
         Assert.Equal(0, sender.InvitationAttempts);
     }
 
+    [Theory]
+    [InlineData("allowed")]
+    [InlineData("off")]
+    [InlineData("answer")]
+    [InlineData("new prompt")]
+    [Trait("Requires", "PostgreSQL via OWNDAY_TEST_POSTGRES_CONNECTION")]
+    public async Task Deliver_OpenExerciseReminder_RevalidatesConsentAndOriginalQuestion(string variant)
+    {
+        await using var database = await Database.CreateAsync();
+        var clock = new TelegramStudyFixture.Clock();
+        var sender = new Sender { FailFirst = false };
+        using (var factory = new OwnDayHostFactory())
+        using (var host = Host(factory, database.Connection, clock, new(), sender))
+        using (var client = host.CreateClient())
+        {
+            await LearningWorkerFixture.ProcessAsync(host.Services, 1, 101, "/learn_program Algebra | Beginner");
+            using (var scope = host.Services.CreateScope())
+                await scope.ServiceProvider.GetRequiredService<StudyInvitationDispatcher>().DispatchBatchAsync(default);
+            await LearningWorkerFixture.ProcessAsync(host.Services, 2, 101, "/learn_schedule Europe/Moscow | 1 | 18:00-20:00 | review");
+            Assert.Null((await TelegramStudyFixture.Dispatch(host.Services)).InvitationId);
+            await LearningWorkerFixture.ProcessAsync(host.Services, 3, 101, "/learn_next");
+            if (variant == "new prompt")
+            {
+                await using var db = database.Context();
+                var lesson = await db.Set<Lesson>().SingleAsync();
+                lesson.SetContent(new("algebra", "rubric-v1", LearningContentKind.StructuredExercise, "Explain algebra",
+                    "Identify the rule", "Explain the rule in the calculation", new(1, ExerciseEvidenceKind.Understanding,
+                        [new("rule", "Identify the applicable rule")])));
+                await db.SaveChangesAsync();
+            }
+            await LearningWorkerFixture.ProcessAsync(host.Services, 4, 101, "/learn_schedule Europe/Moscow | 1 | 18:00-20:00 | open");
+            var planned = await Task.WhenAll(TelegramStudyFixture.Dispatch(host.Services), TelegramStudyFixture.Dispatch(host.Services));
+            Assert.Equal(planned[0].InvitationId, planned[1].InvitationId);
+            Assert.NotNull(planned[0].LessonId);
+            if (variant == "off")
+            {
+                await LearningWorkerFixture.ProcessAsync(host.Services, 5, 101, "/learn_notify_off");
+                await LearningWorkerFixture.ProcessAsync(host.Services, 6, 101, "/learn_notify_resume");
+            }
+            else if (variant == "answer") await LearningWorkerFixture.ProcessAsync(host.Services, 5, 101, "/answer correct");
+            else if (variant == "new prompt")
+            {
+                await using var db = database.Context();
+                var lesson = await db.Set<Lesson>().SingleAsync();
+                lesson.ApplyRubricAssessment("A partial answer", "A detail is missing", new([new("rule", RubricCriterionResult.Unclear,
+                    "Please identify the rule")]), Guid.NewGuid());
+                await db.SaveChangesAsync();
+            }
+        }
+
+        using var restartedFactory = new OwnDayHostFactory();
+        using var restarted = Host(restartedFactory, database.Connection, clock, new(), sender);
+        using var observer = restarted.CreateClient();
+        using var inspection = restarted.Services.CreateScope();
+        var delivery = inspection.ServiceProvider.GetRequiredService<TelegramOutboxDeliveryService>();
+        while ((await delivery.DeliverBatchAsync(default)).IsFullBatch) { }
+        var result = inspection.ServiceProvider.GetRequiredService<OwnDayDbContext>();
+        var outbox = await result.TelegramOutboxMessages.SingleAsync(message => message.StudyInvitationId != null);
+        Assert.Equal(variant == "allowed" ? OutboxMessageStatus.Sent : OutboxMessageStatus.Failed, outbox.Status);
+        Assert.Equal(variant == "allowed" ? 1 : 0, sender.InvitationDeliveries);
+        Assert.Equal(1, await result.Set<Lesson>().CountAsync());
+        Assert.False(result.Database.HasPendingModelChanges());
+        if (variant == "off") Assert.Equal(StudyReminderType.None, (await result.Set<StudySchedule>().SingleAsync()).EffectiveReminderTypes);
+    }
+
     private static WebApplicationFactory<Program> Host(OwnDayHostFactory factory, string connection,
         TelegramStudyFixture.Clock clock, TelegramCurriculumFixture.Teacher teacher, Sender sender,
         RejectInvitationInsert? failure = null) => factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
@@ -242,7 +307,8 @@ public sealed class PostgresStudyTests
         public Task SendMessageAsync(long chatId, string text, string? replyMarkupJson, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (!text.StartsWith("Time to study:", StringComparison.Ordinal)) return Task.CompletedTask;
+            if (!text.StartsWith("Time to study:", StringComparison.Ordinal) &&
+                !text.StartsWith("Есть открытое упражнение", StringComparison.Ordinal)) return Task.CompletedTask;
             InvitationAttempts++;
             if (FailFirst && InvitationAttempts == 1) throw new HttpRequestException("Temporary failure");
             InvitationDeliveries++;

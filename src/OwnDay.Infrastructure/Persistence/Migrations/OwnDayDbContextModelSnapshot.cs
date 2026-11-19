@@ -1326,6 +1326,12 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
                 b.Property<DateTimeOffset?>("LastInvitedAt")
                     .HasColumnType("timestamp with time zone");
 
+                b.Property<Guid?>("LessonId").HasColumnType("uuid");
+
+                b.Property<string>("QuestionFingerprint").HasMaxLength(64).HasColumnType("character varying(64)");
+
+                b.Property<int?>("ReminderTypes").HasColumnType("integer");
+
                 b.Property<DateTime>("NextAt")
                     .HasColumnType("timestamp with time zone");
 
@@ -1349,6 +1355,8 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
 
                 b.HasKey("UserId");
 
+                b.HasIndex("LessonId", "UserId");
+
                 b.HasIndex("ProgramId", "UserId");
 
                 b.HasIndex("SkillId", "UserId");
@@ -1359,7 +1367,13 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
                     {
                         t.HasCheckConstraint("CK_learning_study_frequency", "\"EveryDays\" BETWEEN 1 AND 30");
 
-                        t.HasCheckConstraint("CK_learning_study_invitation", "(\"InvitationId\" IS NULL AND \"ProgramId\" IS NULL AND \"SkillId\" IS NULL) OR (\"InvitationId\" IS NOT NULL AND ((\"ProgramId\" IS NOT NULL AND \"SkillId\" IS NULL) OR (\"ProgramId\" IS NULL AND \"SkillId\" IS NOT NULL)))");
+                        t.HasCheckConstraint("CK_learning_study_invitation", """
+                            (CASE WHEN "ProgramId" IS NULL THEN 0 ELSE 1 END + CASE WHEN "SkillId" IS NULL THEN 0 ELSE 1 END + CASE WHEN "LessonId" IS NULL THEN 0 ELSE 1 END) = (CASE WHEN "InvitationId" IS NULL THEN 0 ELSE 1 END) AND ("LessonId" IS NULL) = ("QuestionFingerprint" IS NULL)
+                            """);
+
+                        t.HasCheckConstraint("CK_learning_study_consent", """
+                            "ReminderTypes" IS NULL OR "ReminderTypes" BETWEEN 1 AND 7 OR ("ReminderTypes" = 0 AND "Paused")
+                            """);
 
                         t.HasCheckConstraint("CK_learning_study_owner", "\"UserId\" > 0");
                     });
@@ -1367,6 +1381,10 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
 
         modelBuilder.Entity("OwnDay.Domain.Learning.StudySchedule", b =>
             {
+                b.HasOne("OwnDay.Domain.Learning.Lesson", null).WithMany()
+                    .HasForeignKey("LessonId", "UserId").HasPrincipalKey("Id", "UserId")
+                    .OnDelete(DeleteBehavior.Restrict).HasConstraintName("FK_learning_study_open_exercise");
+
                 b.HasOne("OwnDay.Domain.Learning.LearningProgram", null)
                     .WithMany()
                     .HasForeignKey("ProgramId", "UserId")

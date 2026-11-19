@@ -385,6 +385,8 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
                         nameof(LearningEvidence.ReviewHistory) or nameof(LearningEvidence.ReassessmentCredit) or nameof(CurriculumRoute.Path) or
                         nameof(LearningPreference.ResetThrough) or nameof(LessonInteraction.ExplanationPreferences)) || entry.OriginalValues[property] is not null)
                     .Where(property => property.Name != nameof(LearningPreference.Scope) || entry.OriginalValues[property] is not "")
+                    .Where(property => entry.Entity is not StudySchedule || property.Name is not (nameof(StudySchedule.LessonId) or
+                        nameof(StudySchedule.QuestionFingerprint) or nameof(StudySchedule.ReminderTypes)) || entry.OriginalValues[property] is not null)
                     .OrderBy(property => property.Name, StringComparer.Ordinal)
                     .ToDictionary(property => property.Name, property => entry.OriginalValues[property]), JsonSerializerOptions.Web))
             .OrderBy(row => row, StringComparer.Ordinal);
