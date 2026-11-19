@@ -70,13 +70,13 @@ public sealed class AssessmentReviewService(IAssessmentReviewStore attempts, IKn
 
         var history = await knowledge.EvidenceAsync(user, evidence.SkillId, token);
         var schedule = await knowledge.ReviewAsync(user, evidence.SkillId, token);
-        var previous = Recompute(history);
+        var previous = ReviewSchedule.Reconstruct(history);
         var reviewedAt = clock.GetUtcNow();
         var revision = evidence.Review(version, operationId, parts[2],
             reviewedAt < evidence.ObservedAt ? evidence.ObservedAt : reviewedAt, primary, verification);
         if (revision.Outcome == AssessmentReviewOutcome.Changed)
         {
-            var recalculated = Recompute(history.Select(item => item.LessonId == evidence.LessonId ? evidence : item))!;
+            var recalculated = ReviewSchedule.Reconstruct(history.Select(item => item.LessonId == evidence.LessonId ? evidence : item))!;
             if (schedule is null) knowledge.Add(recalculated);
             else schedule.AdoptRecalculation(recalculated, previous is not null && schedule.DueAt > previous.DueAt ? schedule.DueAt : null);
         }
@@ -93,15 +93,4 @@ public sealed class AssessmentReviewService(IAssessmentReviewStore attempts, IKn
         return new(result.Rubric, result.Feedback, result.Source);
     }
 
-    private static ReviewSchedule? Recompute(IEnumerable<LearningEvidence> evidence)
-    {
-        ReviewSchedule? schedule = null;
-        foreach (var item in evidence.Where(item => item.EffectiveAssessmentStatus != AnswerAssessmentStatus.Inconclusive)
-            .OrderBy(item => item.ObservedAt).ThenBy(item => item.LessonId))
-        {
-            if (schedule is null) schedule = ReviewSchedule.FromAnswer(item);
-            else schedule.Record(item);
-        }
-        return schedule;
-    }
 }

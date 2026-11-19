@@ -6,6 +6,16 @@ namespace OwnDay.Infrastructure.Telegram.Commands;
 
 public static class TelegramKnowledgePresenter
 {
+    public static IReadOnlyList<string> Suggestions(IReadOnlyList<ReviewSuggestion> suggestions)
+    {
+        if (suggestions.Count == 0) return ["Сейчас подходящих повторений нет. Чтобы открыть следующую тему, напишите «дальше»."];
+        return ["Что можно повторить перед следующим занятием. Для продолжения маршрута напишите «дальше».",
+            .. suggestions.Select(item => item.DueAt is { } dueAt
+                ? $"{item.Skill.Title}\nСрок повторения наступил {dueAt:yyyy-MM-dd HH:mm} UTC.\n/learn_review {item.Skill.Id}\nПозже /learn_review_later {item.Skill.Id} · Пропустить /learn_review_skip {item.Skill.Id}"
+                : $"{item.Skill.Title}\n" + (item.SupportsTopic is { } topic ? $"Пригодится в теме «{topic}»." :
+                    $"От навыка зависят следующие темы ({item.DependentTopics}).") + $"\nДополнительная практика /learn_practice {item.Skill.Id}")];
+    }
+
     public static IReadOnlyList<string> Reviews(ReviewPage page)
     {
         if (page.Items.Count == 0) return ["No reviews due on this page. /learn_reviews or /learn_skills"];

@@ -25,7 +25,7 @@ public sealed class LearningSessionService(ILearningSessionStore store)
             return false;
         }
         store.Add(LearningSession.Start(turn.UserId, programId, at, turn.SourceOrder, lesson));
-        return session?.ProgramId == programId && lesson?.ProgramId == programId;
+        return session?.ProgramId == programId && (lesson is null || lesson.ProgramId == programId);
     }
 
     public async Task EndAsync(DialogueTurn turn, Guid? programId, Lesson? lesson, CancellationToken token)

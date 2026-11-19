@@ -62,6 +62,11 @@ for the selected program and version. A skipped prerequisite can be checked
 later through `/learn_focus`. Restoring a route appends a version and preserves
 the original exercise and assessment history.
 
+Ask `что повторить?` or use `/learn_recommend_reviews` for up to three options.
+Overdue skills appear first. When space remains, the bot can suggest reviewing
+a prerequisite for the route. The same options can appear when resuming an
+earlier session without an open question, including when reminders are off.
+
 Deploy schema and a compatible reader before enabling a limited cohort. Roll back
 only to a reader/writer preserving v3/text inputs, pending states and the deployed schema;
 the migration refuses destructive downgrade over dialogue state/history. Stop or

@@ -179,6 +179,15 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
             return new(null, decision.Audit?.Code ?? "dialogue_reply")
                 { Replies = Introduce(introduce, TelegramDialoguePresenter.Render(decision.Reply ?? new(DialogueReplyKind.Unavailable))), DialogueOutcomeJson = audit };
         }
+        if (operation == DialogueOperationKind.ReviewSuggestions || decision.SuggestReviewsOnReturn)
+        {
+            var suggestions = await CreateCurriculum(services, session).SuggestReviewsAsync(request.UserId, token);
+            if (suggestions.Count > 0 || operation == DialogueOperationKind.ReviewSuggestions)
+            {
+                session.EnsureComplete();
+                return new(null, "review_suggestions") { Replies = Introduce(introduce, TelegramKnowledgePresenter.Suggestions(suggestions)) };
+            }
+        }
         if (operation is DialogueOperationKind.ViewRoute or DialogueOperationKind.EditRoute)
         {
             var curriculum = CreateCurriculum(services, session);
@@ -320,6 +329,7 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
         "learn_assessment" => DialogueOperationKind.ExplainAssessment, "learn_appeal" => DialogueOperationKind.AppealAssessment,
         "learn_route" => DialogueOperationKind.ViewRoute, "learn_route_edit" => DialogueOperationKind.EditRoute,
         "learn_goal_update" => DialogueOperationKind.ProposeGoalUpdate,
+        "learn_recommend_reviews" => DialogueOperationKind.ReviewSuggestions,
         "learn_next" => DialogueOperationKind.Next, "learn_progress" => DialogueOperationKind.Progress,
         "learn_request" or "learn_program" => DialogueOperationKind.CreateProgram,
         "learn_project" => DialogueOperationKind.CreateProjectProgram, "learn_select" => DialogueOperationKind.SelectProgram,

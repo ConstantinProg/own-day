@@ -47,6 +47,8 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
         const string appealPrefix = "оспорить оценку ";
         if (command is null && normalized.StartsWith(appealPrefix, StringComparison.Ordinal))
             return new(context, DialogueOperationKind.AppealAssessment, turn.Text.Trim()[appealPrefix.Length..]);
+        if (command == DialogueOperationKind.ReviewSuggestions || command is null && normalized.TrimEnd('?') is "что повторить" or "what should i review")
+            return new(context, DialogueOperationKind.ReviewSuggestions, turn.Text.Trim());
         var routeView = command == DialogueOperationKind.ViewRoute ? normalized : command is null ? RouteDialogue.View(normalized) : null;
         if (routeView is not null) return new(context, DialogueOperationKind.ViewRoute, routeView);
         var routeEdit = command == DialogueOperationKind.EditRoute ? turn.Text.Trim() : command is null ? RouteDialogue.Edit(normalized) : null;
@@ -63,6 +65,7 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
             if (turn.SourceOrder <= context.ResponseAfterSourceOrder) return Reply(context, DialogueReplyKind.NeedBinding);
             return new(context, DialogueOperationKind.ProposeGoalUpdate, goalUpdate);
         }
+        var returning = false;
         if (sessions is not null && turn.SourceOrder > 0)
         {
             if (command == DialogueOperationKind.EndSession ||
@@ -76,9 +79,9 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
 
             var sessionAction = command ?? Deterministic(normalized);
             if (program is not null && sessionAction is not (DialogueOperationKind.Progress or DialogueOperationKind.Finish or
-                    DialogueOperationKind.Confirm or DialogueOperationKind.Cancel or DialogueOperationKind.None) &&
-                await sessions.RecordActivityAsync(turn, program.Id, lesson, token) && lesson is not null &&
-                sessionAction != DialogueOperationKind.Resume)
+                    DialogueOperationKind.Confirm or DialogueOperationKind.Cancel or DialogueOperationKind.None))
+                returning = await sessions.RecordActivityAsync(turn, program.Id, lesson, token);
+            if (returning && lesson is not null && sessionAction != DialogueOperationKind.Resume)
             {
                 context.Synchronize(lesson, turn.Now, turn.SourceOrder);
                 context.AdvanceResponseBoundary(turn.SourceOrder);
@@ -233,7 +236,7 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
             return DecideDiagnostic(context, turn, normalized, program, question);
         if (lesson is null && program is not null && (command == DialogueOperationKind.Resume ||
             command is null && Deterministic(normalized) == DialogueOperationKind.Resume))
-            return new(context, DialogueOperationKind.Next, "");
+            return new(context, DialogueOperationKind.Next, "") { SuggestReviewsOnReturn = returning && program.PendingDiagnosticQuestion is null };
 
         var bound = lesson is not null && turn.ReceiptLessonId == lesson.Id &&
             (turn.ReceiptPromptId == context.PromptId || legacy && turn.ReceiptPromptId is null) &&

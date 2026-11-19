@@ -27,6 +27,18 @@ public sealed class ReviewSchedule
 
     public bool IsDue(DateTimeOffset now) => DueAt <= now;
 
+    public static ReviewSchedule? Reconstruct(IEnumerable<LearningEvidence> evidence)
+    {
+        ReviewSchedule? schedule = null;
+        foreach (var item in evidence.Where(item => item.EffectiveAssessmentStatus != AnswerAssessmentStatus.Inconclusive)
+            .OrderBy(item => item.ObservedAt).ThenBy(item => item.LessonId))
+        {
+            if (schedule is null) schedule = FromAnswer(item);
+            else schedule.Record(item);
+        }
+        return schedule;
+    }
+
     public void Record(LearningEvidence evidence)
     {
         if (evidence.SkillId != SkillId || evidence.UserId != UserId)

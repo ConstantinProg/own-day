@@ -65,5 +65,8 @@ public enum DialogueReplyKind
 }
 public sealed record DialogueReply(DialogueReplyKind Kind, IReadOnlyList<string>? Values = null, bool InEnglish = false);
 public sealed record DialogueDecision(DialogueContext Context, DialogueOperationKind? Execute, string Arguments,
-    DialogueReply? Reply = null, DialogueAudit? Audit = null, FirstProgramCreation? Creation = null);
+    DialogueReply? Reply = null, DialogueAudit? Audit = null, FirstProgramCreation? Creation = null)
+{
+    public bool SuggestReviewsOnReturn { get; init; }
+}
 public sealed record FirstProgramCreation(string Goal, string Experience, string? GoalCriterion);
