@@ -8,6 +8,45 @@ namespace OwnDay.IntegrationTests.Telegram;
 
 public sealed partial class PostgresLearningProviderTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Post_SubjectDiagnosticSelfReport_KeepsLevelUnknown(bool continueDiagnosis)
+    {
+        const string answer = "Очень смутно";
+        CurriculumTopic[] topics = [new("orders", "Биржевые заявки", [])];
+        var probe = new Probe("")
+        {
+            Plan = request =>
+            {
+                if (request.Question is null)
+                    return new("Биржа", topics, "Чем лимитная заявка отличается от рыночной?");
+                Assert.True(request.SelfReportedUncertainty);
+                return new("Биржа", [new("advanced", "Арбитраж", [])],
+                    continueDiagnosis ? "Кто передаёт поручение инвестора на биржу?" : null,
+                    "Не знает материал.", DiagnosticStartingLevel.Foundation);
+            }
+        };
+        using var host = ConsultationHost(probe);
+        using var client = host.CreateClient();
+        string[] turns = ["Хочу изучить биржу", "Самостоятельно подавать заявки", "Начинаю с нуля", "давай", answer];
+        for (var index = 0; index < turns.Length; index++)
+            await SendEnglishAsync(client, index + 1, turns[index]);
+
+        await using var db = Open();
+        var program = await db.Set<LearningProgram>().Include(item => item.Routes).SingleAsync();
+        var diagnostic = program.SubjectDiagnostic!;
+        var observation = Assert.Single(diagnostic.Observations);
+        Assert.Equal(answer, observation.Answer);
+        Assert.True(observation.SelfReportedUncertainty);
+        Assert.DoesNotContain("Не знает", observation.Interpretation);
+        Assert.Equal(DiagnosticStartingLevel.Unknown, diagnostic.StartingLevel);
+        Assert.Equal(continueDiagnosis, program.DiagnosticPending);
+        Assert.Equal("orders", Assert.Single(program.CurrentRoute.Topics).Code);
+        Assert.Empty(await db.Set<LearningEvidence>().ToListAsync());
+        Assert.Equal(continueDiagnosis ? 0 : 1, await db.Set<Lesson>().CountAsync());
+    }
+
     [Fact]
     public async Task Post_SubjectDiagnosticAnswer_PublishesFollowUpAndRecoversAfterRestart()
     {

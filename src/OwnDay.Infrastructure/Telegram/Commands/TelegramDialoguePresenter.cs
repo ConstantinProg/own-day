@@ -102,13 +102,15 @@ public static class TelegramDialoguePresenter
             DialogueReplyKind.AskGoal => "Чему вы хотите научиться? Напишите «Хочу…» и свою цель.",
             DialogueReplyKind.AskPracticalUse => "Для чего эти знания нужны прежде всего? Опишите ситуацию, в которой хотите их применить. Будем считать цель достигнутой, когда вы сможете самостоятельно решить новую задачу в этой ситуации и объяснить решение.",
             DialogueReplyKind.AskExperience => "Что вы уже умеете в этой области? Можно назвать знакомую задачу, указать свой уровень или сказать, что начинаете с нуля.",
-            DialogueReplyKind.AskRelevantExperience => "Какой опыт у вас именно по цели «" + values[0] + "»? Назовите один знакомый пример или напишите «с нуля».",
+            DialogueReplyKind.AskRelevantExperience => "Какой опыт у вас именно по цели «" + TelegramCurriculumPresenter.DisplayGoal(values[0]) +
+                "»? Назовите один знакомый пример или напишите «с нуля».",
             DialogueReplyKind.ConsultationRetry => "Цель, применение и опыт сохранены. Программу пока не удалось создать. Напишите «повторить», чтобы попробовать ещё раз, или «Продолжим», чтобы вернуться позже.",
             DialogueReplyKind.ConsultationUnavailable => "Первая программа уже создана. Для возврата к ней напишите «Продолжим». Текущая цель сохранена.",
             DialogueReplyKind.ConsultationPaused => "Консультация приостановлена, цель и ответы сохранены. Напишите «Продолжим», когда будете готовы.",
-            DialogueReplyKind.FirstProgramReady => "Цель сохранена: «" + values[0] + "». Применение: «" + values[1] + "».\n" +
+            DialogueReplyKind.FirstProgramReady => "Цель сохранена: «" + TelegramCurriculumPresenter.DisplayGoal(values[0]) +
+                "». Применение: «" + TelegramCurriculumPresenter.DisplayGoal(values[1]) + "».\n" +
                 (values.Count > 2 ? "Первые темы: " + values[2] + ".\n" : "") +
-                (values.Count > 4 && values[4].Length > 0 ? "Критерий цели — " + values[4] + "\n" : "") +
+                (values.Count > 4 && values[4].Length > 0 ? "Критерий цели — " + TelegramCurriculumPresenter.DisplayGoal(values[4]) + "\n" : "") +
                 (values.Count > 3 && values[3] == "start"
                     ? "Напишите «Продолжим», чтобы открыть первое упражнение."
                     : "Можно начать с короткой диагностики. Напишите «давай» или «пропустить»."),

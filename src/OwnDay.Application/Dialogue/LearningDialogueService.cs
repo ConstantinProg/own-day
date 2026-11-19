@@ -41,6 +41,8 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
 
         var normalized = Normalize(turn.Text);
         var command = turn.Command;
+        var anotherExercise = command is null && normalized is "ещё задание" or "еще задание" or
+            "ещё упражнение" or "еще упражнение" or "another exercise";
         if (command is DialogueOperationKind.ExplainAssessment or DialogueOperationKind.AppealAssessment)
             return new(context, command, turn.Text.Trim());
         if (command is null && normalized is "почему такая оценка" or "покажи оценку" or "оспорить оценку" or "explain the grade")
@@ -108,7 +110,8 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
             command is DialogueOperationKind.Cancel or DialogueOperationKind.Pause or DialogueOperationKind.Resume)
             return await FirstGoalConsultation.DecideAsync(context, turn with
                 { Command = null, Text = command == DialogueOperationKind.Resume ? "resume" : "pause" }, resolver, token);
-        if (lesson is null && program is null && command is null && (consultationEnabled || context.Consultation is not null))
+        if (lesson is null && program is null && command is null && !anotherExercise &&
+            (consultationEnabled || context.Consultation is not null))
             return await FirstGoalConsultation.DecideAsync(context, turn, resolver, token);
         if (command == DialogueOperationKind.Cancel || command is null &&
             (normalized is "отмена" or "cancel" || normalized == "нет" && context.PendingConfirmation is not null))
@@ -219,7 +222,8 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
         {
             if (lesson is null && command is null && normalized is "помощь" or "help" or "что дальше" or "как продолжить")
                 return new(context, DialogueOperationKind.PracticeInfo, "");
-            if (command == DialogueOperationKind.Next || command is null && normalized is "дальше" or "следующее упражнение" or "next")
+            if (command == DialogueOperationKind.Next || command is null && normalized is "дальше" or "следующее упражнение" or "next" ||
+                anotherExercise && program.PracticeStatus is LearningPracticeStatus.Running or LearningPracticeStatus.Paused)
                 return PracticeAction(context, turn, DialogueOperationKind.NextPractice);
             if (program.PracticeStatus is LearningPracticeStatus.Running or LearningPracticeStatus.Paused)
             {
@@ -250,6 +254,8 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
         }
         if (lesson is null && program is { PendingDiagnosticQuestion: { } question } && command is null)
             return DecideDiagnostic(context, turn, normalized, program, question);
+        if (anotherExercise)
+            return lesson is null ? new(context, DialogueOperationKind.PracticeLastSkill, "") : Recap(context, lesson);
         if (lesson is null && program is not null && (command == DialogueOperationKind.Resume ||
             command is null && Deterministic(normalized) == DialogueOperationKind.Resume))
             return new(context, DialogueOperationKind.Next, "") { SuggestReviewsOnReturn = returning && program.PendingDiagnosticQuestion is null };

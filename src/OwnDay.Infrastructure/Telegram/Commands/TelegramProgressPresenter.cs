@@ -12,11 +12,11 @@ public static class TelegramProgressPresenter
         var route = program.CurrentRoute;
         var entries = new List<string>
         {
-            $"Goal: {program.Goal}\nProgram: {program.Id}\nDiscipline: {program.Discipline}\n" +
+            $"Goal: {TelegramCurriculumPresenter.DisplayGoal(program.Goal)}\nProgram: {program.Id}\nDiscipline: {program.Discipline}\n" +
             $"Selected: {report.Selected}; priority: {program.Priority}\nRoute v{route.Version}: {route.Reason}\n" +
             $"Diagnosis: {(program.DiagnosticPending ? "pending" : "finished or skipped")}\n" +
             $"Route questions credited: {report.Topics.Count(t => t.Completed)}/{report.Topics.Count}.\n" +
-            (program.GoalCriterion is { } criterion ? $"Practical goal criterion: {criterion}\nPractical goal: awaiting direct verification.\n" : "") +
+            (program.GoalCriterion is { } criterion ? $"Practical goal criterion: {TelegramCurriculumPresenter.DisplayGoal(criterion)}\nPractical goal: awaiting direct verification.\n" : "") +
             $"/learn_select {program.Id}",
             "Skill estimates use distinct assessed answers across all routes and confirmed shared identities. " +
             string.Join(" ", Enum.GetValues<SkillMastery>().Select(TelegramSkillMasteryText.Explain)) + " " +

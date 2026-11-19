@@ -5,7 +5,7 @@ namespace OwnDay.Domain.Learning;
 
 [JsonConverter(typeof(JsonStringEnumConverter<RubricCriterionResult>))]
 public enum RubricCriterionResult { Unclear, Met, NotMet }
-public enum ExerciseEvidenceKind { Understanding, Application, Retrieval }
+public enum ExerciseEvidenceKind { Understanding, Application, Retrieval, Recognition }
 [JsonConverter(typeof(JsonStringEnumConverter<ExerciseCorrectionKind>))]
 public enum ExerciseCorrectionKind { Hint, Simplify, Example, AlternativeExplanation, PrerequisiteCheck, Redirect }
 
@@ -13,9 +13,11 @@ public sealed record ExerciseCriterion(string Code, string Requirement);
 
 public sealed record ExerciseRubric(int Version, ExerciseEvidenceKind Kind, ImmutableArray<ExerciseCriterion> Criteria)
 {
+    public const int QuestionScopedVersion = 2;
+
     public void Validate()
     {
-        if (Version != 1 || !Enum.IsDefined(Kind) || Criteria.IsDefaultOrEmpty || Criteria.Length > 5 ||
+        if (Version is not (1 or QuestionScopedVersion) || !Enum.IsDefined(Kind) || Criteria.IsDefaultOrEmpty || Criteria.Length > 5 ||
             Criteria.Any(criterion => criterion is null) ||
             Criteria.Select(criterion => criterion.Code).Distinct(StringComparer.Ordinal).Count() != Criteria.Length)
             throw new ArgumentException("Invalid exercise rubric.");
@@ -24,6 +26,17 @@ public sealed record ExerciseRubric(int Version, ExerciseEvidenceKind Kind, Immu
             LearningProgram.Validate(criterion.Code, 40);
             LearningProgram.Validate(criterion.Requirement, 200);
         }
+    }
+
+    public void ValidateQuestion(string question)
+    {
+        if (Version != QuestionScopedVersion) return;
+        var requirements = Criteria.Select(criterion => criterion.Requirement).ToArray();
+        var tasks = string.Join('\n', requirements);
+        if (requirements.Any(requirement => requirement != requirement.Trim() || requirement.Contains('\n') || requirement.Contains('\r')) ||
+            requirements.Distinct(StringComparer.OrdinalIgnoreCase).Count() != requirements.Length ||
+            (question != tasks && !question.EndsWith("\n\n" + tasks, StringComparison.Ordinal)))
+            throw new ArgumentException("The question must publish every rubric requirement as a task.");
     }
 }
 
@@ -47,7 +60,8 @@ public sealed record LessonRubricEvaluation(RubricAssessment Assessment, string 
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] ImmutableArray<ExerciseCorrection> Corrections = default,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool AwaitingCorrection = false,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ClarificationAnswer = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool FinalThroughClarification = false);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool FinalThroughClarification = false,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool ScopedToQuestion = false);
 
 public sealed record ExerciseCorrectionProposal(ExerciseCorrectionKind Kind, string Guidance)
 {

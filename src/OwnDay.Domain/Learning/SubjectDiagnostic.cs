@@ -7,7 +7,8 @@ namespace OwnDay.Domain.Learning;
 [JsonConverter(typeof(JsonStringEnumConverter<DiagnosticStartingLevel>))]
 public enum DiagnosticStartingLevel { Unknown, Foundation, Developing, Independent }
 
-public sealed record SubjectDiagnosticObservation(string Question, string Answer, string Interpretation);
+public sealed record SubjectDiagnosticObservation(string Question, string Answer, string Interpretation,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool SelfReportedUncertainty = false);
 
 public sealed record SubjectDiagnostic(int Version, ImmutableArray<SubjectDiagnosticObservation> Observations,
     DiagnosticStartingLevel StartingLevel, bool Deferred = false, bool WasDeferred = false)
@@ -39,7 +40,8 @@ public sealed partial class LearningProgram
     }
 
     public void RecordSubjectObservation(string answer, string interpretation, string discipline,
-        IEnumerable<CurriculumTopic> topics, string? nextQuestion, DiagnosticStartingLevel startingLevel)
+        IEnumerable<CurriculumTopic> topics, string? nextQuestion, DiagnosticStartingLevel startingLevel,
+        bool selfReportedUncertainty = false)
     {
         if (!DiagnosticPending || DiagnosticQuestion is not { } current ||
             SubjectDiagnostic is not { Supported: true, Deferred: false } diagnostic)
@@ -47,9 +49,10 @@ public sealed partial class LearningProgram
         Validate(answer, MaxDiagnosticAnswerLength);
         Validate(interpretation, DiagnosticState.MaxInterpretationLength);
         var count = diagnostic.Observations.Length + 1;
+        var substantiveAnswers = diagnostic.Observations.Count(item => !item.SelfReportedUncertainty) + (selfReportedUncertainty ? 0 : 1);
         if (!string.Equals(Discipline, discipline, StringComparison.Ordinal) ||
             !Enum.IsDefined(startingLevel) || count > DiagnosticState.MaxQuestions ||
-            startingLevel != DiagnosticStartingLevel.Unknown && (count < 2 || nextQuestion is not null))
+            startingLevel != DiagnosticStartingLevel.Unknown && (substantiveAnswers < 2 || nextQuestion is not null))
             throw new ArgumentException("Invalid diagnostic interpretation.");
         if (nextQuestion is not null)
         {
@@ -61,7 +64,7 @@ public sealed partial class LearningProgram
 
         var route = CurriculumRoute.Create(Id, CurrentRoute.Version + 1,
             "Initial difficulty informed by provisional diagnostic observations.", topics);
-        var observations = diagnostic.Observations.Add(new(current, answer, interpretation));
+        var observations = diagnostic.Observations.Add(new(current, answer, interpretation, selfReportedUncertainty));
         SubjectDiagnostic = diagnostic with { Observations = observations, StartingLevel = startingLevel };
         if (nextQuestion is not null)
         {
@@ -70,7 +73,7 @@ public sealed partial class LearningProgram
         }
 
         DiagnosticPending = false;
-        if (!diagnostic.WasDeferred) _routes.Add(route);
+        if (!diagnostic.WasDeferred && substantiveAnswers > 0) _routes.Add(route);
         DiagnosticAnswer = SummarizeSubjectDiagnostic(SubjectDiagnostic);
     }
 

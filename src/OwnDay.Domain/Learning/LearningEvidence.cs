@@ -36,20 +36,23 @@ public sealed partial class LearningEvidence
         {
             LessonId = lesson.Id, SkillId = lesson.SkillId.Value, UserId = lesson.UserId, ObservedAt = observedAt,
             Answer = lesson.Answer!, AssessmentFeedback = lesson.Feedback!, AssessedCorrect = lesson.IsCorrect!.Value,
-            AssessmentSource = source, IsReview = lesson.IsReview, Assistance = lesson.Assistance, Content = lesson.Content,
+            AssessmentSource = source, IsReview = lesson.IsReview, Assistance = lesson.Assistance, Content = lesson.AssessmentContent,
             AiAssessedCorrect = lesson.AssessmentStatus == AnswerAssessmentStatus.Inconclusive ? null : lesson.AiIsCorrect ?? lesson.IsCorrect,
             DeterministicIsCorrect = lesson.DeterministicIsCorrect, AssessmentStatus = lesson.AssessmentStatus,
             RubricEvidence = lesson.RubricEvaluation is { Final: true } rubric
-                ? new(rubric, Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
-                    NormalizedTextAnswerCheck.Normalize(lesson.Question).ToUpperInvariant()))))
+                ? new(rubric, RubricEvidence.FingerprintQuestion(lesson.Question))
                 : null,
-            Method = lesson.ExpectedAnswer is not null ? $"AI + {NormalizedTextAnswerCheck.MethodName} (AI reference)"
+            Method = lesson.UsesReferenceCheck ? $"AI + {NormalizedTextAnswerCheck.MethodName} (AI reference)"
                 : lesson.RubricEvaluation is not null ? "AI criterion assessment" : "AI answer assessment"
         };
     }
 }
 
-public sealed record RubricEvidence(LessonRubricEvaluation Evaluation, string QuestionFingerprint);
+public sealed record RubricEvidence(LessonRubricEvaluation Evaluation, string QuestionFingerprint)
+{
+    public static string FingerprintQuestion(string question) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(NormalizedTextAnswerCheck.Normalize(question).ToUpperInvariant())));
+}
 public sealed record MasteryEvidenceSummary(bool Understanding, bool Application, bool Retention);
 
 public enum SkillMastery

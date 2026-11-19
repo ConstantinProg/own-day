@@ -20,6 +20,17 @@ public sealed record LessonSnapshot(Guid Id, UserId UserId, string Topic, string
 {
     public static LessonSnapshot From(Lesson lesson) => new(lesson.Id, lesson.UserId, lesson.Topic,
         lesson.Theory, lesson.Question, lesson.Status, lesson.Teaching, lesson.Transfer, lesson.Content, lesson.RubricEvaluation);
+
+    public static LessonSnapshot ForAssessment(Lesson lesson)
+    {
+        var snapshot = From(lesson) with { Content = lesson.AssessmentContent };
+        if (lesson.HasPendingLegacyAssessment)
+            snapshot = snapshot with
+            {
+                RubricEvaluation = lesson.RubricEvaluation! with { Clarification = lesson.Question, AwaitingCorrection = false }
+            };
+        return snapshot;
+    }
 }
 
 public sealed record AssessmentReviewContext(string Argument, string Stage);
@@ -81,7 +92,7 @@ public sealed class LearningProviderSession(IReadOnlyList<LearningProviderStep> 
         ConsumeAsync<LessonMaterial>("generate", request, token);
 
     public Task<LessonAssessment> AssessAsync(Lesson lesson, string answer, CancellationToken token) =>
-        ConsumeAsync<LessonAssessment>("assess", new LessonAssessmentInput(LessonSnapshot.From(lesson), answer), token);
+        AssessAsync(LessonSnapshot.ForAssessment(lesson), answer, token);
 
     public Task<LessonAssessment> AssessAsync(LessonSnapshot lesson, string answer, CancellationToken token) =>
         ConsumeAsync<LessonAssessment>("assess", new LessonAssessmentInput(lesson, answer), token);

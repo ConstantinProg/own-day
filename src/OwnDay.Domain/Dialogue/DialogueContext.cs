@@ -14,7 +14,7 @@ public enum DialogueOperationKind
     BeginPractice, NextPractice, PausePractice, ResumePractice, StopPractice, PracticeInfo, StartOtherLesson,
     SwitchProgram, SwitchGoal, SwitchCreateProgram, SwitchCreateProjectProgram, CompleteDiagnostic, EndSession, RevealSolution,
     ExplainAssessment, AppealAssessment, ViewRoute, EditRoute, ProposeGoalUpdate, ApplyGoalUpdate, SwitchGoalWithCriterion, ReviewSuggestions,
-    PreferenceView, PreferenceSet, PreferenceReset
+    PreferenceView, PreferenceSet, PreferenceReset, PracticeLastSkill
 }
 
 public sealed record DialogueClarification(Guid OriginalRequestId, ImmutableArray<DialogueOperationKind> Allowed,
@@ -100,7 +100,7 @@ public sealed partial class DialogueContext
     private static string LessonQuestionFingerprint(Lesson lesson) => lesson.RubricEvaluation switch
     {
         { Final: false, AwaitingCorrection: true } => Hash($"rubric-correction-v1/{lesson.CorrectionCount}\n{lesson.ResponseQuestion}"),
-        { Final: false } => Hash("rubric-clarification-v1\n" + lesson.ResponseQuestion),
+        { Final: false } evaluation => Hash("rubric-clarification-v1\n" + (evaluation.Clarification ?? lesson.Question)),
         _ => Hash(lesson.Question)
     };
 

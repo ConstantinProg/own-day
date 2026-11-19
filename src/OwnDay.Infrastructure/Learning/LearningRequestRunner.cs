@@ -312,8 +312,20 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
             decision.Context.Synchronize(current, now, turn.SourceOrder);
             return new(null, "practice_reply") { Replies = TelegramPracticePresenter.Render(result) };
         }
-        var name = operation is DialogueOperationKind.None or DialogueOperationKind.StartOtherLesson ? command!.Name : CommandName(operation);
-        var replies = await handler.HandleAsync(new(name, decision.Arguments, request.UserId), token, program?.Discipline);
+        IReadOnlyList<string> replies;
+        if (operation == DialogueOperationKind.PracticeLastSkill)
+        {
+            var learning = new LearningService(services.GetRequiredService<ILessonStore>(), session, services.GetRequiredService<KnowledgeService>());
+            var practice = await learning.PracticeLastAsync(request.UserId, program?.Id, services.GetRequiredService<IAssessmentReviewStore>(), token);
+            replies = practice is LearningResult.NoActiveLesson
+                ? ["Сначала откройте упражнение. После ответа можно попросить следующее задание по тому же навыку."]
+                : TelegramLearningPresenter.Render(practice);
+        }
+        else
+        {
+            var name = operation is DialogueOperationKind.None or DialogueOperationKind.StartOtherLesson ? command!.Name : CommandName(operation);
+            replies = await handler.HandleAsync(new(name, decision.Arguments, request.UserId), token, program?.Discipline);
+        }
         var practiceResult = await CreatePractice(services, session).SynchronizeAsync(request.UserId, operation, token);
         if (practiceResult is not null) replies = [.. replies, .. TelegramPracticePresenter.Render(practiceResult)];
         session.EnsureComplete();

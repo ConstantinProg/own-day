@@ -25,7 +25,11 @@ public interface ICurriculumStore
 public sealed record CurriculumProposal(string Discipline, CurriculumTopic[] Topics, string? DiagnosticQuestion,
     string? DiagnosticInterpretation = null, DiagnosticStartingLevel? StartingLevel = null);
 public sealed record CurriculumRequest(string Goal, string Experience, string? Question, string? Answer, string? Discipline = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] DiagnosticQuestionContext[]? PriorObservations = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] DiagnosticQuestionContext[]? PriorObservations = null)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool SelfReportedUncertainty { get; init; }
+}
 public sealed record DiagnosticQuestionContext(string Question, string Interpretation);
 
 public interface ICurriculumPlanner
@@ -59,7 +63,7 @@ public abstract record CurriculumResult
     public sealed record TransferUnavailable : CurriculumResult;
     public sealed record Progress(LearningProgress Value) : CurriculumResult;
     public sealed record Diagnostic(LearningProgram Value, string? Notice = null) : CurriculumResult;
-    public sealed record SubjectDiagnosticQuestion(LearningProgram Value) : CurriculumResult;
+    public sealed record SubjectDiagnosticQuestion(LearningProgram Value, string? Notice = null) : CurriculumResult;
     public sealed record NoProgress(int Page) : CurriculumResult;
     public sealed record RouteView(CurriculumRoute Route, bool Full, string? OptionalCheck = null) : CurriculumResult;
     public sealed record RouteHistory(IReadOnlyList<CurriculumRoute> Routes) : CurriculumResult;
@@ -196,7 +200,7 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
         if (program.EnglishDiagnostic is not null) return await DiagnoseEnglishAsync(program, answer, token);
         if (program.SubjectDiagnostic is not null) return await DiagnoseSubjectAsync(program, answer, token);
         if (!program.DiagnosticPending) return new CurriculumResult.InvalidTransition();
-        if (answer.Equals("skip", StringComparison.OrdinalIgnoreCase))
+        if (answer.Equals("skip", StringComparison.OrdinalIgnoreCase) || IsDiagnosticUncertainty(answer))
         {
             program.SkipDiagnostic();
             return new CurriculumResult.Program(program);
@@ -236,14 +240,24 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
 
         try
         {
+            var uncertainty = IsDiagnosticUncertainty(answer);
             var proposal = await planner.PlanAsync(new(program.Goal, program.Experience, program.DiagnosticQuestion,
-                answer, program.Discipline, diagnostic.Observations.Select(item => new DiagnosticQuestionContext(item.Question, item.Interpretation)).ToArray()), token);
+                answer, program.Discipline, diagnostic.Observations.Select(item => new DiagnosticQuestionContext(item.Question, item.Interpretation)).ToArray())
+                { SelfReportedUncertainty = uncertainty }, token);
             token.ThrowIfCancellationRequested();
             if (proposal.DiagnosticInterpretation is null || proposal.StartingLevel is null)
                 return new CurriculumResult.ProviderUnavailable();
-            program.RecordSubjectObservation(answer, proposal.DiagnosticInterpretation, proposal.Discipline, proposal.Topics,
-                proposal.DiagnosticQuestion, proposal.StartingLevel.Value);
-            return program.DiagnosticPending ? new CurriculumResult.SubjectDiagnosticQuestion(program) : new CurriculumResult.Program(program);
+            var substantiveAnswers = diagnostic.Observations.Count(item => !item.SelfReportedUncertainty) + (uncertainty ? 0 : 1);
+            var level = substantiveAnswers < 2 && (uncertainty || diagnostic.Observations.Any(item => item.SelfReportedUncertainty))
+                ? DiagnosticStartingLevel.Unknown : proposal.StartingLevel.Value;
+            program.RecordSubjectObservation(answer, uncertainty ? "Самооценка неопределённости. Предметных сведений в ответе нет."
+                : proposal.DiagnosticInterpretation, proposal.Discipline,
+                uncertainty && substantiveAnswers == 0 ? program.CurrentRoute.Topics : proposal.Topics,
+                proposal.DiagnosticQuestion, level, uncertainty);
+            return program.DiagnosticPending
+                ? new CurriculumResult.SubjectDiagnosticQuestion(program, uncertainty
+                    ? "Вы сообщили, что пока не уверены. Попробуем более конкретный вопрос, чтобы подобрать сложность." : null)
+                : new CurriculumResult.Program(program);
         }
         catch (Exception exception) when (exception is LessonProviderException or ArgumentException)
         {
@@ -253,11 +267,16 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
 
     public Task<CurriculumResult> NextAsync(UserId user, CancellationToken token) => StartLessonAsync(user, LessonSelection.Next, null, token);
 
+    private static bool IsDiagnosticUncertainty(string answer) => answer.Trim().TrimEnd('.', '!', '…').ToLowerInvariant() is
+        "очень смутно" or "смутно" or "не уверен" or "не уверена" or "very vaguely" or "not sure";
+
     public async Task<CurriculumResult> CompleteDiagnosticAndStartAsync(UserId user, string answer, CancellationToken token)
     {
         var result = await DiagnoseAsync(user, answer, token);
         if (result is not CurriculumResult.Program program) return result;
         var next = await NextAsync(user, token);
+        if (next is CurriculumResult.Lesson exercise && IsDiagnosticUncertainty(answer))
+            return exercise with { Introduction = "Вы сообщили, что пока не уверены. Начнём с предварительной сложности и уточним её по ответам на упражнения." };
         return next is CurriculumResult.Lesson lesson && program.Value.SubjectDiagnostic is { Deferred: true }
             ? lesson with { Introduction = "Диагностика отложена. Начнём с предварительной сложности. Вернуться после упражнения можно командой /learn_diagnose start." }
             : next;

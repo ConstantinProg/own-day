@@ -6,6 +6,7 @@ namespace OwnDay.Application.Learning;
 public interface ILessonStore
 {
     Task<Lesson?> FindActiveAsync(UserId user, CancellationToken token);
+    Task<string[]> RecentQuestionsAsync(UserId user, Guid skillId, CancellationToken token) => Task.FromResult(Array.Empty<string>());
     void Add(Lesson lesson);
 }
 
@@ -17,6 +18,10 @@ public sealed record LessonRequest(string Topic, LessonProgramContext? Program =
 {
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public CurriculumDepth? RouteDepth { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public ExerciseEvidenceKind? PracticeEvidenceKind { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string[]? PreviousQuestions { get; init; }
 }
 public sealed record TransferPracticeContext(string SourceTopic, InterdisciplinaryPractice Relation);
 public sealed record ProjectPracticeContext(long ProjectId, string ProjectTitle, long ActionId, string ActionTitle);
@@ -47,6 +52,7 @@ public sealed record LessonExplanation(string Explanation)
     public LessonProvenance? Provenance { get; init; }
 }
 public sealed record CriterionFeedback(string Requirement, RubricCriterionResult Result, string Reason);
+public enum LearningContinuation { Practice, Review, NextTopic }
 
 public interface ILessonTeacher
 {
@@ -89,12 +95,15 @@ public abstract record LearningResult
     public sealed record Assessment(string Feedback) : LearningResult
     {
         public AnswerAssistance Assistance { get; init; }
+        public bool IsCorrect { get; init; }
+        public bool InRussian { get; init; }
         public AnswerAssessmentStatus Status { get; init; }
         public bool? DeterministicIsCorrect { get; init; }
         public long? ProjectActionId { get; init; }
         public IReadOnlyList<CriterionFeedback>? Criteria { get; init; }
         public Guid? IndependentPracticeSkillId { get; init; }
         public Guid? LessonId { get; init; }
+        public LearningContinuation? Continuation { get; init; }
     }
     public sealed record InvalidTopic : LearningResult;
     public sealed record InvalidAnswer : LearningResult;
@@ -110,7 +119,7 @@ public abstract record LearningResult
         public InterdisciplinaryPractice? Transfer { get; init; }
     }
     public sealed record Explanation(string Text, string Topic, string Question, LessonProvenance? Provenance = null) : LearningResult;
-    public sealed record AssessmentClarification(string Criterion) : LearningResult;
+    public sealed record AssessmentClarification(string Criterion, bool PartiallyCorrect = false) : LearningResult;
     public sealed record AssessmentCorrection(string Guidance, string Question, bool AnotherHintAvailable) : LearningResult;
     public sealed record HelpLimit : LearningResult;
     public sealed record InvalidClarification : LearningResult;
@@ -175,6 +184,7 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
             return new LearningResult.InvalidTransition();
         }
 
+        var assessmentContent = active.AssessmentContent;
         LessonAssessment result;
         try
         {
@@ -183,7 +193,7 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
             if (string.IsNullOrWhiteSpace(result.Feedback) || result.Feedback.Length > 3000 ||
                 string.IsNullOrWhiteSpace(result.Source) || result.Source.Length > 200)
                 return new LearningResult.ProviderUnavailable();
-            if (active.Content?.StructuredRubric is { } rubric)
+            if (assessmentContent?.StructuredRubric is { } rubric)
             {
                 if (result.Rubric is null) return new LearningResult.ProviderUnavailable();
                 result.Rubric.Validate(rubric);
@@ -201,24 +211,39 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
         }
 
         // State/evidence failures must escape so the caller rolls back the entire update transaction.
-        if (active.Content?.StructuredRubric is not null)
+        if (assessmentContent?.StructuredRubric is not null)
         {
             active.ApplyRubricAssessment(answer, result.Feedback, result.Rubric!, operationId, result.Correction);
             if (active.RubricEvaluation is { Final: false, AwaitingCorrection: true } correction)
                 return new LearningResult.AssessmentCorrection(correction.Corrections[^1].Proposal.Guidance,
                     active.ResponseQuestion, active.CanOfferMoreHelp);
             if (active.RubricEvaluation is { Final: false, Clarification: { } clarification })
-                return new LearningResult.AssessmentClarification(clarification);
+                return new LearningResult.AssessmentClarification(clarification,
+                    result.Rubric!.Criteria.Any(item => item.Result == RubricCriterionResult.Met));
         }
         else active.Complete(answer, result.Feedback, result.IsCorrect);
-        await knowledge.RecordAnswerAsync(active, result.Source, token);
+        var evidence = await knowledge.RecordAnswerAsync(active, result.Source, token);
+        var state = evidence is { AssessedCorrect: true, RubricEvidence: not null }
+            ? await knowledge.StateWithAnswerAsync(evidence, token) : null;
         return new LearningResult.Assessment(result.Feedback)
         {
             Status = active.AssessmentStatus, DeterministicIsCorrect = active.DeterministicIsCorrect, ProjectActionId = active.ProjectActionId,
             Assistance = active.Assistance,
+            IsCorrect = evidence.AssessedCorrect,
+            InRussian = MarketLearningContent.InRussian(active.Theory + active.Question),
+            Continuation = state switch
+            {
+                { Mastery: SkillMastery.Demonstrated } when active.ProgramId is not null => LearningContinuation.NextTopic,
+                { Mastery: SkillMastery.Demonstrated or SkillMastery.Developing,
+                    EvidenceSummary: { Understanding: true, Application: true } } => LearningContinuation.Review,
+                not null => LearningContinuation.Practice,
+                null when evidence.AssessedCorrect && active.ProgramId is not null => LearningContinuation.NextTopic,
+                null when evidence.AssessedCorrect => LearningContinuation.Practice,
+                _ => null
+            },
             LessonId = active.Id,
             IndependentPracticeSkillId = active.IsCorrect == true && active.Assistance == AnswerAssistance.Assisted ? active.SkillId : null,
-            Criteria = active.Content?.StructuredRubric is { } publishedRubric && active.RubricEvaluation is { } evaluation
+            Criteria = assessmentContent?.StructuredRubric is { } publishedRubric && active.RubricEvaluation is { } evaluation
                 ? publishedRubric.Criteria.Select(criterion =>
                 {
                     var mark = evaluation.Assessment.Criteria.Single(item => item.Code == criterion.Code);
@@ -240,6 +265,15 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
 
     public Task<LearningResult> PracticeAsync(UserId user, Guid skillId, CancellationToken token) =>
         StartSkillLessonAsync(user, skillId, SkillLessonKind.Practice, token);
+
+    public async Task<LearningResult> PracticeLastAsync(UserId user, Guid? programId, IAssessmentReviewStore attempts, CancellationToken token)
+    {
+        ValidateUser(user, token);
+        var latest = await attempts.FindLatestAsync(user, null, token);
+        return latest is not null && (latest.Lesson.ProgramId is null || latest.Lesson.ProgramId == programId)
+            ? await PracticeAsync(user, latest.Evidence.SkillId, token)
+            : new LearningResult.NoActiveLesson();
+    }
 
     public Task<LearningResult> ReviewAsync(UserId user, Guid skillId, CancellationToken token) =>
         StartSkillLessonAsync(user, skillId, SkillLessonKind.Review, token);
@@ -286,10 +320,24 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
             }
             var strategy = teaching is null ? PedagogicalStrategy.Review : AdaptiveTeaching.StrategyFor(teaching.Action);
             var personalization = await knowledge.PersonalizationAsync(user, token);
+            var recent = status.State.EvidenceSummary is not null
+                ? await store.RecentQuestionsAsync(user, skill.Id, token) : [];
             var material = await teacher.GenerateAsync(new LessonRequest(skill.Description, IsReview: kind == SkillLessonKind.Review,
-                Teaching: teaching, Personalization: personalization.ForGeneration()), token);
+                Teaching: teaching, Personalization: personalization.ForGeneration())
+            {
+                PreviousQuestions = recent.Length == 0 ? null : recent,
+                PracticeEvidenceKind = kind == SkillLessonKind.Practice && status.State.EvidenceSummary is { } summary
+                    ? summary.Understanding ? ExerciseEvidenceKind.Application : ExerciseEvidenceKind.Understanding
+                    : null
+            }, token);
             token.ThrowIfCancellationRequested();
             var lesson = Lesson.Start(user, skill.Title, material.Theory, material.Question, material.Provenance, material.ExpectedAnswer, material.Content);
+            if (lesson.Content?.StructuredRubric?.Version == ExerciseRubric.QuestionScopedVersion)
+            {
+                var fingerprint = RubricEvidence.FingerprintQuestion(lesson.Question);
+                if (status.Evidence.Any(item => item.RubricEvidence?.QuestionFingerprint == fingerprint))
+                    return new LearningResult.ProviderUnavailable();
+            }
             lesson.SetTeaching(new(strategy, personalization.EffectivePreferences()));
             lesson.LinkToSkill(skill);
             if (kind == SkillLessonKind.Review) lesson.MarkAsReview();
@@ -374,7 +422,7 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
 
     internal static LearningResult.Material Material(Lesson lesson) => new(lesson.Theory, lesson.Question, lesson.Topic)
     {
-        Provenance = lesson.Provenance, HasReferenceCheck = lesson.ExpectedAnswer is not null, ProjectActionId = lesson.ProjectActionId,
+        Provenance = lesson.Provenance, HasReferenceCheck = lesson.UsesReferenceCheck, ProjectActionId = lesson.ProjectActionId,
         Transfer = lesson.Transfer, Content = lesson.Content
     };
 

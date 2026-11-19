@@ -132,8 +132,8 @@ public sealed class OpenAILessonTeacherTests
         {
             id = "test", model = "actual-model", created = 1, @object = "chat.completion",
             choices = new[] { new { index = 0, finish_reason = "stop", message = new { role = "assistant",
-                content = JsonSerializer.Serialize(new { Theory = quote, Question = "Which case?", ExpectedAnswer = "lowercase", SourceQuote = quote,
-                    Criteria = new[] { new ExerciseCriterion("case", "Identify the required case.") },
+                content = JsonSerializer.Serialize(new { Theory = quote, Question = "Which case?", EvidenceKind = "Recognition", SourceQuote = quote,
+                    Criteria = new[] { new ExerciseCriterion("case", "Which case?") },
                     Provenance = new { Status = "verified", Reference = "http://127.0.0.1/private" } }) } } }
         }));
         using var http = new HttpClient(handler);
@@ -142,7 +142,8 @@ public sealed class OpenAILessonTeacherTests
             Transport = new HttpClientPipelineTransport(http), RetryPolicy = new ClientRetryPolicy(0)
         }), Options.Create(new OpenAIInboxAnalysisOptions { Enabled = true, ApiKey = "dummy-key" }), new RecordingLogger(), reader);
         var result = await teacher.GenerateAsync(new("JSON"), CancellationToken.None);
-        Assert.Equal("lowercase", result.ExpectedAnswer);
+        Assert.Null(result.ExpectedAnswer);
+        Assert.Equal(ExerciseEvidenceKind.Recognition, result.Content!.StructuredRubric!.Kind);
         Assert.NotNull(result.Provenance);
         Assert.Equal("OpenAI:actual-model", result.Provenance.Generator);
         Assert.Equal(RfcLessonSourceReader.Reference, result.Provenance.Reference);
@@ -459,11 +460,43 @@ public sealed class OpenAILessonTeacherTests
         Assert.Equal(LessonProviderFailure.InvalidResponse, error.Reason);
     }
 
+    [Theory]
+    [InlineData("Кто передаёт поручение?")]
+    [InlineData("Кто передаёт поручение?\nОбъясните, как проходит клиринг.")]
+    [InlineData("Кто передаёт поручение?\n\nКто передаёт поручение?")]
+    public async Task GenerateAsync_CriterionMissingFromPublishedTasks_RejectsTheExercise(string question)
+    {
+        var completion = JsonSerializer.Serialize(new
+        {
+            Theory = "Торговля ценными бумагами.",
+            Question = question,
+            EvidenceKind = "Understanding",
+            Criteria = new[]
+            {
+                new ExerciseCriterion("role", "Кто передаёт поручение?"),
+                new ExerciseCriterion("clearing", "Объясните, как проходит клиринг после сделки.")
+            }
+        });
+        using var handler = new ResponseHandler(JsonSerializer.Serialize(new
+        {
+            id = "test", model = "test", created = 1, @object = "chat.completion",
+            choices = new[] { new { index = 0, finish_reason = "stop", message = new { role = "assistant", content = completion } } }
+        }));
+        using var http = new HttpClient(handler);
+
+        var error = await Assert.ThrowsAsync<LessonProviderException>(() =>
+            Teacher(http, new RecordingLogger()).GenerateAsync(new("Биржевые торги"), default));
+
+        Assert.Equal(LessonProviderFailure.InvalidResponse, error.Reason);
+        Assert.Equal(1, handler.Requests);
+    }
+
     private static string Generated(string theory, string question) => JsonSerializer.Serialize(new
     {
         Theory = theory,
         Question = question,
-        Criteria = new[] { new ExerciseCriterion("meaning", "Explain the answer.") }
+        EvidenceKind = "Recognition",
+        Criteria = new[] { new ExerciseCriterion("meaning", question) }
     });
 
     private static OpenAILessonTeacher Teacher(HttpClient http, RecordingLogger logger) => new(

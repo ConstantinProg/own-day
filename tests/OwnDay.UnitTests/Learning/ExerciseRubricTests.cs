@@ -80,6 +80,22 @@ public sealed class ExerciseRubricTests
     }
 
     [Fact]
+    public void Evaluate_RecognitionAndDelayedPractice_StillRequiresIndependentExplanations()
+    {
+        var skill = Skill.Create(new UserId(1), "Market roles");
+        var start = DateTimeOffset.UnixEpoch;
+        var identification = Record(skill, "Name the intermediary", "A broker", ExerciseEvidenceKind.Recognition, start);
+        var recognition = Record(skill, "Name the venue", "The exchange", ExerciseEvidenceKind.Recognition, start.AddMinutes(5));
+        var application = Record(skill, "Apply market roles", "The broker routes the client's order.", ExerciseEvidenceKind.Application, start.AddMinutes(10));
+        var review = Record(skill, "Delayed check", "The venue matches eligible orders.", ExerciseEvidenceKind.Retrieval, start.AddDays(2));
+
+        var state = LearnerSkillState.Evaluate([identification, recognition, application, review]);
+
+        Assert.Equal(new MasteryEvidenceSummary(false, true, true), state.EvidenceSummary);
+        Assert.Equal(SkillMastery.Developing, state.Mastery);
+    }
+
+    [Fact]
     public void Review_DisagreementThenAgreement_ChangesOnlyTheEffectiveGrade()
     {
         var owner = new UserId(1);

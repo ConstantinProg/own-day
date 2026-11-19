@@ -78,20 +78,27 @@ public sealed partial class KnowledgeService(IKnowledgeStore store, TimeProvider
         lesson.LinkToSkill(skill);
     }
 
-    public async Task RecordAnswerAsync(Lesson lesson, string source, CancellationToken token)
+    public async Task<LearningEvidence> RecordAnswerAsync(Lesson lesson, string source, CancellationToken token)
     {
         Validate(lesson.UserId, token);
         var evidence = LearningEvidence.FromAnswer(lesson, clock.GetUtcNow(), source);
         if (evidence.AssessmentStatus == AnswerAssessmentStatus.Inconclusive)
         {
             store.Add(evidence);
-            return;
+            return evidence;
         }
         var schedule = await store.ReviewAsync(evidence.UserId, evidence.SkillId, token);
         token.ThrowIfCancellationRequested();
         if (schedule is null) store.Add(ReviewSchedule.FromAnswer(evidence));
         else schedule.Record(evidence);
         store.Add(evidence);
+        return evidence;
+    }
+
+    internal async Task<LearnerSkillState> StateWithAnswerAsync(LearningEvidence evidence, CancellationToken token)
+    {
+        var history = await store.EvidenceAsync(evidence.UserId, evidence.SkillId, token);
+        return LearnerSkillState.Evaluate(history.Append(evidence));
     }
 
     public Task<ReviewSchedule?> ReviewAsync(UserId user, Guid skillId, CancellationToken token)

@@ -63,7 +63,8 @@ public sealed partial class PostgresLearningProviderTests
         Assert.Equal(probe.Material.Question, lesson.Question);
         var replies = await db.TelegramOutboxMessages.Select(message => message.Text).ToListAsync();
         Assert.Contains(replies, reply => reply.Contains("Биржевые заявки", StringComparison.Ordinal));
-        Assert.Contains(replies, reply => reply.Contains(program.GoalCriterion!, StringComparison.Ordinal));
+        Assert.Contains(replies, reply => reply.Contains(program.GoalCriterion!.Replace("инвистиции", "инвестиции", StringComparison.Ordinal), StringComparison.Ordinal));
+        Assert.DoesNotContain(replies, reply => reply.Contains("инвистиции", StringComparison.Ordinal));
         Assert.Contains(replies, reply => reply.Contains(probe.Material.Question, StringComparison.Ordinal));
         await Assert.ThrowsAsync<PostgresException>(() =>
             db.GetService<IMigrator>().MigrateAsync("20261114130000_AddProgramSuspension"));

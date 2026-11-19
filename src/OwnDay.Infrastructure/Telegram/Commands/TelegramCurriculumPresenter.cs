@@ -19,7 +19,9 @@ public static class TelegramCurriculumPresenter
             .. RenderRoute(new(proposal.Route, true), preview: true)],
         CurriculumResult.Diagnostic diagnostic => RenderDiagnostic(diagnostic),
         CurriculumResult.SubjectDiagnosticQuestion diagnostic =>
-            [diagnostic.Value.DiagnosticQuestion! + "\nAnswer the question or write “skip”. /learn_diagnose <answer>"],
+            [(diagnostic.Notice is null ? "" : diagnostic.Notice + "\n\n") + diagnostic.Value.DiagnosticQuestion! +
+                (MarketLearningContent.InRussian(diagnostic.Value.DiagnosticQuestion!)
+                    ? "\nОтветьте или напишите «пропустить»." : "\nAnswer the question or write “skip”.")],
         CurriculumResult.Progress progress => TelegramProgressPresenter.Render(progress.Value),
         CurriculumResult.NoProgress empty => [empty.Page == 1
             ? "No programs yet. /learn_program <goal> | <experience>. Free lesson skills: /learn_skills"
@@ -56,7 +58,7 @@ public static class TelegramCurriculumPresenter
         var route = view.Route;
         var heading = preview ? $"Предлагаемый маршрут v{route.Version}" : $"Маршрут v{route.Version}\n{route.Reason}";
         if (route.Path?.GoalChange?.Effective is { } goal)
-            heading += $"\nЦель — {goal.Description}" + (goal.Criterion is not null ? $"\nКритерий — {goal.Criterion}" : "");
+            heading += $"\nЦель — {DisplayGoal(goal.Description)}" + (goal.Criterion is not null ? $"\nКритерий — {DisplayGoal(goal.Criterion)}" : "");
         if (route.Path?.RestoredFrom is { } restoredFrom) heading += $"\nВосстановлен из v{restoredFrom}.";
         var topics = route.Topics.Select(topic =>
         {
@@ -120,7 +122,7 @@ public static class TelegramCurriculumPresenter
 
     private static IReadOnlyList<string> RenderPrograms(CurriculumResult.Programs page)
     {
-        var messages = page.Items.Select(p => $"{p.Goal}\nDiscipline: {p.Discipline}\nRoute v{p.CurrentRoute.Version}\n/learn_select {p.Id}").ToList();
+        var messages = page.Items.Select(p => $"{DisplayGoal(p.Goal)}\nDiscipline: {p.Discipline}\nRoute v{p.CurrentRoute.Version}\n/learn_select {p.Id}").ToList();
         if (messages.Count == 0) messages.Add("No programs on this page. /learn_program <goal> | <experience>");
         if (page.Page > 1) messages.Add($"Previous: /learn_programs {page.Page - 1}");
         if (page.HasNext) messages.Add($"Next: /learn_programs {page.Page + 1}");
@@ -130,8 +132,8 @@ public static class TelegramCurriculumPresenter
     private static IReadOnlyList<string> RenderProgram(LearningProgram program)
     {
         var route = program.CurrentRoute;
-        var heading = $"Goal: {program.Goal}\nProgram: {program.Id}\nDiscipline: {program.Discipline}\nRoute v{route.Version}: {route.Reason}" +
-            (program.GoalCriterion is { } criterion ? $"\nКритерий цели — {criterion}" : "") +
+        var heading = $"Goal: {DisplayGoal(program.Goal)}\nProgram: {program.Id}\nDiscipline: {program.Discipline}\nRoute v{route.Version}: {route.Reason}" +
+            (program.GoalCriterion is { } criterion ? $"\nКритерий цели — {DisplayGoal(criterion)}" : "") +
             (program.ProjectId is long id ? $"\nProject: #{id}" : "");
         var topics = route.Topics.Select(t => $"{t.Code}: {t.Title}" +
             (t.Prerequisites.Count > 0 ? $" (requires: {string.Join(", ", t.Prerequisites)})" : ""));
@@ -141,4 +143,8 @@ public static class TelegramCurriculumPresenter
                 (program.SubjectDiagnostic is { Deferred: true } ? "\nDeferred diagnosis: /learn_diagnose start" : ""),
             .. program.ProjectId is not null ? new[] { "Project skills and task practice: /learn_project_report [page] · /learn_project_practice <topic code> | <task id>" } : Array.Empty<string>()];
     }
+
+    internal static string DisplayGoal(string text) => System.Text.RegularExpressions.Regex.Replace(text,
+        @"\b[Ии]нвистиции\b", match => char.IsUpper(match.Value[0]) ? "Инвестиции" : "инвестиции",
+        System.Text.RegularExpressions.RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100));
 }

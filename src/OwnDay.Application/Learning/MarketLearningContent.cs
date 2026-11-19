@@ -28,17 +28,15 @@ public static class MarketLearningContent
     public static LessonMaterial Material(MarketFactRequest request, bool russian, LessonProvenance? provenance)
     {
         var personal = request == MarketFactRequest.PersonalDecision;
-        var requirement = personal
-            ? russian ? "Назвать два параметра для сравнения инвестиционных рисков." : "Name two criteria for comparing investment risks."
-            : russian ? "Назвать рынок, режим торгов и дату, для которых действует правило." : "Identify the market, trading mode, and date to which a rule applies.";
         var question = personal
             ? russian ? "По каким двум параметрам вы сравнили бы риск двух условных портфелей?" : "Which two criteria would you use to compare the risk of two hypothetical portfolios?"
-            : russian ? "Что нужно уточнить перед применением биржевого правила к сделке?" : "What should you check before applying an exchange rule to a trade?";
+            : russian ? "Что нужно уточнить о рынке, режиме торгов и дате перед применением биржевого правила?"
+                : "What should you check about the market, trading mode, and date before applying an exchange rule?";
         return new(Explanation(request, russian), question)
         {
             Provenance = provenance,
-            Content = new("market-facts", "rubric-v1", LearningContentKind.StructuredExercise, question, requirement, requirement,
-                new(1, ExerciseEvidenceKind.Understanding, [new("scope", requirement)]))
+            Content = new("market-facts", "rubric-v2", LearningContentKind.StructuredExercise, question, question, question,
+                new(ExerciseRubric.QuestionScopedVersion, ExerciseEvidenceKind.Recognition, [new("scope", question)]))
         };
     }
 

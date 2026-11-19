@@ -9,6 +9,8 @@ public sealed record LearningContent(string Id, string Version, LearningContentK
     string Objective, string Criterion, string Rubric,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ExerciseRubric? StructuredRubric = null)
 {
+    public const string GeneratedExerciseId = "generated-exercise";
+
     public void Validate()
     {
         LearningProgram.Validate(Id, 100);

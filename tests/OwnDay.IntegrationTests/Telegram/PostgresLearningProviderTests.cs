@@ -324,8 +324,9 @@ public sealed partial class PostgresLearningProviderTests : IAsyncLifetime
         Assert.Equal(question, persisted.Question);
         Assert.Equal(2, await observer.Set<LearningAppliedOperation>().CountAsync());
         var replies = await observer.TelegramOutboxMessages.Select(message => message.Text).ToArrayAsync();
-        Assert.Equal(sourceAvailable, replies.Any(reply => reply.Contains("Verified at:", StringComparison.Ordinal)));
-        Assert.Equal(!sourceAvailable, replies.Any(reply => reply.Contains("Source unavailable:", StringComparison.Ordinal)));
+        Assert.Contains(replies, reply => reply.Contains(explanation.Provenance.Reference!, StringComparison.Ordinal));
+        Assert.Equal(sourceAvailable, replies.Any(reply => reply.Contains($"Проверено {_now:O}", StringComparison.Ordinal)));
+        Assert.Equal(!sourceAvailable, replies.Any(reply => reply.Contains("Источник недоступен", StringComparison.Ordinal)));
     }
 
     [Theory]
@@ -436,6 +437,7 @@ public sealed partial class PostgresLearningProviderTests : IAsyncLifetime
         public CurriculumProposal Curriculum { get; init; } = new("English", [new("root", "Read an email", [])], null);
         public Func<CurriculumRequest, CurriculumProposal>? Plan { get; init; }
         public LessonMaterial Material { get; init; } = new("Theory", "Question");
+        public Func<LessonRequest, LessonMaterial>? Generate { get; init; }
         public Func<LessonSnapshot, string, LessonAssessment>? Assessment { get; init; }
         public System.Collections.Concurrent.ConcurrentQueue<LearningIntentInput> IntentInputs { get; } = new();
         public System.Collections.Concurrent.ConcurrentQueue<string> AssessedAnswers { get; } = new();
@@ -475,7 +477,7 @@ public sealed partial class PostgresLearningProviderTests : IAsyncLifetime
                 using var marketReader = new MoexLessonSourceReader(new HttpClient(new MarketHandler(market)), new Clock());
                 return await MarketTeacher(marketReader).GenerateAsync(request, token);
             }
-            if (!source) { await BlockAsync("generate", token); return probe.Material; }
+            if (!source) { await BlockAsync("generate", token); return probe.Generate?.Invoke(request) ?? probe.Material; }
             using var sourceHttp = new HttpClient(new Handler(async cancellationToken =>
             {
                 await BlockAsync("source", cancellationToken);
@@ -490,7 +492,7 @@ public sealed partial class PostgresLearningProviderTests : IAsyncLifetime
                     usage = new { prompt_tokens = 30, completion_tokens = 10, total_tokens = 40,
                         prompt_tokens_details = new { cached_tokens = 5 } },
                     choices = new[] { new { index = 0, finish_reason = "stop", message = new
-                    { role = "assistant", content = """{"Theory":"Theory","Question":"Question","ExpectedAnswer":null,"SourceQuote":null,"Criteria":[{"Code":"explain","Requirement":"Explain your answer."}]}""" } } }
+                    { role = "assistant", content = """{"Theory":"Theory","Question":"Question","EvidenceKind":"Understanding","SourceQuote":null,"Criteria":[{"Code":"explain","Requirement":"Question"}]}""" } } }
                 }), Encoding.UTF8, "application/json")
             })));
             var teacher = new OpenAILessonTeacher(() => new ChatClient("test", new ApiKeyCredential("dummy-key"), new OpenAIClientOptions

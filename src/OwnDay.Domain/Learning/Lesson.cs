@@ -33,12 +33,28 @@ public sealed class Lesson
     public AnswerAssistance Assistance { get; private set; }
     public LearningContent? Content { get; private set; }
     public LessonRubricEvaluation? RubricEvaluation { get; private set; }
-    public string ResponseQuestion => RubricEvaluation is { Final: false, AwaitingCorrection: false, Clarification: { } clarification }
+    public LearningContent? AssessmentContent => Content is { Id: LearningContent.GeneratedExerciseId, StructuredRubric.Version: 1 } legacy
+        ? legacy with
+        {
+            Version = "question-v1",
+            Criterion = Question.Length <= 500 ? Question : "Assess the question as asked.",
+            Rubric = "Assess only the requirements expressed in the question.",
+            StructuredRubric = new(1, ExerciseEvidenceKind.Recognition,
+                [new("question", Question.Length <= 200 ? Question : "Assess the question as asked.")])
+        }
+        : Content;
+    public bool UsesReferenceCheck => ExpectedAnswer is not null &&
+        Provenance?.Generator.StartsWith("OpenAI:", StringComparison.Ordinal) != true && Content?.Id != LearningContent.GeneratedExerciseId &&
+        Content?.StructuredRubric?.Version != ExerciseRubric.QuestionScopedVersion;
+    public bool HasPendingLegacyAssessment => Content is { Id: LearningContent.GeneratedExerciseId, StructuredRubric.Version: 1 } &&
+        RubricEvaluation is { Final: false, ScopedToQuestion: false };
+    public string ResponseQuestion => !HasPendingLegacyAssessment &&
+        RubricEvaluation is { Final: false, AwaitingCorrection: false, Clarification: { } clarification }
         ? clarification : Question;
     public int CorrectionCount => RubricEvaluation is { Corrections.IsDefault: false } evaluation ? evaluation.Corrections.Length : 0;
     public bool CanOfferMoreHelp => Content?.StructuredRubric is null || CorrectionCount + _interactions.Count < MaxHelpSteps;
     public string? SavedGuidance => _interactions.FirstOrDefault(interaction => interaction.Kind == LessonInteractionKind.FullAnswer)?.Explanation
-        ?? (RubricEvaluation is { Final: false, AwaitingCorrection: true } evaluation
+        ?? (!HasPendingLegacyAssessment && RubricEvaluation is { Final: false, AwaitingCorrection: true } evaluation
         ? evaluation.Corrections[^1].Proposal.Guidance
         : _interactions.OrderByDescending(interaction => interaction.Id).FirstOrDefault()?.Explanation);
     public InterdisciplinaryPractice? Transfer { get; private set; }
@@ -63,6 +79,7 @@ public sealed class Lesson
     {
         RequireAwaitingAnswer();
         content.Validate();
+        content.StructuredRubric?.ValidateQuestion(Question);
         if (Content is not null || content.Kind == LearningContentKind.OpenWriting && ExpectedAnswer is not null)
             throw new InvalidOperationException("Writing uses a rubric, not an exact answer key.");
         Content = content;
@@ -79,7 +96,7 @@ public sealed class Lesson
         ExerciseCorrectionProposal? correction = null)
     {
         RequireAwaitingAnswer();
-        if (Content?.StructuredRubric is not { } rubric)
+        if (AssessmentContent?.StructuredRubric is not { } rubric)
             throw new InvalidOperationException("This exercise has no structured rubric.");
         Validate(answer, 3000);
         Validate(feedback, 3000);
@@ -87,15 +104,21 @@ public sealed class Lesson
         assessment.Validate(rubric);
 
         var prior = RubricEvaluation;
+        var legacyAttempt = HasPendingLegacyAssessment;
+        var scopedToQuestion = Content is { Id: LearningContent.GeneratedExerciseId, StructuredRubric.Version: 1 };
+        var priorClarification = legacyAttempt ? null : prior?.Clarification;
         var evaluation = new LessonRubricEvaluation(assessment, prior?.InitialAnswer ?? answer, operationId,
-            prior?.Clarification, Final: false, prior?.InitialAssessment ?? prior?.Assessment,
+            priorClarification, Final: false, prior?.InitialAssessment ?? prior?.Assessment,
             prior?.InitialOperationId ?? prior?.OperationId, prior?.Corrections ?? default,
-            ClarificationAnswer: prior?.ClarificationAnswer);
+            ClarificationAnswer: prior?.ClarificationAnswer, ScopedToQuestion: scopedToQuestion);
 
         var unclear = assessment.Criteria.FirstOrDefault(item => item.Result == RubricCriterionResult.Unclear);
-        if (unclear is not null && prior?.Clarification is null)
+        if (unclear is not null && priorClarification is null && !legacyAttempt)
         {
-            var clarification = rubric.Criteria.Single(criterion => criterion.Code == unclear.Code).Requirement;
+            var unclearCodes = assessment.Criteria.Where(item => item.Result == RubricCriterionResult.Unclear)
+                .Select(item => item.Code).ToHashSet(StringComparer.Ordinal);
+            var clarification = scopedToQuestion ? Question : string.Join('\n', rubric.Criteria
+                .Where(criterion => unclearCodes.Contains(criterion.Code)).Select(criterion => criterion.Requirement));
             RubricEvaluation = evaluation with { Clarification = clarification, ClarificationAnswer = answer };
             return;
         }
@@ -103,7 +126,7 @@ public sealed class Lesson
         var unmet = assessment.Criteria.FirstOrDefault(item => item.Result == RubricCriterionResult.NotMet);
         if (unclear is null && unmet is not null && CanOfferMoreHelp)
         {
-            var requirement = rubric.Criteria.Single(criterion => criterion.Code == unmet.Code).Requirement;
+            var requirement = scopedToQuestion ? Question : rubric.Criteria.Single(criterion => criterion.Code == unmet.Code).Requirement;
             var proposal = correction is { IsInstructional: true } ? correction : new(ExerciseCorrectionKind.Hint, requirement);
             var attempt = new ExerciseCorrection(answer, assessment, operationId, proposal);
             RubricEvaluation = evaluation with
@@ -116,8 +139,12 @@ public sealed class Lesson
         }
 
         var correct = assessment.Criteria.All(item => item.Result == RubricCriterionResult.Met);
-        var usedClarification = prior is { AwaitingCorrection: false, Clarification: not null };
-        RubricEvaluation = evaluation with { Final = true, FinalThroughClarification = usedClarification };
+        var usedClarification = legacyAttempt || prior is { AwaitingCorrection: false, Clarification: not null };
+        RubricEvaluation = evaluation with
+        {
+            Final = true, FinalThroughClarification = usedClarification,
+            ClarificationAnswer = legacyAttempt ? prior!.ClarificationAnswer ?? prior.InitialAnswer : evaluation.ClarificationAnswer
+        };
         var referenceCandidate = prior is { AwaitingCorrection: false, Clarification: not null }
             ? prior.ClarificationAnswer ?? prior.InitialAnswer : answer;
         CommitAssessment(answer, feedback, correct, referenceCandidate);
@@ -138,7 +165,7 @@ public sealed class Lesson
         Answer = answer;
         Feedback = feedback;
         AiIsCorrect = correct;
-        DeterministicIsCorrect = ExpectedAnswer is null ? null : _answerCheck.Check(referenceCandidate ?? answer, ExpectedAnswer);
+        DeterministicIsCorrect = UsesReferenceCheck ? _answerCheck.Check(referenceCandidate ?? answer, ExpectedAnswer!) : null;
         AssessmentStatus = DeterministicIsCorrect is null ? AnswerAssessmentStatus.AiOnly
             : DeterministicIsCorrect == correct ? AnswerAssessmentStatus.Agreement : AnswerAssessmentStatus.Conflict;
         IsCorrect = correct && AssessmentStatus != AnswerAssessmentStatus.Conflict;

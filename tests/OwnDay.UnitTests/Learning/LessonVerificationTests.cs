@@ -91,6 +91,18 @@ public sealed class LessonVerificationTests
         Assert.Equal(AnswerAssessmentStatus.AiOnly, lesson.AssessmentStatus);
     }
 
+    [Fact]
+    public void Complete_LegacyGeneratedSample_DoesNotVetoAnEquivalentAnswer()
+    {
+        var provenance = new LessonProvenance("OpenAI:historical-model", null, null, null, null, MaterialSourceStatus.None);
+        var lesson = Lesson.Start(new UserId(1), "Roles", "Theory", "Who routes the order?", provenance, "broker");
+        lesson.Complete("a brokerage firm", "Identifies the intermediary.", true);
+
+        Assert.True(lesson.IsCorrect);
+        Assert.Null(lesson.DeterministicIsCorrect);
+        Assert.Equal("broker", lesson.ExpectedAnswer);
+    }
+
     private static Lesson Answer(string answer, bool correct)
     {
         var lesson = Lesson.Start(new UserId(1), "Numbers", "Theory", "Question", expectedAnswer: "four");
