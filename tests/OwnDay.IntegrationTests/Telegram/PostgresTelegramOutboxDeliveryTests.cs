@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
+using OwnDay.Application.Learning.Requests;
+using OwnDay.Domain;
 using OwnDay.Infrastructure.Persistence;
 using OwnDay.Infrastructure.Telegram.Delivery;
 using Xunit;
@@ -9,6 +11,64 @@ namespace OwnDay.IntegrationTests.Telegram;
 
 public sealed class PostgresTelegramOutboxDeliveryTests
 {
+    [Fact]
+    [Trait("Requires", "PostgreSQL via OWNDAY_TEST_POSTGRES_CONNECTION")]
+    public async Task DeliverBatchAsync_LearningReplyRemovedAfterBatchRead_DoesNotSendRemovedText()
+    {
+        var connection = Environment.GetEnvironmentVariable("OWNDAY_TEST_POSTGRES_CONNECTION") ??
+            throw new InvalidOperationException("OWNDAY_TEST_POSTGRES_CONNECTION is required for this test.");
+        var schema = "ownday_test_" + Guid.NewGuid().ToString("N");
+        await using var admin = new OwnDayDbContext(new DbContextOptionsBuilder<OwnDayDbContext>().UseNpgsql(connection).Options);
+#pragma warning disable EF1003 // Schema name is generated from a GUID.
+        await admin.Database.ExecuteSqlRawAsync("CREATE SCHEMA " + schema);
+#pragma warning restore EF1003
+        try
+        {
+            var options = new DbContextOptionsBuilder<OwnDayDbContext>().UseNpgsql(
+                new NpgsqlConnectionStringBuilder(connection) { SearchPath = schema }.ConnectionString).Options;
+            var clock = new Clock();
+            await using var db = new OwnDayDbContext(options);
+            await db.Database.MigrateAsync();
+            var request = new LearningRequest
+            {
+                UserId = new UserId(10), Sequence = 1, SourceKey = "telegram:update:1", SourceUpdateId = 1, ChatId = 10,
+                ReceivedAt = clock.UtcNow, CompletedAt = clock.UtcNow, AvailableAt = clock.UtcNow, NormalizedInput = "{}"
+            };
+            var replyId = Guid.NewGuid();
+            db.Add(request);
+            db.TelegramOutboxMessages.Add(Message(Guid.NewGuid(), 20, "Unrelated", clock.UtcNow.AddSeconds(-1)));
+            await db.SaveChangesAsync();
+            db.TelegramOutboxMessages.Add(new TelegramOutboxMessage
+            {
+                Id = replyId, ChatId = 10, Text = "Private learning text", LearningRequestId = request.Id, ReplyOrdinal = 0,
+                CreatedAt = clock.UtcNow, NextAttemptAt = clock.UtcNow, Status = OutboxMessageStatus.Pending
+            });
+            await db.SaveChangesAsync();
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            var sender = new BlockingSender();
+            var delivery = new TelegramOutboxDeliveryService(db, sender, NullLogger<TelegramOutboxDeliveryService>.Instance, clock)
+                .DeliverBatchAsync(timeout.Token);
+            try
+            {
+                await sender.Started.Task.WaitAsync(timeout.Token);
+                await using var mutation = new OwnDayDbContext(options);
+                await using var fence = await mutation.Database.BeginTransactionAsync(timeout.Token);
+                await mutation.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock({request.UserId.Value})", timeout.Token);
+                Assert.Equal(1, await mutation.TelegramOutboxMessages.Where(message => message.Id == replyId).ExecuteDeleteAsync(timeout.Token));
+                await fence.CommitAsync(timeout.Token);
+            }
+            finally { sender.Release.TrySetResult(); }
+            await delivery;
+            Assert.Equal("Unrelated", Assert.Single(sender.Sends));
+        }
+        finally
+        {
+#pragma warning disable EF1003 // Same GUID-derived schema name.
+            await admin.Database.ExecuteSqlRawAsync("DROP SCHEMA " + schema + " CASCADE");
+#pragma warning restore EF1003
+        }
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -93,6 +153,20 @@ public sealed class PostgresTelegramOutboxDeliveryTests
             cancellationToken.ThrowIfCancellationRequested();
             Attempts.Add(text);
             return Attempts.Count == 1 ? Task.FromException(new HttpRequestException("Temporary failure")) : Task.CompletedTask;
+        }
+    }
+
+    private sealed class BlockingSender : ITelegramMessageSender
+    {
+        public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public List<string> Sends { get; } = [];
+
+        public async Task SendMessageAsync(long chatId, string text, string? replyMarkupJson, CancellationToken cancellationToken)
+        {
+            Sends.Add(text);
+            Started.TrySetResult();
+            await Release.Task.WaitAsync(cancellationToken);
         }
     }
 }

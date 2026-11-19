@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using OwnDay.Application.Learning;
+using OwnDay.Application.Learning.Requests;
 using OwnDay.Application.Inbox.Observability;
 using Microsoft.Extensions.Logging;
 using OwnDay.Infrastructure.Persistence;
@@ -62,25 +63,39 @@ public sealed class TelegramOutboxDeliveryService
                 continue;
             }
 
-            await using var invitationTransaction = message.StudyInvitationId is not null
-                ? await _dbContext.Database.BeginTransactionAsync(cancellationToken) : null;
-            if (message.StudyInvitationId is { } invitation)
+            long? owner = message.StudyInvitationId is not null ? message.ChatId : null;
+            if (persistedOrder && message.LearningRequestId is { } requestId)
             {
-                if (_dbContext.Database.IsNpgsql())
+                var requestOwner = await _dbContext.Set<LearningRequest>().AsNoTracking()
+                    .Where(request => request.Id == requestId).Select(request => (UserId?)request.UserId)
+                    .SingleOrDefaultAsync(cancellationToken);
+                if (requestOwner is null) continue;
+                owner = requestOwner.Value.Value;
+            }
+
+            await using var deliveryTransaction = owner is not null
+                ? await _dbContext.Database.BeginTransactionAsync(cancellationToken) : null;
+            if (owner is { } ownerId)
+            {
+                if (persistedOrder)
                     await _dbContext.Database.ExecuteSqlInterpolatedAsync(
-                        $"SELECT pg_advisory_xact_lock({message.ChatId})", cancellationToken);
-                await _dbContext.Entry(message).ReloadAsync(cancellationToken);
-                if (message.Status != OutboxMessageStatus.Pending)
+                        $"SELECT pg_advisory_xact_lock({ownerId})", cancellationToken);
+                var entry = _dbContext.Entry(message);
+                await entry.ReloadAsync(cancellationToken);
+                if (entry.State == EntityState.Detached || message.Status != OutboxMessageStatus.Pending)
                 {
-                    await invitationTransaction!.CommitAsync(cancellationToken);
+                    await deliveryTransaction!.CommitAsync(cancellationToken);
                     continue;
                 }
                 if (message.NextAttemptAt > _timeProvider.GetUtcNow().UtcDateTime)
                 {
                     blockedChats.Add(message.ChatId);
-                    await invitationTransaction!.CommitAsync(cancellationToken);
+                    await deliveryTransaction!.CommitAsync(cancellationToken);
                     continue;
                 }
+            }
+            if (message.StudyInvitationId is { } invitation)
+            {
                 var user = new UserId(message.ChatId);
                 var schedule = await _dbContext.Set<StudySchedule>().AsNoTracking().SingleOrDefaultAsync(
                     s => s.UserId == user, cancellationToken);
@@ -97,7 +112,7 @@ public sealed class TelegramOutboxDeliveryService
                     message.Status = OutboxMessageStatus.Failed;
                     message.LastError = "StudyInvitationSuppressed";
                     await _dbContext.SaveChangesAsync(cancellationToken);
-                    await invitationTransaction!.CommitAsync(cancellationToken);
+                    await deliveryTransaction!.CommitAsync(cancellationToken);
                     continue;
                 }
             }
@@ -155,7 +170,7 @@ public sealed class TelegramOutboxDeliveryService
 
             // Persist each attempt before a later send can be cancelled.
             await _dbContext.SaveChangesAsync(cancellationToken);
-            if (invitationTransaction is not null) await invitationTransaction.CommitAsync(cancellationToken);
+            if (deliveryTransaction is not null) await deliveryTransaction.CommitAsync(cancellationToken);
         }
 
         // A full batch may have more ready messages behind it.
