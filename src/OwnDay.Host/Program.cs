@@ -5,6 +5,7 @@ using OwnDay.Application.Actions;
 using OwnDay.Application.Inbox;
 using OwnDay.Application.StructuredItems;
 using OwnDay.Host.Filters;
+using OwnDay.Infrastructure;
 using OwnDay.Infrastructure.OpenAIAnalysis;
 using OwnDay.Infrastructure.Persistence;
 using OwnDay.Infrastructure.Telegram;
@@ -23,6 +24,8 @@ builder.Host.UseSerilog((context, loggerConfiguration) =>
 
 builder.Services.AddProblemDetails();
 builder.Services.AddControllers();
+var applicationVersion = ApplicationVersion.FromAssembly(typeof(Program).Assembly);
+builder.Services.AddSingleton(applicationVersion);
 builder.Services.AddScoped<TelegramWebhookAuthorizationFilter>();
 builder.Services
     .AddHealthChecks()
@@ -50,6 +53,9 @@ builder.Services.AddTelegram();
 builder.Services.AddOpenAIProvider();
 
 await using var app = builder.Build();
+
+app.Logger.LogInformation("Starting OwnDay {Version} ({CommitSha}).",
+    applicationVersion.Version, applicationVersion.CommitSha ?? "unknown");
 
 app.UseSerilogRequestLogging();
 app.UseExceptionHandler();
@@ -79,7 +85,8 @@ app.MapHealthChecks("/health/ready", new HealthCheckOptions
 app.MapGet("/version", () => TypedResults.Ok(new
 {
     service = "OwnDay.Host",
-    version = typeof(Program).Assembly.GetName().Version?.ToString() ?? "unknown"
+    version = applicationVersion.Version,
+    commitSha = applicationVersion.CommitSha
 }));
 
 app.Run();

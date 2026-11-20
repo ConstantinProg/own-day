@@ -2,6 +2,7 @@ FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
 COPY Directory.Build.props ./
+COPY Directory.Build.targets ./
 COPY OwnDay.slnx ./
 COPY src/OwnDay.Domain/OwnDay.Domain.csproj src/OwnDay.Domain/
 COPY src/OwnDay.Application/OwnDay.Application.csproj src/OwnDay.Application/
@@ -11,9 +12,13 @@ COPY tests/OwnDay.UnitTests/OwnDay.UnitTests.csproj tests/OwnDay.UnitTests/
 COPY tests/OwnDay.IntegrationTests/OwnDay.IntegrationTests.csproj tests/OwnDay.IntegrationTests/
 COPY tools/OwnDay.InboxEvaluation/OwnDay.InboxEvaluation.csproj tools/OwnDay.InboxEvaluation/
 
+ARG OWNDAY_VERSION
+ENV Version=${OWNDAY_VERSION}
 RUN dotnet restore OwnDay.slnx
 
 COPY . ./
+ARG OWNDAY_SOURCE_REVISION_ID
+ENV SourceRevisionId=${OWNDAY_SOURCE_REVISION_ID}
 RUN dotnet publish src/OwnDay.Host/OwnDay.Host.csproj \
     -c Release \
     -o /app/publish \

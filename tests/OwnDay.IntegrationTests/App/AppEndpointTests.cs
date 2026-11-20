@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Reflection;
 using Xunit;
 
 namespace OwnDay.IntegrationTests.App;
@@ -56,7 +57,7 @@ public sealed class AppEndpointTests : IClassFixture<OwnDayHostFactory>
     }
 
     [Fact]
-    public async Task Version_ReturnsServiceNameAndVersion()
+    public async Task Version_ReturnsPublishedAssemblyMetadata()
     {
         using var client = _factory.CreateClient();
 
@@ -64,8 +65,23 @@ public sealed class AppEndpointTests : IClassFixture<OwnDayHostFactory>
 
         Assert.NotNull(response);
         Assert.Equal("OwnDay.Host", response.Service);
-        Assert.False(string.IsNullOrWhiteSpace(response.Version));
+        var assembly = typeof(Program).Assembly;
+        var metadata = assembly.GetCustomAttributes<AssemblyMetadataAttribute>().ToDictionary(item => item.Key, item => item.Value);
+        Assert.Equal(metadata["Version"], response.Version);
+        Assert.Equal(metadata.GetValueOrDefault("SourceRevisionId"), response.CommitSha);
+
+        var numericVersion = Version.Parse(response.Version.Split('-', '+')[0] + ".0");
+        Assert.Equal(numericVersion, assembly.GetName().Version);
+        Assert.Equal(numericVersion, Version.Parse(assembly.GetCustomAttribute<AssemblyFileVersionAttribute>()!.Version));
+        var informationalVersion = response.Version;
+        if (response.CommitSha is { } sha)
+        {
+            informationalVersion += (response.Version.Contains('+') ? "." : "+") + sha;
+        }
+
+        Assert.Equal(informationalVersion,
+            assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()!.InformationalVersion);
     }
 
-    private sealed record VersionResponse(string Service, string Version);
+    private sealed record VersionResponse(string Service, string Version, string? CommitSha);
 }

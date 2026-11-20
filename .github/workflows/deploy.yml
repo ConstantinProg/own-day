@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+    tags:
+      - 'v*'
 
   workflow_dispatch:
 
@@ -19,6 +21,10 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
+
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      commit: ${{ steps.version.outputs.commit }}
 
     services:
       postgres:
@@ -44,19 +50,60 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Resolve build version
+        id: version
+        shell: bash
+        env:
+          LC_ALL: C
+        run: |
+          commit=$(git rev-parse --verify 'HEAD^{commit}')
+          event_commit=$(git rev-parse --verify "${GITHUB_SHA}^{commit}")
+          if [[ "$commit" != "$event_commit" ]]; then
+            echo "The checkout does not match the workflow commit." >&2
+            exit 1
+          fi
+
+          version=0.0.0-dev
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            number='(0|[1-9][0-9]*)'
+            prerelease='(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)'
+            metadata='[0-9A-Za-z-]+'
+            semver="^v${number}\.${number}\.${number}(-${prerelease}(\.${prerelease})*)?(\+${metadata}(\.${metadata})*)?$"
+            if ! [[ "$GITHUB_REF_NAME" =~ $semver ]]; then
+              echo "Expected a release tag in the form v<SemVer>." >&2
+              exit 1
+            fi
+
+            tag_commit=$(git rev-parse --verify "${GITHUB_REF}^{commit}")
+            if [[ "$tag_commit" != "$commit" ]]; then
+              echo "The release tag does not point to the workflow commit." >&2
+              exit 1
+            fi
+            version=${GITHUB_REF_NAME#v}
+          fi
+
+          printf 'version=%s\ncommit=%s\n' "$version" "$commit" >> "$GITHUB_OUTPUT"
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
 
       - name: Restore
-        run: dotnet restore OwnDay.slnx
+        env:
+          BUILD_VERSION: ${{ steps.version.outputs.version }}
+        run: dotnet restore OwnDay.slnx "-p:Version=$BUILD_VERSION"
 
       - name: Build
+        env:
+          BUILD_VERSION: ${{ steps.version.outputs.version }}
+          SOURCE_REVISION_ID: ${{ steps.version.outputs.commit }}
         run: >
           dotnet build OwnDay.slnx
           --configuration Release
           --no-restore
+          "-p:Version=$BUILD_VERSION"
+          "-p:SourceRevisionId=$SOURCE_REVISION_ID"
 
       - name: Test
         run: >
@@ -71,11 +118,13 @@ jobs:
 
     outputs:
       image: ${{ steps.image.outputs.name }}
-      tag: ${{ steps.image.outputs.tag }}
+      digest: ${{ steps.publish.outputs.digest }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.test.outputs.commit }}
 
       - name: Set up Docker Buildx
         id: buildx
@@ -94,22 +143,28 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set image metadata
+      - name: Set image name
         id: image
         shell: bash
         run: |
           echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
-          echo "tag=sha-${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push image
+        id: publish
         uses: docker/build-push-action@v7
         with:
           builder: ${{ steps.buildx.outputs.name }}
           context: .
           push: true
           tags: |
-            ${{ steps.image.outputs.name }}:${{ steps.image.outputs.tag }}
+            ${{ steps.image.outputs.name }}:sha-${{ needs.test.outputs.commit }}
             ${{ steps.image.outputs.name }}:latest
+          build-args: |
+            OWNDAY_VERSION=${{ needs.test.outputs.version }}
+            OWNDAY_SOURCE_REVISION_ID=${{ needs.test.outputs.commit }}
+          labels: |
+            org.opencontainers.image.version=${{ needs.test.outputs.version }}
+            org.opencontainers.image.revision=${{ needs.test.outputs.commit }}
 
   deploy:
     name: Deploy
@@ -147,14 +202,14 @@ jobs:
           VPS_USER: ${{ vars.VPS_USER }}
           DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
           IMAGE: ${{ needs.publish-image.outputs.image }}
-          IMAGE_TAG: ${{ needs.publish-image.outputs.tag }}
+          IMAGE_DIGEST: ${{ needs.publish-image.outputs.digest }}
         run: |
           ssh \
             -o "HostName=${VPS_HOST}" \
             -o "User=${VPS_USER}" \
             production \
             "cd '${DEPLOY_PATH}' && \
-             sed -i 's|^OWNDAY_IMAGE=.*|OWNDAY_IMAGE=${IMAGE}:${IMAGE_TAG}|' .env && \
+             sed -i 's|^OWNDAY_IMAGE=.*|OWNDAY_IMAGE=${IMAGE}@${IMAGE_DIGEST}|' .env && \
              docker compose -f compose.yaml pull app migrate postgres && \
              docker compose -f compose.yaml up -d postgres && \
              docker compose -f compose.yaml run --rm migrate && \

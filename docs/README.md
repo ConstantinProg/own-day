@@ -43,6 +43,7 @@ describe the former Inbox interface and processing paths.
 
 ## Deployment
 
+- [Release and versioning guide](deployment/releases.md)
 - [GitHub deployment configuration and runtime settings](deployment/GITHUB_SECRETS.md)
 - [Production Compose configuration](../deploy/compose.yaml)
 - [Local Compose configuration](../docker-compose.yml)

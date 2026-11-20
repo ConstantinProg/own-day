@@ -1,6 +1,7 @@
 using System.Data;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using OwnDay.Application.Inbox;
@@ -31,6 +32,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
     private readonly TimeProvider _timeProvider;
     private readonly ITelegramMessageCleaner _messageCleaner;
     private readonly ILogger<TelegramUpdateHandler> _logger;
+    private readonly ApplicationVersion _applicationVersion;
     private readonly ITelegramCallbackResponder? _callbackResponder;
     private readonly LearningRequestProcessingOptions _processing;
 
@@ -46,6 +48,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         TelegramCurriculumCommandHandler curriculum,
         TelegramKnowledgeCommandHandler knowledge,
         TelegramStudyCommandHandler study,
+        ApplicationVersion applicationVersion,
         ITelegramCallbackResponder? callbackResponder = null,
         IOptions<LearningRequestProcessingOptions>? processing = null)
     {
@@ -65,6 +68,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         _timeProvider = timeProvider;
         _messageCleaner = messageCleaner;
         _logger = logger;
+        _applicationVersion = applicationVersion;
         _callbackResponder = callbackResponder;
         _processing = processing?.Value ?? new();
     }
@@ -105,6 +109,13 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         {
             await transaction.RollbackAsync(cancellationToken);
             await AcknowledgeAsync(update, cancellationToken);
+            return;
+        }
+
+        if (route is TelegramUpdateRouteResult.Dispatch { Command.Name: "version" } version)
+        {
+            await CommitRepliesAsync(update, version.ChatId, [$"OwnDay {_applicationVersion.Version}"],
+                now, transaction, cancellationToken);
             return;
         }
 
@@ -205,10 +216,20 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
             }
             // Old commands and buttons explain the current dialogue without executing legacy actions.
             replies = TelegramDialoguePresenter.Help(false, true, dialogue, selectedProgramForHelp);
+            if (command.Name == "help")
+            {
+                replies = [.. replies.SkipLast(1), replies[^1] + "\n\n/version — версия OwnDay."];
+            }
         }
 
         if (introduceDialogue) replies = [TelegramDialoguePresenter.Introduction, .. replies];
 
+        await CommitRepliesAsync(update, chatId, replies, now, transaction, cancellationToken);
+    }
+
+    private async Task CommitRepliesAsync(Update update, long chatId, IReadOnlyList<string> replies, DateTime now,
+        IDbContextTransaction transaction, CancellationToken cancellationToken)
+    {
         for (var index = 0; index < replies.Count; index++)
         {
             _dbContext.TelegramOutboxMessages.Add(new TelegramOutboxMessage
@@ -236,7 +257,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         {
             await AcknowledgeAsync(update, cancellationToken);
         }
-        else if (route is TelegramUpdateRouteResult.Dispatch && update.Message is { } message)
+        else if (update.Message is { } message)
         {
             // Delete commands only after their result and reply are durable. Preserve free-text input.
             try

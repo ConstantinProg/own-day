@@ -8,6 +8,7 @@ using OwnDay.Application.Inbox;
 using OwnDay.Application.Learning.Requests;
 using OwnDay.Application.StructuredItems;
 using OwnDay.Domain.Dialogue;
+using OwnDay.Infrastructure;
 using OwnDay.Infrastructure.Persistence;
 using OwnDay.Infrastructure.Telegram.Cleanup;
 using OwnDay.Infrastructure.Telegram.Commands;
@@ -62,7 +63,7 @@ public sealed class TelegramUpdateHandlerTests
     }
 
     [Fact]
-    public async Task HandleAsync_SubsequentCommand_DoesNotRepeatIntroduction()
+    public async Task HandleAsync_HelpAfterStart_ListsVersionWithoutRepeatingIntroduction()
     {
         await using var fixture = await HandlerFixture.CreateAsync();
         await fixture.Handler.HandleAsync(CreateTextMessageUpdate("/start"));
@@ -72,6 +73,7 @@ public sealed class TelegramUpdateHandlerTests
         var replies = await fixture.DbContext.TelegramOutboxMessages.ToListAsync();
         Assert.Equal(3, replies.Count);
         Assert.Single(replies, reply => reply.Text == TelegramDialoguePresenter.Introduction);
+        Assert.Single(replies, reply => reply.Text.Contains("/version", StringComparison.Ordinal));
         Assert.Single(fixture.DbContext.Set<DialogueContext>());
     }
 
@@ -356,7 +358,8 @@ public sealed class TelegramUpdateHandlerTests
                 new TelegramKnowledgeCommandHandler(knowledge, learning),
                 new TelegramStudyCommandHandler(new OwnDay.Application.Learning.StudyService(
                     new EfStudyScheduleStore(dbContext), new EfLessonStore(dbContext), new EfCurriculumStore(dbContext),
-                    new EfKnowledgeStore(dbContext), learning, curriculum, timeProvider)));
+                    new EfKnowledgeStore(dbContext), learning, curriculum, timeProvider)),
+                ApplicationVersion.FromAssembly(typeof(Program).Assembly));
 
             databaseCommands.Clear();
             return new HandlerFixture(connection, dbContext, handler, cleaner, databaseCommands);

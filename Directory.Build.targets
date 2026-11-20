@@ -1,0 +1,10 @@
+<Project>
+  <Target Name="AddOwnDayAssemblyMetadata"
+          BeforeTargets="GetAssemblyAttributes"
+          DependsOnTargets="InitializeSourceControlInformation">
+    <ItemGroup>
+      <AssemblyMetadata Include="Version" Value="$(Version)" />
+      <AssemblyMetadata Include="SourceRevisionId" Value="$(SourceRevisionId)" Condition="'$(SourceRevisionId)' != ''" />
+    </ItemGroup>
+  </Target>
+</Project>

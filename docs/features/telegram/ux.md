@@ -12,6 +12,9 @@ The host has retired Inbox analysis, automatic application and the operator
 command. Existing Inbox jobs and analyses remain stored. Previously committed
 outbox messages still drain through the shared deliverer.
 
+`/version` reports the running bot version, for example `OwnDay 0.7.0`. Find it
+in `/help`. The command leaves the learning dialogue untouched.
+
 Learning processing, durable ingress, dialogue and first-goal consultation are
 enabled by default. The production Compose application explicitly enables these
 settings, overriding historical disabled values in its runtime env file. Startup

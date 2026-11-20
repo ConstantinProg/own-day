@@ -6,6 +6,8 @@ using OwnDay.Infrastructure.Learning;
 using OwnDay.Application.Inbox;
 using OwnDay.Domain;
 using OwnDay.Domain.Inbox;
+using OwnDay.Domain.Dialogue;
+using OwnDay.Infrastructure;
 using OwnDay.Infrastructure.Telegram.Commands;
 using OwnDay.Application.Learning.Requests;
 using OwnDay.Infrastructure.Persistence;
@@ -15,6 +17,26 @@ namespace OwnDay.IntegrationTests.Telegram;
 
 public sealed class TelegramDialogueOnlyTests
 {
+    [Fact]
+    public async Task Post_VersionRedelivered_QueuesOnlyOneVersionReply()
+    {
+        using var factory = new OwnDayHostFactory();
+        using var client = factory.CreateClient();
+
+        await PostAsync(client, 1, "/version@OwnDayBot");
+        await PostAsync(client, 1, "/version@OwnDayBot");
+
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
+        var version = factory.Services.GetRequiredService<ApplicationVersion>();
+        var reply = Assert.Single(await db.TelegramOutboxMessages.ToListAsync());
+        Assert.Equal($"OwnDay {version.Version}", reply.Text);
+        Assert.Equal(101, reply.ChatId);
+        Assert.NotNull(Assert.Single(await db.ProcessedTelegramUpdates.ToListAsync()).ProcessedAt);
+        Assert.Empty(await db.Set<LearningRequest>().ToListAsync());
+        Assert.Empty(await db.Set<DialogueContext>().ToListAsync());
+    }
+
     [Theory]
     [InlineData("nav:inbox")]
     [InlineData("ir:1")]
