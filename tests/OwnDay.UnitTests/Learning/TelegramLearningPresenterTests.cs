@@ -13,7 +13,7 @@ public sealed class TelegramLearningPresenterTests
         var session = new LearningResult.Session(new string('t', 500), new string('q', 1000), LessonStatus.AwaitingAnswer)
         {
             Content = OwnDay.Application.Learning.EnglishLearningContent.FirstLesson,
-            Theory = new string('a', 2500), LastExplanation = new string('h', 2500)
+            Theory = new string('а', 2500), LastExplanation = new string('h', 2500)
         };
         var messages = TelegramLearningPresenter.Render(session);
         Assert.Contains(messages, message => message.Contains("Ранее", StringComparison.Ordinal) && message.Contains(session.LastExplanation, StringComparison.Ordinal));
@@ -23,7 +23,6 @@ public sealed class TelegramLearningPresenterTests
     }
 
     [Theory]
-    [InlineData(MaterialSourceStatus.None, "No authoritative source")]
     [InlineData(MaterialSourceStatus.Unavailable, "Source unavailable")]
     [InlineData(MaterialSourceStatus.Retrieved, "no matching excerpt")]
     [InlineData(MaterialSourceStatus.QuoteMatched, "Only the excerpt")]
@@ -39,8 +38,26 @@ public sealed class TelegramLearningPresenterTests
             Provenance = source, HasReferenceCheck = true
         });
         Assert.Contains(messages, m => m.Contains(expected, StringComparison.Ordinal));
-        Assert.Contains(messages, m => m.Contains("reference was proposed by AI", StringComparison.Ordinal));
+        Assert.DoesNotContain(messages, m => m.Contains(source.Generator, StringComparison.Ordinal));
+        Assert.DoesNotContain(messages, m => m.Contains("reference was proposed by AI", StringComparison.Ordinal));
         Assert.All(messages, m => Assert.InRange(m.Length, 1, 4096));
+    }
+
+    [Fact]
+    public void Render_StableRussianMaterial_KeepsTaskVisibleWithoutAuditDetails()
+    {
+        const string question = "Назовите ограничение цены.\nПриведите пример заявки.";
+        var messages = TelegramLearningPresenter.Render(new LearningResult.Material("Торги сводят заявки.", question, "Биржа")
+        {
+            HasReferenceCheck = true,
+            Provenance = new("OpenAI:test-model", null, null, null, null, MaterialSourceStatus.None)
+        });
+
+        Assert.Equal(2, messages.Count);
+        Assert.Contains(question, messages[^1]);
+        Assert.Contains("подсказку", messages[^1]);
+        Assert.DoesNotContain(messages, text => text.Contains("OpenAI", StringComparison.Ordinal) ||
+            text.Contains("не проверен", StringComparison.OrdinalIgnoreCase) || text.Contains("/answer", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -49,10 +66,10 @@ public sealed class TelegramLearningPresenterTests
         var reply = Assert.Single(TelegramLearningPresenter.Render(
             new LearningResult.Session("Algebra", "Two plus two?", LessonStatus.AwaitingAnswer)));
 
-        Assert.Contains("Topic: Algebra", reply);
-        Assert.Contains("Current question: Two plus two?", reply);
-        Assert.Contains("Expected action: Answer the current question.", reply);
-        Assert.Contains("/answer <answer>", reply);
+        Assert.Contains("Algebra", reply);
+        Assert.Contains("Two plus two?", reply);
+        Assert.Contains("Write your answer", reply);
+        Assert.DoesNotContain("/answer", reply);
         Assert.DoesNotContain("Lesson paused", reply);
     }
 
@@ -62,10 +79,9 @@ public sealed class TelegramLearningPresenterTests
         var reply = Assert.Single(TelegramLearningPresenter.Render(
             new LearningResult.Session("Algebra", "Two plus two?", LessonStatus.Paused)));
 
-        Assert.Contains("Topic: Algebra", reply);
-        Assert.Contains("Current question: Two plus two?", reply);
-        Assert.Contains("Expected action: Resume the lesson before answering.", reply);
-        Assert.Contains("Lesson paused. /learn_resume or /learn_finish", reply);
+        Assert.Contains("Algebra", reply);
+        Assert.Contains("Two plus two?", reply);
+        Assert.Contains("Write “continue”", reply);
         Assert.DoesNotContain("/answer", reply);
     }
 
@@ -83,7 +99,7 @@ public sealed class TelegramLearningPresenterTests
         Assert.Equal(2, explanation.Count);
         Assert.All(material.Concat(explanation).Concat(session).Concat(paused), text => Assert.InRange(text.Length, 1, 4096));
         Assert.Contains(topic, material[0]);
-        Assert.Contains("/answer", material[1]);
+        Assert.Contains("Write your answer", material[1]);
         Assert.Contains(question, explanation[1]);
     }
 }

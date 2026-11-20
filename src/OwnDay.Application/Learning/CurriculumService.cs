@@ -10,7 +10,7 @@ public interface ICurriculumStore
 {
     Task<LearningContext?> FindContextAsync(UserId user, CancellationToken token);
     Task<Lesson?> FindPracticeLessonAsync(UserId user, Guid lessonId, CancellationToken token);
-    Task<Lesson?> FindLastProgramLessonAsync(UserId user, Guid programId, CancellationToken token);
+    Task<Lesson?> FindLastProgramLessonAsync(UserId user, Guid programId, CancellationToken token, string? excludingTopic = null);
     Task<Lesson?> FindSuspendedLessonAsync(UserId user, Guid programId, CancellationToken token);
     // Flush within the caller's transaction, never commit or invoke providers.
     Task FlushAsync(CancellationToken token);
@@ -23,14 +23,18 @@ public interface ICurriculumStore
 }
 
 public sealed record CurriculumProposal(string Discipline, CurriculumTopic[] Topics, string? DiagnosticQuestion,
-    string? DiagnosticInterpretation = null, DiagnosticStartingLevel? StartingLevel = null);
+    string? DiagnosticInterpretation = null, DiagnosticStartingLevel? StartingLevel = null,
+    DiagnosticAnswerKind? DiagnosticAnswerKind = null, ConsultationWording? Wording = null);
+public sealed record ConsultationWording(string? Goal, string? PracticalUse, bool ClarifyPracticalUse);
 public sealed record CurriculumRequest(string Goal, string Experience, string? Question, string? Answer, string? Discipline = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] DiagnosticQuestionContext[]? PriorObservations = null)
 {
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool SelfReportedUncertainty { get; init; }
 }
-public sealed record DiagnosticQuestionContext(string Question, string Interpretation);
+public sealed record DiagnosticQuestionContext(string Question, string Interpretation,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool SelfReportedUncertainty = false,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] DiagnosticAnswerKind? Kind = null);
 
 public interface ICurriculumPlanner
 {
@@ -39,7 +43,11 @@ public interface ICurriculumPlanner
 
 public abstract record CurriculumResult
 {
-    public sealed record Program(LearningProgram Value, string? ResumeNotice = null) : CurriculumResult;
+    public sealed record Program(LearningProgram Value, string? ResumeNotice = null) : CurriculumResult
+    {
+        public ConsultationWording? Wording { get; init; }
+    }
+    public sealed record ClarifyPracticalUse : CurriculumResult;
     public sealed record Lesson(LearningResult Value) : CurriculumResult
     {
         public string? Introduction { get; init; }
@@ -80,7 +88,8 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
     public const int MaxPageNumber = int.MaxValue / PageSize;
 
     public async Task<CurriculumResult> CreateAsync(UserId user, string goal, string experience, long? projectId, CancellationToken token,
-        bool englishDiagnostic = false, bool suspendCurrent = false, string? goalCriterion = null, bool subjectDiagnostic = false)
+        bool englishDiagnostic = false, bool suspendCurrent = false, string? goalCriterion = null, bool subjectDiagnostic = false,
+        string? consultationUse = null)
     {
         ValidateUser(user, token);
         goal = goal.Trim();
@@ -106,6 +115,9 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
             var proposal = authored ? new CurriculumProposal("English", EnglishLearningContent.Topics(), EnglishLearningContent.ReadingQuestion)
                 : await planner.PlanAsync(new(goal, experience, null, null), token);
             token.ThrowIfCancellationRequested();
+            if (consultationUse is not null && proposal.Wording is { ClarifyPracticalUse: true } &&
+                LearningGoalText.Display(consultationUse) == consultationUse)
+                return new CurriculumResult.ClarifyPracticalUse();
             var program = LearningProgram.Create(user, goal, experience, projectId,
                 proposal.Discipline, proposal.Topics, proposal.DiagnosticQuestion, goalCriterion);
             if (authored) program.OfferEnglishDiagnostic();
@@ -113,7 +125,13 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
             if (suspendCurrent) await SuspendAsync(current, currentContext, active, token);
             store.Add(program);
             await store.SelectAsync(program, token);
-            return new CurriculumResult.Program(program);
+            return new CurriculumResult.Program(program)
+            {
+                Wording = consultationUse is not null
+                    ? new(LearningGoalText.AcceptCorrection(goal, proposal.Wording?.Goal, LearningProgram.MaxGoalLength),
+                        LearningGoalText.AcceptCorrection(consultationUse, proposal.Wording?.PracticalUse, 400), false)
+                    : null
+            };
         }
         catch (Exception exception) when (exception is LessonProviderException or ArgumentException)
         {
@@ -190,7 +208,10 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
         return program is null ? new CurriculumResult.NoProgram() : new CurriculumResult.Program(program);
     }
 
-    public async Task<CurriculumResult> DiagnoseAsync(UserId user, string answer, CancellationToken token)
+    public Task<CurriculumResult> DiagnoseAsync(UserId user, string answer, CancellationToken token) =>
+        DiagnoseAsync(user, answer, continueToLesson: false, token);
+
+    private async Task<CurriculumResult> DiagnoseAsync(UserId user, string answer, bool continueToLesson, CancellationToken token)
     {
         ValidateUser(user, token);
         answer = answer.Trim();
@@ -198,6 +219,9 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
         var program = await store.FindAsync(user, token);
         if (program is null) return new CurriculumResult.NoProgram();
         if (program.EnglishDiagnostic is not null) return await DiagnoseEnglishAsync(program, answer, token);
+        if (continueToLesson && program.SubjectDiagnostic is null && program.DiagnosticPending && program.CurrentRoute.Version == 1 &&
+            await lessons.FindActiveAsync(user, token) is null)
+            program.OfferSubjectDiagnostic();
         if (program.SubjectDiagnostic is not null) return await DiagnoseSubjectAsync(program, answer, token);
         if (!program.DiagnosticPending) return new CurriculumResult.InvalidTransition();
         if (answer.Equals("skip", StringComparison.OrdinalIgnoreCase) || IsDiagnosticUncertainty(answer))
@@ -240,23 +264,35 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
 
         try
         {
-            var uncertainty = IsDiagnosticUncertainty(answer);
+            var russian = MarketLearningContent.InRussian(program.Goal);
+            if (WantsFoundations(answer)) return StartFromFoundations(program, answer, russian);
+            var selfReport = IsDiagnosticUncertainty(answer);
             var proposal = await planner.PlanAsync(new(program.Goal, program.Experience, program.DiagnosticQuestion,
-                answer, program.Discipline, diagnostic.Observations.Select(item => new DiagnosticQuestionContext(item.Question, item.Interpretation)).ToArray())
-                { SelfReportedUncertainty = uncertainty }, token);
+                answer, program.Discipline, diagnostic.Observations.Select(item =>
+                    new DiagnosticQuestionContext(item.Question, item.Interpretation, item.SelfReportedUncertainty, item.Kind)).ToArray())
+                { SelfReportedUncertainty = selfReport }, token);
             token.ThrowIfCancellationRequested();
             if (proposal.DiagnosticInterpretation is null || proposal.StartingLevel is null)
                 return new CurriculumResult.ProviderUnavailable();
-            var substantiveAnswers = diagnostic.Observations.Count(item => !item.SelfReportedUncertainty) + (uncertainty ? 0 : 1);
-            var level = substantiveAnswers < 2 && (uncertainty || diagnostic.Observations.Any(item => item.SelfReportedUncertainty))
-                ? DiagnosticStartingLevel.Unknown : proposal.StartingLevel.Value;
-            program.RecordSubjectObservation(answer, uncertainty ? "Самооценка неопределённости. Предметных сведений в ответе нет."
+            var kind = selfReport ? DiagnosticAnswerKind.SelfReport : proposal.DiagnosticAnswerKind;
+            if (kind == DiagnosticAnswerKind.StartWithFoundations) return StartFromFoundations(program, answer, russian);
+            var uncertain = kind is DiagnosticAnswerKind.SelfReport or DiagnosticAnswerKind.Inconclusive;
+            var count = diagnostic.Observations.Length + 1;
+            var substantiveAnswers = diagnostic.Observations.Count(item => item.HasSubjectContent) + (uncertain ? 0 : 1);
+            var followUp = count >= SubjectDiagnostic.MaxQuestions ? null : proposal.DiagnosticQuestion;
+            var enoughToStop = count >= 3 || count == 2 && (substantiveAnswers == 0 ||
+                substantiveAnswers == 2 && proposal.StartingLevel != DiagnosticStartingLevel.Unknown);
+            if (followUp is null && !enoughToStop || uncertain && followUp is not null && RepeatsDiagnosticQuestion(program, followUp))
+                followUp = FallbackDiagnosticQuestion(program, russian);
+            var level = substantiveAnswers >= 2 && followUp is null ? proposal.StartingLevel.Value : DiagnosticStartingLevel.Unknown;
+            var noEvidence = russian ? "Ответ не даёт предметных сведений для оценки." : "The answer does not demonstrate subject knowledge.";
+            program.RecordSubjectObservation(answer, uncertain ? noEvidence
                 : proposal.DiagnosticInterpretation, proposal.Discipline,
-                uncertainty && substantiveAnswers == 0 ? program.CurrentRoute.Topics : proposal.Topics,
-                proposal.DiagnosticQuestion, level, uncertainty);
+                substantiveAnswers == 0 ? program.CurrentRoute.Topics : proposal.Topics,
+                followUp, level, kind == DiagnosticAnswerKind.SelfReport, kind);
             return program.DiagnosticPending
-                ? new CurriculumResult.SubjectDiagnosticQuestion(program, uncertainty
-                    ? "Вы сообщили, что пока не уверены. Попробуем более конкретный вопрос, чтобы подобрать сложность." : null)
+                ? new CurriculumResult.SubjectDiagnosticQuestion(program, uncertain
+                    ? russian ? "Хорошо. Попробуем конкретный пример." : "Okay. Let's try a concrete example." : null)
                 : new CurriculumResult.Program(program);
         }
         catch (Exception exception) when (exception is LessonProviderException or ArgumentException)
@@ -265,21 +301,64 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
         }
     }
 
+    private static CurriculumResult StartFromFoundations(LearningProgram program, string answer, bool russian)
+    {
+        program.RecordSubjectObservation(answer, russian ? "Пользователь попросил начать с основ." : "The learner asked to start with the basics.",
+            program.Discipline, program.CurrentRoute.Topics, null, DiagnosticStartingLevel.Unknown, kind: DiagnosticAnswerKind.StartWithFoundations);
+        return new CurriculumResult.Program(program);
+    }
+
     public Task<CurriculumResult> NextAsync(UserId user, CancellationToken token) => StartLessonAsync(user, LessonSelection.Next, null, token);
 
-    private static bool IsDiagnosticUncertainty(string answer) => answer.Trim().TrimEnd('.', '!', '…').ToLowerInvariant() is
-        "очень смутно" or "смутно" or "не уверен" or "не уверена" or "very vaguely" or "not sure";
+    public Task<Lesson?> PreviousTopicAsync(UserId user, Guid programId, string? currentTopic, CancellationToken token)
+    {
+        ValidateUser(user, token);
+        return store.FindLastProgramLessonAsync(user, programId, token, currentTopic);
+    }
+
+    private static string NormalizeDiagnostic(string answer) =>
+        answer.Trim().TrimEnd('.', '!', '?', '…').ToLowerInvariant().Replace('ё', 'е');
+
+    private static bool IsDiagnosticUncertainty(string answer) => NormalizeDiagnostic(answer) is
+        "очень смутно" or "смутно" or "не уверен" or "не уверена" or "что-то слышал" or "что-то слышала" or
+        "кажется, понимаю" or "никогда не сталкивался" or "никогда не сталкивалась" or "знаю, но объяснить не могу" or
+        "не знаю" or "very vaguely" or "not sure" or "i'm not sure" or "i've heard of it" or "i've never encountered it";
+
+    internal static bool WantsFoundations(string answer) => NormalizeDiagnostic(answer) is
+        "начнем с основ" or "давай начнем с основ" or "давайте начнем с основ" or "хочу начать с основ" or
+        "давай с нуля" or "с нуля" or "start with the basics" or "let's start with the basics" or "from scratch";
+
+    private static bool RepeatsDiagnosticQuestion(LearningProgram program, string question) =>
+        NormalizeDiagnostic(program.DiagnosticQuestion!) == NormalizeDiagnostic(question) ||
+        program.SubjectDiagnostic!.Observations.Any(item => NormalizeDiagnostic(item.Question) == NormalizeDiagnostic(question));
+
+    private static string FallbackDiagnosticQuestion(LearningProgram program, bool russian)
+    {
+        var topic = program.CurrentRoute.Topics.First().Title;
+        string[] questions = russian
+            ? [$"Можете привести один простой пример по теме «{topic}»?", $"Как бы вы описали тему «{topic}» своими словами?",
+                $"В какой ситуации пригодится знание темы «{topic}»?", $"Какое понятие по теме «{topic}» вам уже знакомо?"]
+            : [$"Can you give one simple example of “{topic}”?", $"How would you describe “{topic}” in your own words?",
+                $"When would “{topic}” be useful?", $"Which idea from “{topic}” is already familiar to you?"];
+        return questions.First(question => !RepeatsDiagnosticQuestion(program, question));
+    }
 
     public async Task<CurriculumResult> CompleteDiagnosticAndStartAsync(UserId user, string answer, CancellationToken token)
     {
-        var result = await DiagnoseAsync(user, answer, token);
+        var result = await DiagnoseAsync(user, answer, continueToLesson: true, token);
         if (result is not CurriculumResult.Program program) return result;
         var next = await NextAsync(user, token);
-        if (next is CurriculumResult.Lesson exercise && IsDiagnosticUncertainty(answer))
-            return exercise with { Introduction = "Вы сообщили, что пока не уверены. Начнём с предварительной сложности и уточним её по ответам на упражнения." };
-        return next is CurriculumResult.Lesson lesson && program.Value.SubjectDiagnostic is { Deferred: true }
-            ? lesson with { Introduction = "Диагностика отложена. Начнём с предварительной сложности. Вернуться после упражнения можно командой /learn_diagnose start." }
-            : next;
+        if (next is not CurriculumResult.Lesson exercise) return next;
+        var russian = MarketLearningContent.InRussian(program.Value.Goal);
+        if (program.Value.SubjectDiagnostic is { Deferred: true })
+            return exercise with { Introduction = russian
+                ? "Перейдём к упражнению. После него можно написать «вернуться к диагностике»."
+                : "Let's try an exercise. Afterward, write “start diagnostic” to return to the diagnostic." };
+        if (program.Value.SubjectDiagnostic?.Observations.LastOrDefault()?.Kind == DiagnosticAnswerKind.StartWithFoundations)
+            return exercise with { Introduction = russian ? "Начнём с основ и попробуем применить их на примере."
+                : "Let's start with the basics and try them in an example." };
+        return exercise with { Introduction = russian ? "Перейдём к первому упражнению. По ходу подберём подходящую сложность."
+            : "Let's try the first exercise. We'll adjust the difficulty as we go." };
     }
 
     internal async Task<CurriculumResult> NextAsync(UserId user, Guid programId, CancellationToken token)

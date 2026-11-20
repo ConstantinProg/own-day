@@ -120,7 +120,7 @@ public sealed class LearningServiceTests
         var lesson = Lesson.Start(new UserId(1), "Topic", "Theory", "Question");
         var service = new LearningService(new Store { Active = lesson }, new Teacher(), new KnowledgeService(new KnowledgeStore(), TimeProvider.System));
         var result = await service.StartAsync(new UserId(1), "Different topic", CancellationToken.None);
-        Assert.Equal(new LearningResult.Session(lesson.Topic, lesson.Question, LessonStatus.AwaitingAnswer), result);
+        Assert.Equal(new LearningResult.Session(lesson.Topic, lesson.Question, LessonStatus.AwaitingAnswer) { Theory = lesson.Theory }, result);
     }
 
     [Fact]

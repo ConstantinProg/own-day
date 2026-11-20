@@ -65,7 +65,7 @@ public sealed partial class PostgresLearningProviderTests
     [Fact]
     public async Task Post_DiagnosticRestartHelpAndSkip_KeepsEachItemAndAssistedLessonEvidence()
     {
-        var probe = new Probe("");
+        var probe = new Probe("") { Intent = OwnDay.Application.Dialogue.LearningIntent.Clarify };
         using (var host = EnglishHost(probe))
         using (var client = host.CreateClient())
         {

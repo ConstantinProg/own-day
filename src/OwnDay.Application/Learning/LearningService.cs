@@ -123,8 +123,13 @@ public abstract record LearningResult
         public LessonProvenance? Provenance { get; init; }
         public long? ProjectActionId { get; init; }
         public InterdisciplinaryPractice? Transfer { get; init; }
+        public bool IsClarifyingAnswer { get; init; }
     }
-    public sealed record Explanation(string Text, string Topic, string Question, LessonProvenance? Provenance = null) : LearningResult;
+    public sealed record Explanation(string Text, string Topic, string Question, LessonProvenance? Provenance = null) : LearningResult
+    {
+        public bool? InRussian { get; init; }
+        public LearningContent? TaskContent { get; init; }
+    }
     public sealed record AssessmentClarification(string Criterion, bool PartiallyCorrect = false) : LearningResult;
     public sealed record AssessmentCorrection(string Guidance, string Question, bool AnotherHintAvailable) : LearningResult;
     public sealed record HelpLimit : LearningResult;
@@ -238,7 +243,7 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
             Status = active.AssessmentStatus, DeterministicIsCorrect = active.DeterministicIsCorrect, ProjectActionId = active.ProjectActionId,
             Assistance = active.Assistance,
             IsCorrect = evidence.AssessedCorrect,
-            InRussian = MarketLearningContent.InRussian(active.Theory + active.Question),
+            InRussian = MarketLearningContent.InRussian(active.Theory),
             Continuation = state switch
             {
                 { Mastery: SkillMastery.Demonstrated } when active.ProgramId is not null => LearningContinuation.NextTopic,
@@ -398,7 +403,7 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
         if (kind == LessonInteractionKind.FullAnswer)
         {
             if (lesson.Interactions.FirstOrDefault(interaction => interaction.Kind == LessonInteractionKind.FullAnswer) is { } solution)
-                return new LearningResult.Explanation(solution.Explanation, lesson.Topic, lesson.ResponseQuestion, solution.Provenance);
+                return Explanation(lesson, solution.Explanation, solution.Provenance);
         }
         else if (!lesson.CanOfferMoreHelp) return new LearningResult.HelpLimit();
         try
@@ -422,13 +427,20 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
                     { ExplanationPreferences = preferenceSnapshot, FactCheckDiscipline = factDiscipline }, request, kind, token);
             token.ThrowIfCancellationRequested();
             lesson.AddExplanation(kind, request, result.Explanation, preferenceSnapshot, result.Provenance);
-            return new LearningResult.Explanation(result.Explanation, lesson.Topic, lesson.ResponseQuestion, result.Provenance);
+            return Explanation(lesson, result.Explanation, result.Provenance);
         }
         catch (Exception exception) when (exception is LessonProviderException or ArgumentException)
         {
             return new LearningResult.ProviderUnavailable();
         }
     }
+
+    private static LearningResult.Explanation Explanation(Lesson lesson, string explanation, LessonProvenance? provenance) =>
+        new(explanation, lesson.Topic, lesson.ResponseQuestion, provenance)
+        {
+            InRussian = MarketLearningContent.InRussian(lesson.Theory),
+            TaskContent = lesson.ResponseQuestion == lesson.Question ? lesson.Content : null
+        };
 
     internal static LearningResult.Material Material(Lesson lesson) => new(lesson.Theory, lesson.Question, lesson.Topic)
     {
@@ -439,7 +451,8 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
     public static LearningResult.Session Session(Lesson lesson) => new(lesson.Topic, lesson.ResponseQuestion, lesson.Status)
     {
         Provenance = lesson.Provenance, ProjectActionId = lesson.ProjectActionId, Transfer = lesson.Transfer,
-        Content = lesson.Content, Theory = lesson.Content is null ? null : lesson.Theory,
+        Content = lesson.Content, Theory = lesson.Theory,
+        IsClarifyingAnswer = lesson.ResponseQuestion != lesson.Question,
         LastExplanation = lesson.Content is null ? null : lesson.SavedGuidance
     };
 

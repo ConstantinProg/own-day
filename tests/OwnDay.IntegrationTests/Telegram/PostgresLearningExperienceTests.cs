@@ -4,6 +4,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using OwnDay.Application.Dialogue;
+using OwnDay.Application.Learning;
 using OwnDay.Application.Learning.Requests;
 using OwnDay.Domain.Dialogue;
 using OwnDay.Domain.Learning;
@@ -15,12 +17,99 @@ namespace OwnDay.IntegrationTests.Telegram;
 
 public sealed partial class PostgresLearningProviderTests
 {
+    [Fact]
+    public async Task Post_RussianExerciseAcrossSessionEndAndRestart_PreservesLanguageRequirementsAndAudit()
+    {
+        const string first = "Назовите ограничение лимитной заявки.";
+        const string second = "Приведите короткий пример.";
+        const string answer = "A buy limit order sets a maximum price, for example 100.";
+        var rubric = new ExerciseRubric(ExerciseRubric.QuestionScopedVersion, ExerciseEvidenceKind.Understanding,
+            [new("limit", first), new("example", second)]);
+        var probe = new Probe("")
+        {
+            Curriculum = new("Биржа", [new("orders", "Биржевые заявки", [])], "Кто принимает поручение инвестора?"),
+            Material = new("Заявки покупателей и продавцов встречаются на бирже.", rubric.QuestionText())
+            {
+                Provenance = new("OpenAI:recorded-test-model", null, null, null, null, MaterialSourceStatus.None),
+                Content = new(LearningContent.GeneratedExerciseId, "rubric-v2", LearningContentKind.StructuredExercise,
+                    "Объяснить лимитную заявку", first, "Требования задания", rubric)
+            },
+            Recognize = input => input.Input switch
+            {
+                "Объясни проще" or "Дай подсказку" => LearningIntent.Clarify,
+                "Какие требования к ответу?" => LearningIntent.ShowCriteria,
+                "Закончим на сегодня" => LearningIntent.EndSession,
+                "Почему мой ответ неправильный?" => LearningIntent.ExplainAssessment,
+                "Вернёмся к предыдущей теме" => LearningIntent.PreviousTopic,
+                _ => LearningIntent.Answer
+            },
+            Explanation = new("Вспомните, что при покупке можно ограничить цену сверху."),
+            Assessment = (_, _) => new("Вы обозначили цену и привели пример.", true)
+            {
+                Source = "OpenAI:recorded-assessment-model",
+                Rubric = new([new("limit", RubricCriterionResult.Met, "Указана максимальная цена."),
+                    new("example", RubricCriterionResult.Met, "Есть числовой пример.")])
+            }
+        };
+        Guid lessonId;
+        using (var host = ConsultationHost(probe))
+        using (var client = host.CreateClient())
+        {
+            string[] turns = ["Хочу изучить биржу", "инвистиции", "Начинаю с нуля", "пропустить",
+                "Какие требования к ответу?", "Объясни проще", "Дай подсказку", "Закончим на сегодня"];
+            for (var index = 0; index < turns.Length; index++)
+                await SendEnglishAsync(client, index + 1, turns[index]);
+            await using var db = Open();
+            var exercise = await db.Set<Lesson>().Include(item => item.Interactions).SingleAsync();
+            lessonId = exercise.Id;
+            Assert.Equal(2, exercise.Interactions.Count);
+            Assert.Null(exercise.Answer);
+            Assert.Equal(LearningSessionEnd.Explicit, (await db.Set<LearningSession>().SingleAsync()).EndReason);
+            Assert.True((await db.Set<LearningProgram>().SingleAsync()).SubjectDiagnostic!.Deferred);
+        }
+
+        using (var host = ConsultationHost(probe))
+        using (var client = host.CreateClient())
+        {
+            await SendEnglishAsync(client, 9, "Продолжим");
+            await SendEnglishAsync(client, 10, answer);
+            await SendEnglishAsync(client, 11, "Почему мой ответ неправильный?");
+            await SendEnglishAsync(client, 12, "Вернёмся к предыдущей теме");
+        }
+
+        await using var result = Open();
+        var lesson = await result.Set<Lesson>().SingleAsync();
+        Assert.Equal(lessonId, lesson.Id);
+        Assert.Equal(answer, lesson.Answer);
+        Assert.Equal(answer, Assert.Single(probe.AssessedAnswers));
+        Assert.Equal("OpenAI:recorded-test-model", lesson.Provenance!.Generator);
+        var evidence = await result.Set<LearningEvidence>().SingleAsync();
+        Assert.Equal("OpenAI:recorded-assessment-model", evidence.AssessmentSource);
+        Assert.Equal(new[] { first, second }, evidence.Content!.StructuredRubric!.Criteria.Select(item => item.Requirement));
+        Assert.Equal(2, await result.Set<LearningSession>().CountAsync());
+        var replies = await result.TelegramOutboxMessages.Select(message => message.Text).ToListAsync();
+        Assert.Contains(replies, message => message.Contains(rubric.QuestionText(), StringComparison.Ordinal));
+        Assert.Contains(replies, message => message.Contains("На что обратить внимание", StringComparison.Ordinal) &&
+            message.Contains(rubric.QuestionText(), StringComparison.Ordinal));
+        Assert.Contains(replies, message => message.Contains("Напишите ответ", StringComparison.Ordinal));
+        Assert.Contains(replies, message => message.Contains("Указана максимальная цена", StringComparison.Ordinal));
+        Assert.Contains(replies, message => message.Contains("Предыдущая тема", StringComparison.Ordinal));
+        Assert.DoesNotContain(replies, message => message.Contains("recorded-", StringComparison.Ordinal) ||
+            message.Contains("NormalizedText", StringComparison.Ordinal) || message.Contains("/learn_ask", StringComparison.Ordinal) ||
+            message.Contains("Write your answer", StringComparison.Ordinal) || message.Contains("не удалось подтвердить", StringComparison.Ordinal));
+        Assert.Equal(1, probe.KindCalls["generate"]);
+        Assert.Equal(1, probe.KindCalls["assess"]);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task Post_WholeEnglishJourneyAndHostedRestart_RestoresSameQuestionAndHelpWithoutCommands(bool complete)
     {
-        var probe = new Probe("");
+        var probe = new Probe("")
+        {
+            Recognize = input => input.Input == "Почему здесь используется could?" ? LearningIntent.Clarify : LearningIntent.Answer
+        };
         var sender = new ExperienceSender();
         Guid lessonId;
         string question;
@@ -99,7 +188,7 @@ public sealed partial class PostgresLearningProviderTests
     [Fact]
     public async Task Stop_HostDuringExplanation_RecoversAcceptedRequestsAndKeepsQuestionUnassessed()
     {
-        var probe = new Probe("explain");
+        var probe = new Probe("explain") { Intent = LearningIntent.Clarify };
         Guid lessonId;
         using (var host = ExperienceHost(probe, new ExperienceSender()))
         using (var client = host.CreateClient())
@@ -118,7 +207,7 @@ public sealed partial class PostgresLearningProviderTests
         }
         await using (var db = Open())
             await db.Database.ExecuteSqlRawAsync("UPDATE learning_requests SET lease_until = clock_timestamp() - interval '1 second' WHERE status = 2");
-        var recovery = new Probe("");
+        var recovery = new Probe("") { Intent = LearningIntent.Clarify };
         using (var restarted = ExperienceHost(recovery, new ExperienceSender()))
         using (var client = restarted.CreateClient())
         {

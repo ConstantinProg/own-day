@@ -1,3 +1,4 @@
+using OwnDay.Application.Dialogue;
 using OwnDay.Application.Learning;
 using OwnDay.Domain.Learning;
 
@@ -5,37 +6,34 @@ namespace OwnDay.Infrastructure.Telegram.Commands;
 
 public static class TelegramLearningPresenter
 {
-    private const string Actions = "/answer <answer>\n/learn_ask <question> · /learn_explain\n/learn_resume · /learn_pause · /learn_finish";
-
-    public static IReadOnlyList<string> Render(LearningResult result) => result switch
+    public static IReadOnlyList<string> Render(LearningResult result, bool inRussian = false) => result switch
     {
         LearningResult.Material material => RenderMaterial(material),
         LearningResult.Assessment assessment => [RenderAnswer(assessment),
-            .. assessment.IndependentPracticeSkillId is Guid skillId
-                ? new[] { $"Для самостоятельной проверки откройте другое задание по этому навыку. /learn_practice {skillId}" }
-                : Array.Empty<string>(),
-            .. assessment.ProjectActionId is long actionId ? new[] { ProjectPracticeNotice(actionId) } : Array.Empty<string>()],
-        LearningResult.InvalidTopic => ["Use /learn <topic> (up to 500 characters)."],
-        LearningResult.InvalidAnswer => ["Use /answer <answer> (up to 3000 characters)."],
-        LearningResult.NoActiveLesson => ["Start a lesson with /learn <topic>."],
-        LearningResult.ProviderUnavailable => ["The teacher is temporarily unavailable or returned invalid material. Retry the command."],
-        LearningResult.Session session => [.. session.Content?.Kind is LearningContentKind.ReadingChoice or LearningContentKind.OpenWriting
-                ? RenderEnglishSession(session) : new[] { RenderSession(session) },
-            .. session.Transfer is not null ? new[] { TransferNotice(session.Transfer) } : Array.Empty<string>(),
-            .. session.ProjectActionId is long id ? new[] { ProjectPracticeNotice(id) } : Array.Empty<string>(),
-            .. session.Provenance is not null ? new[] { RenderProvenance(session.Provenance,
-                MarketLearningContent.InRussian(session.Question)) } : Array.Empty<string>()],
+            .. assessment.IndependentPracticeSkillId is not null && assessment.Continuation is not LearningContinuation.Practice
+                ? new[] { assessment.InRussian ? "Для самостоятельной проверки напишите «ещё задание»."
+                    : "Write “another exercise” to try it on your own." } : Array.Empty<string>(),
+            .. assessment.ProjectActionId is long actionId ? new[] { ProjectPracticeNotice(actionId, assessment.InRussian) } : Array.Empty<string>()],
+        LearningResult.InvalidTopic => [inRussian ? "Укажите тему занятия длиной до 500 символов." : "Enter a lesson topic of up to 500 characters."],
+        LearningResult.InvalidAnswer => [inRussian ? "Напишите ответ длиной до 3000 символов." : "Write an answer of up to 3000 characters."],
+        LearningResult.NoActiveLesson => [inRussian ? "Сейчас нет открытого упражнения. Напишите «Продолжим»." : "There is no open exercise. Write “continue” to get started."],
+        LearningResult.ProviderUnavailable => [inRussian ? "Подготовить ответ пока не удалось. Повторите запрос чуть позже."
+            : "I couldn't prepare a response. Try again in a moment."],
+        LearningResult.Session session => RenderSession(session),
         LearningResult.Explanation explanation => RenderExplanation(explanation),
-        LearningResult.AssessmentClarification clarification => [(clarification.PartiallyCorrect ? "Часть ответа верна. " : "") +
-            "Уточните оставшуюся часть задания.\n" + clarification.Criterion + "\nОтвет сохранён."],
+        LearningResult.AssessmentClarification clarification => [inRussian
+            ? (clarification.PartiallyCorrect ? "Часть ответа верна. " : "") + "Уточните оставшуюся часть задания.\n" + clarification.Criterion
+            : (clarification.PartiallyCorrect ? "Part of your answer is correct. " : "") + "Clarify the remaining part.\n" + clarification.Criterion],
         LearningResult.AssessmentCorrection correction => [correction.Guidance + "\n\n" + correction.Question +
-            "\nПопробуйте ещё раз, поставьте упражнение на паузу или завершите его." +
-            (correction.AnotherHintAvailable ? " Можно попросить подсказку." : " Лимит подсказок исчерпан."),
-            "Полное решение доступно по запросу «покажи решение»."],
-        LearningResult.HelpLimit => ["Лимит подсказок исчерпан. Ответьте самостоятельно, поставьте упражнение на паузу или завершите его. Можно попросить полное решение."],
-        LearningResult.InvalidClarification => ["Use /learn_ask <question> (up to 1000 characters)."],
-        LearningResult.InvalidTransition => ["This action is unavailable in the current lesson state. Use /learn_resume or /learn_finish."],
-        LearningResult.Finished => ["Lesson finished without an assessment. /learn <topic>"],
+            (inRussian ? "\nПопробуйте ещё раз." : "\nGive it another try.") + (correction.AnotherHintAvailable
+                ? inRussian ? " Можно попросить подсказку." : " You can ask for a hint."
+                : inRussian ? " Можно попросить показать решение." : " You can ask to see the solution.")],
+        LearningResult.HelpLimit => [inRussian ? "Лимит подсказок исчерпан. Можно ответить самостоятельно, сделать паузу или попросить показать решение."
+            : "You've used the available hints. You can answer on your own, take a break, or ask to see the solution."],
+        LearningResult.InvalidClarification => [inRussian ? "Напишите вопрос длиной до 1000 символов." : "Write a question of up to 1000 characters."],
+        LearningResult.InvalidTransition => [inRussian ? "Это действие сейчас недоступно. Напишите «Продолжим», чтобы вернуться к занятию."
+            : "That action is unavailable right now. Write “continue” to return to the lesson."],
+        LearningResult.Finished => [inRussian ? "Упражнение завершено без оценки." : "Lesson finished without an assessment."],
         LearningResult.SkillNotFound => ["Skill not found. /learn_skills"],
         LearningResult.ReviewNotDue => ["This skill has no review due yet. /learn_reviews or /learn_status <skill id>"],
         LearningResult.ReviewDeferred deferred => [$"Review rescheduled to {deferred.DueAt:O} (UTC). No assessment or penalty. /learn_reviews"],
@@ -66,48 +64,41 @@ public static class TelegramLearningPresenter
                 : "\nWrite “another exercise” for a new question on this skill.",
             _ => ""
         };
-        var review = assessment.Criteria is not null
-            ? russian ? "\nРазбор доступен по запросу «почему такая оценка»." : "" : "";
+        var review = assessment.Criteria is not null || !assessment.IsCorrect
+            ? russian ? "\nМожно спросить «почему такая оценка»." : "\nYou can ask “why this result?”." : "";
         return verdict + "\n" + assessment.Feedback + assistance + next + review;
     }
 
     private static IReadOnlyList<string> RenderMaterial(LearningResult.Material material)
     {
+        var russian = MarketLearningContent.InRussian(material.Theory);
+        var theory = material.Topic + "\n\n" + material.Theory;
         if (material.Content is { Kind: LearningContentKind.ReadingChoice or LearningContentKind.OpenWriting } content)
-            return [material.Topic + "\n\n" + material.Theory + "\n\nЦель: " + content.Objective,
-                material.Question + "\n\nНапишите ответ, вопрос по упражнению или «пауза». Можно вернуться словом «Продолжим».\n" +
-                "Авторский материал OwnDay: " + content.Version + ". Это учебное упражнение, не подтверждение уровня."];
-        var russian = MarketLearningContent.InRussian(material.Theory + material.Question);
-        var messages = new List<string> { material.Topic + "\n\n" + material.Theory,
-            material.Question + Criteria(material.Content, russian) + "\n\n" +
-            (russian ? "Напишите ответ. Можно попросить подсказку или написать «пауза»." : Actions) };
-        if (material.ProjectActionId is long id) messages.Add(ProjectPracticeNotice(id));
-        if (material.Transfer is not null) messages.Add(TransferNotice(material.Transfer));
-        if (material.Provenance is not null) messages.Add(RenderProvenance(material.Provenance, russian));
-        if (material.HasReferenceCheck) messages.Add(russian
-            ? "Для проверки используется пример ответа от ИИ."
-            : "The reference was proposed by AI and may be inaccurate.");
-        return messages;
+            theory += russian ? "\n\nЦель — " + content.Objective : "\n\nObjective — " + content.Objective;
+        return [theory, .. SourceNotice(material.Provenance, russian),
+            .. ContextNotices(material.ProjectActionId, material.Transfer, russian),
+            RenderTask(material.Question, material.Content) + "\n\n" + AnswerAction(russian)];
     }
 
     private static IReadOnlyList<string> RenderExplanation(LearningResult.Explanation explanation)
     {
-        var russian = MarketLearningContent.InRussian(explanation.Text + explanation.Question);
-        var source = explanation.Provenance is { } provenance ? RenderProvenance(provenance, russian)
-            : russian ? "Объяснение ИИ без независимой проверки источника." : "AI explanation; no independent source verification.";
-        return [explanation.Text + "\n" + source,
-            russian ? "Вернёмся к заданию.\n" + explanation.Question + "\n\nНапишите ответ или задайте вопрос."
-                : "Return to: " + explanation.Topic + "\n" + explanation.Question + "\n\n" + Actions];
+        var russian = MarketLearningContent.InRussian(explanation.Text);
+        return [explanation.Text, .. SourceNotice(explanation.Provenance, russian),
+            RenderTask(explanation.Question, explanation.TaskContent) + "\n\n" + AnswerAction(explanation.InRussian ?? russian)];
     }
 
-    private static string ProjectPracticeNotice(long id) =>
-        $"Educational practice related to task #{id}. Your answer does not complete the real task or project. No Commitments are created. /learn_project_report";
+    private static IEnumerable<string> ContextNotices(long? projectActionId, InterdisciplinaryPractice? transfer, bool russian)
+    {
+        if (projectActionId is long id) yield return ProjectPracticeNotice(id, russian);
+        if (transfer is not null)
+            yield return russian
+                ? $"Потренируем общий навык в новой области — {transfer.TargetDiscipline}."
+                : $"Apply the shared skill in a new area — {transfer.TargetDiscipline}.";
+    }
 
-    private static string TransferNotice(InterdisciplinaryPractice transfer) =>
-        $"Interdisciplinary practice: {transfer.SourceDiscipline} -> {transfer.TargetDiscipline}.\n" +
-        $"Shared skill: {transfer.SkillId}\nSource program: {transfer.SourceProgramId}, route {transfer.SourceRouteVersion}, topic {transfer.SourceTopicCode}\n" +
-        $"Relation source: {transfer.Source}. Basis: {transfer.Reason}\n" +
-        "Only this shared skill is assessed. The other program's progress is unchanged; the link does not prove mastery. /learn_links";
+    private static string ProjectPracticeNotice(long id, bool russian) => russian
+        ? $"Учебная практика по задаче №{id}. Выполнение задания в проекте отмечается отдельно."
+        : $"Educational practice related to task #{id}. Complete the actual project task separately.";
 
     public static string RenderAssessment(AnswerAssessmentStatus status, bool? deterministic) => status switch
     {
@@ -117,55 +108,62 @@ public static class TelegramLearningPresenter
         _ => "AI only; no deterministic check. Uncertain."
     };
 
-    private static string RenderProvenance(LessonProvenance source, bool russian) => russian ? source.Status switch
+    private static string[] SourceNotice(LessonProvenance? source, bool russian)
     {
-        MaterialSourceStatus.VerifiedClaim => $"{source.VerifiedStatement}\nИсточник — {source.Reference}\nВерсия — {source.Version}. Проверено {source.AccessedAt:O}.",
-        MaterialSourceStatus.Unverified => "Актуальное утверждение осталось непроверенным. Можно продолжить с общим принципом.",
-        MaterialSourceStatus.None when source.Generator == "OwnDay education" => "Учебное сравнение.",
-        MaterialSourceStatus.None => "Материал подготовлен ИИ. Подтверждающий источник не получен.",
-        MaterialSourceStatus.Unavailable => $"Источник недоступен — {source.Reference}. Материал не проверен.",
-        MaterialSourceStatus.QuoteMatched => $"Источник — {source.Reference}\nВерсия — {source.Version}\n{source.Quote}\nПроверка охватывает только этот фрагмент.",
-        _ => $"Источник — {source.Reference}\nПодтверждающий фрагмент не найден."
-    } : $"Material generated by {source.Generator}.\n" + (source.Status switch
-    {
-        MaterialSourceStatus.VerifiedClaim => $"{source.VerifiedStatement}\nSource: {source.Reference}\nVersion: {source.Version}\nVerified at: {source.AccessedAt:O}",
-        MaterialSourceStatus.Unverified => "Актуальное утверждение осталось непроверенным. Можно продолжить с общим принципом. / The current claim remains unverified.",
-        MaterialSourceStatus.None when source.Generator == "OwnDay education" => "Учебное сравнение / Educational comparison.",
-        MaterialSourceStatus.None => "No authoritative source was retrieved. Material is unverified.",
-        MaterialSourceStatus.Unavailable => $"Source unavailable: {source.Reference}\nVersion: {source.Version}. Material is unverified.",
-        _ => $"Source: {source.Reference}\nVersion: {source.Version}\nAccessed: {source.AccessedAt:O}\n" +
-            (source.Status == MaterialSourceStatus.QuoteMatched
-                ? $"Excerpt matched in source and theory: {source.Quote}\nOnly the excerpt was matched; the lesson is not independently verified."
-                : "Source retrieved; no matching excerpt. Material is unverified.")
-    });
-
-    private static string RenderSession(LearningResult.Session session)
-    {
-        if (MarketLearningContent.InRussian(session.Topic + session.Question))
-            return $"Упражнение по теме «{session.Topic}»\n{session.Question}{Criteria(session.Content, true)}" +
-                (session.LastExplanation is { } saved ? $"\n\nПодсказка\n{saved[..Math.Min(saved.Length, 500)]}" : "") +
-                (session.Status == LessonStatus.Paused
-                    ? "\n\nУпражнение на паузе. Напишите «Продолжим»."
-                    : "\n\nНапишите ответ или попросите подсказку.");
-        var (expected, actions) = session.Status switch
+        var notice = source?.Status switch
         {
-            LessonStatus.AwaitingAnswer => ("Expected action: Answer the current question.", Actions),
-            LessonStatus.Paused => ("Expected action: Resume the lesson before answering.",
-                "Lesson paused. /learn_resume or /learn_finish"),
-            _ => throw new ArgumentOutOfRangeException(nameof(session))
+            MaterialSourceStatus.VerifiedClaim => russian
+                ? $"{source.VerifiedStatement}\nИсточник — {source.Reference}. Проверено {source.AccessedAt:yyyy-MM-dd}."
+                : $"{source.VerifiedStatement}\nSource — {source.Reference}. Checked {source.AccessedAt:yyyy-MM-dd}.",
+            MaterialSourceStatus.Unverified => russian
+                ? "Актуальные детали не удалось подтвердить. Здесь можно опираться на общий принцип."
+                : "The current details could not be verified. The explanation covers the general principle.",
+            MaterialSourceStatus.Unavailable => russian
+                ? $"Источник недоступен — {source.Reference}. Сведения по нему не удалось проверить."
+                : $"Source unavailable — {source.Reference}. Its details could not be verified.",
+            MaterialSourceStatus.QuoteMatched => russian
+                ? $"Фрагмент сверён с источником — {source.Reference}. Проверка охватывает только этот фрагмент.\n{source.Quote}"
+                : $"Excerpt matched in source — {source.Reference}. Only the excerpt was checked.\n{source.Quote}",
+            MaterialSourceStatus.Retrieved => russian
+                ? $"В источнике {source.Reference} не найдено подтверждение нужного фрагмента."
+                : $"The source {source.Reference} contained no matching excerpt.",
+            _ => null
         };
-        return $"Topic: {session.Topic}\n{expected}\nCurrent question: {session.Question}{Criteria(session.Content, false)}" +
-            (session.LastExplanation is { } guidance ? $"\n\nSaved guidance\n{guidance[..Math.Min(guidance.Length, 500)]}" : "") + $"\n\n{actions}";
+        return notice is null ? [] : [notice];
     }
 
-    private static string Criteria(LearningContent? content, bool russian) =>
-        content is { Id: not LearningContent.GeneratedExerciseId, StructuredRubric.Version: 1 } legacy
-        ? (russian ? "\n\nКритерии\n" : "\n\nCriteria\n") +
-            string.Join('\n', legacy.StructuredRubric.Criteria.Select(criterion => "• " + criterion.Requirement))
-        : "";
+    private static IReadOnlyList<string> RenderSession(LearningResult.Session session)
+    {
+        var russian = MarketLearningContent.InRussian(session.Theory ?? session.Topic + session.Question);
+        if (session.Content?.Kind is LearningContentKind.ReadingChoice or LearningContentKind.OpenWriting)
+            return TelegramDialoguePresenter.Render(new(DialogueReplyKind.Recap,
+                [session.Topic, session.Theory ?? "", session.Question, session.LastExplanation ?? "", session.Status.ToString()], !russian));
+        var guidance = session.LastExplanation is { } saved
+            ? (russian ? "\n\nПоследняя подсказка\n" : "\n\nLast hint\n") + saved[..Math.Min(saved.Length, 500)] : "";
+        var action = session.Status == LessonStatus.Paused
+            ? russian ? "Упражнение на паузе. Напишите «Продолжим»." : "Lesson paused. Write “continue” when you're ready."
+            : AnswerAction(russian);
+        var content = session.IsClarifyingAnswer ? null : session.Content;
+        return [$"{session.Topic}\n{RenderTask(session.Question, content)}{guidance}\n\n{action}"];
+    }
 
-    private static IReadOnlyList<string> RenderEnglishSession(LearningResult.Session session) => session.Status == LessonStatus.Paused
-        ? ["Остановимся здесь. Письмо, вопрос и помощь сохранены. Напишите «Продолжим», когда будете готовы."]
-        : TelegramDialoguePresenter.Render(new(OwnDay.Application.Dialogue.DialogueReplyKind.Recap,
-            [session.Topic, session.Theory ?? "", session.Question, session.LastExplanation ?? "", session.Status.ToString()]));
+    internal static string RenderTask(string question, LearningContent? content) =>
+        content is { Id: not LearningContent.GeneratedExerciseId, StructuredRubric.Version: 1 } legacy
+        ? string.Join('\n', new[] { question }.Concat(legacy.StructuredRubric.Criteria
+            .Select(criterion => criterion.Requirement).Where(requirement => !question.Contains(requirement, StringComparison.Ordinal))))
+        : question;
+
+    internal static IReadOnlyList<string> RenderPreviousTopic(Lesson? previous, Lesson? active, bool english)
+    {
+        if (previous is null) return [english ? "There is no earlier completed topic in this program yet."
+            : "В этой программе пока нет предыдущей завершённой темы."];
+        var summary = (english ? "Earlier topic — " : "Предыдущая тема — ") + previous.Topic + "\n\n" + previous.Theory;
+        var next = active is null
+            ? english ? "Write “continue” when you want to move on." : "Напишите «Продолжим», когда будете готовы двигаться дальше."
+            : english ? "Write “continue” to return to the open exercise." : "Напишите «Продолжим», чтобы вернуться к открытому упражнению.";
+        return [summary, .. SourceNotice(previous.Provenance, !english), next];
+    }
+
+    private static string AnswerAction(bool russian) => russian ? "Напишите ответ или попросите подсказку."
+        : "Write your answer or ask for a hint.";
 }

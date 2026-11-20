@@ -209,6 +209,9 @@ public sealed partial class PostgresLearningProviderTests
         var probe = new Probe("")
         {
             Material = QuestionScopedMaterial(ExerciseEvidenceKind.Recognition, new ExerciseCriterion("role", question)),
+            Recognize = input => input.Input == help
+                ? help == "покажи решение" ? LearningIntent.RevealSolution : LearningIntent.Clarify
+                : LearningIntent.Answer,
             Assessment = (lesson, reply) => Grade(lesson, reply is "брокре" or "Поручение передаёт брокерская компания." or "A broker" or "брокер")
         };
         using var host = ConsultationHost(probe);
@@ -351,6 +354,12 @@ public sealed partial class PostgresLearningProviderTests
         const string success = "Проверка исключает варианты с другими значениями kind.";
         var probe = new Probe("")
         {
+            Recognize = input => input.Input switch
+            {
+                "дай подсказку" => LearningIntent.Clarify,
+                "покажи решение" => LearningIntent.RevealSolution,
+                _ => LearningIntent.Answer
+            },
             Material = new("У общей метки может быть несколько значений.", question)
             {
                 Content = new("unions", "rubric-v1", LearningContentKind.StructuredExercise,
@@ -427,7 +436,7 @@ public sealed partial class PostgresLearningProviderTests
         Assert.Equal(LessonInteractionKind.FullAnswer, Assert.Single(probe.ExplanationKinds));
         Assert.Equal(3, probe.AssessedAnswers.Count);
         Assert.Contains(await result.TelegramOutboxMessages.Select(reply => reply.Text).ToListAsync(),
-            text => text.Contains("/learn_practice", StringComparison.Ordinal));
+            text => text.Contains("ещё задание", StringComparison.Ordinal));
         var rollback = await Assert.ThrowsAsync<PostgresException>(() =>
             result.GetService<IMigrator>().MigrateAsync("20261118160000_AddLearningSessions"));
         Assert.Contains("Retain correction and solution history", rollback.MessageText, StringComparison.Ordinal);

@@ -436,7 +436,7 @@ public sealed partial class PostgresLearningProviderTests
     public async Task Post_NaturalClarification_PreservesQuestionWithoutAssessmentOrInboxCapture()
     {
         await SeedAsync("learn_ask");
-        var probe = new Probe("");
+        var probe = new Probe("") { Intent = LearningIntent.Clarify };
         using var host = Host(probe, worker: true, publicIngress: true).WithWebHostBuilder(builder =>
             builder.UseSetting("Learning:Processing:DialogueEnabled", "true"));
         using var client = host.CreateClient();

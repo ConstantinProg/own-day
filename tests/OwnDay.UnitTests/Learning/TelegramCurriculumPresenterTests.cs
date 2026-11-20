@@ -104,7 +104,7 @@ public sealed class TelegramCurriculumPresenterTests
         var messages = TelegramCurriculumPresenter.Render(result);
         Assert.Contains("Teaching adjustment", messages[0]);
         Assert.Contains("/learn_route", messages[0]);
-        Assert.Contains("/answer", string.Join('\n', messages));
+        Assert.Contains("Write your answer", string.Join('\n', messages));
         Assert.All(messages, m => Assert.InRange(m.Length, 1, 4096));
     }
 

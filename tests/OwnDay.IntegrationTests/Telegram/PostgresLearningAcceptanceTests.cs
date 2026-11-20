@@ -138,8 +138,8 @@ public sealed class PostgresLearningAcceptanceTests
                     var replies = await context.TelegramOutboxMessages.ToListAsync();
                     var text = string.Join('\n', replies.Select(m => m.Text));
                     Assert.Contains("Teaching adjustment", text);
-                    Assert.Contains("Return to: Basics", text);
-                    Assert.Contains("Expected action: Answer the current question", text);
+                    Assert.Contains("An alternative example, then return to the question.", text);
+                    Assert.Contains("Write your answer", text);
                     Assert.Contains("Source unavailable", text);
                     Assert.Contains("Conflicting", text);
                     Assert.Contains("Basis (excerpt): Criterion: match the reference", text);

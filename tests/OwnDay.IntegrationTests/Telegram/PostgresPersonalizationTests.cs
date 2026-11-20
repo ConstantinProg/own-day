@@ -94,7 +94,8 @@ public sealed class PostgresPersonalizationTests
                 Assert.Equal(restart == 0 ? 1 : restart == 1 ? 2 : 3, await db.Set<LearningEvidence>().CountAsync());
                 var replies = await db.TelegramOutboxMessages.ToListAsync();
                 Assert.All(replies, r => Assert.Equal(OutboxMessageStatus.Pending, r.Status));
-                Assert.Contains(replies, r => r.Text.Contains("Basis: Algebra applies to mechanics", StringComparison.Ordinal));
+                Assert.Contains(replies, r => r.Text.Contains("Apply the shared skill in a new area", StringComparison.Ordinal));
+                Assert.DoesNotContain(replies, r => r.Text.Contains("Source program:", StringComparison.Ordinal));
             }
             Assert.Equal(2, teacher.Requests.Count);
             Assert.Equal("brief", teacher.Requests[1].Personalization!.ExplicitPreferences.Depth);

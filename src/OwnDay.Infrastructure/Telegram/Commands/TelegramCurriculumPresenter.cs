@@ -5,7 +5,7 @@ namespace OwnDay.Infrastructure.Telegram.Commands;
 
 public static class TelegramCurriculumPresenter
 {
-    public static IReadOnlyList<string> Render(CurriculumResult result) => result switch
+    public static IReadOnlyList<string> Render(CurriculumResult result, bool inRussian = false) => result switch
     {
         CurriculumResult.Program program => program.ResumeNotice is null ? RenderProgram(program.Value) :
             [.. RenderProgram(program.Value), program.ResumeNotice],
@@ -20,7 +20,7 @@ public static class TelegramCurriculumPresenter
         CurriculumResult.Diagnostic diagnostic => RenderDiagnostic(diagnostic),
         CurriculumResult.SubjectDiagnosticQuestion diagnostic =>
             [(diagnostic.Notice is null ? "" : diagnostic.Notice + "\n\n") + diagnostic.Value.DiagnosticQuestion! +
-                (MarketLearningContent.InRussian(diagnostic.Value.DiagnosticQuestion!)
+                (MarketLearningContent.InRussian(diagnostic.Value.Goal)
                     ? "\nОтветьте или напишите «пропустить»." : "\nAnswer the question or write “skip”.")],
         CurriculumResult.Progress progress => TelegramProgressPresenter.Render(progress.Value),
         CurriculumResult.NoProgress empty => [empty.Page == 1
@@ -49,20 +49,21 @@ public static class TelegramCurriculumPresenter
         CurriculumResult.ProjectNotFound => ["Project not found for this user. /projects"],
         CurriculumResult.InvalidTransition => ["Diagnosis has already ended. /learn_route · /learn_next"],
         CurriculumResult.RouteCompleted => ["В текущем маршруте больше нет доступных тем. Прогресс и пропуски можно посмотреть командами /learn_progress и /learn_route tree."],
-        CurriculumResult.ProviderUnavailable => ["The planner is temporarily unavailable or returned an invalid route. Retry the command."],
+        CurriculumResult.ProviderUnavailable => [inRussian ? "Пока не удалось подготовить следующий шаг. Попробуйте ещё раз чуть позже."
+            : "I couldn't prepare the next step. Try again in a moment."],
         _ => throw new ArgumentOutOfRangeException(nameof(result))
     };
 
     private static IReadOnlyList<string> RenderRoute(CurriculumResult.RouteView view, bool preview = false)
     {
         var route = view.Route;
-        var heading = preview ? $"Предлагаемый маршрут v{route.Version}" : $"Маршрут v{route.Version}\n{route.Reason}";
+        var heading = preview ? $"Предлагаемый маршрут v{route.Version}" : view.Full ? $"Маршрут v{route.Version}\n{route.Reason}" : "Маршрут";
         if (route.Path?.GoalChange?.Effective is { } goal)
             heading += $"\nЦель — {DisplayGoal(goal.Description)}" + (goal.Criterion is not null ? $"\nКритерий — {DisplayGoal(goal.Criterion)}" : "");
-        if (route.Path?.RestoredFrom is { } restoredFrom) heading += $"\nВосстановлен из v{restoredFrom}.";
+        if (view.Full && route.Path?.RestoredFrom is { } restoredFrom) heading += $"\nВосстановлен из v{restoredFrom}.";
         var topics = route.Topics.Select(topic =>
         {
-            var line = $"{topic.Title} ({topic.Code})";
+            var line = view.Full ? $"{topic.Title} ({topic.Code})" : topic.Title;
             if (route.IsSkipped(topic.Code)) line += " · пропущена";
             if (view.Full && topic.Prerequisites.Count > 0) line += $" · предпосылки: {string.Join(", ", topic.Prerequisites)}";
             if (view.Full && route.DepthFor(topic.Code) is CurriculumDepth.Brief) line += " · кратко";
@@ -72,7 +73,7 @@ public static class TelegramCurriculumPresenter
         return [heading, .. topics.Chunk(4).Select(chunk => string.Join('\n', chunk)), .. preview ? [] : new[]
             { view.OptionalCheck is { } code
                 ? $"Эта тема служит предпосылкой. Можно продолжить с /learn_next или выбрать короткую проверку после текущего упражнения: /learn_focus {code}."
-                : "Напишите «покажи дерево тем» или «история маршрута». /learn_route tree · /learn_route history" }];
+                : "Напишите «покажи дерево тем» или «история маршрута»." }];
     }
 
     private static IReadOnlyList<string> RenderDiagnostic(CurriculumResult.Diagnostic result)
@@ -144,7 +145,5 @@ public static class TelegramCurriculumPresenter
             .. program.ProjectId is not null ? new[] { "Project skills and task practice: /learn_project_report [page] · /learn_project_practice <topic code> | <task id>" } : Array.Empty<string>()];
     }
 
-    internal static string DisplayGoal(string text) => System.Text.RegularExpressions.Regex.Replace(text,
-        @"\b[Ии]нвистиции\b", match => char.IsUpper(match.Value[0]) ? "Инвестиции" : "инвестиции",
-        System.Text.RegularExpressions.RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100));
+    internal static string DisplayGoal(string text) => LearningGoalText.Display(text);
 }

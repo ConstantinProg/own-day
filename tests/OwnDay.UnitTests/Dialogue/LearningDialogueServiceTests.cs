@@ -43,6 +43,21 @@ public sealed class LearningDialogueServiceTests
     }
 
     [Fact]
+    public async Task Decide_AnswerBeginningWithAnImperative_UsesExerciseContext()
+    {
+        var lesson = Lesson.Start(Owner, "Императив", "Теория", "Переведите на русский: explain the difference to a client.");
+        var context = DialogueContext.Create(Owner, lesson, Now);
+        var resolver = new Resolver(LearningIntent.Answer);
+        const string answer = "Объясни разницу клиенту.";
+        var result = await new LearningDialogueService(new Store { Context = context }, resolver)
+            .DecideAsync(new(Guid.NewGuid(), Owner, null, answer, lesson.Id, context.PromptId, Now, Now), lesson, null, Stamp, default);
+
+        Assert.Equal(DialogueOperationKind.Answer, result.Execute);
+        Assert.Equal(answer, result.Arguments);
+        Assert.Equal(1, resolver.Calls);
+    }
+
+    [Fact]
     public async Task Decide_ResolvedClarification_UsesOriginalInputWithoutCallingClassifierAgain()
     {
         var lesson = Lesson.Start(Owner, "English", "Theory", "Write a polite request.");

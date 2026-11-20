@@ -5,6 +5,7 @@ namespace OwnDay.Infrastructure.Telegram.Commands;
 public static class TelegramDialoguePresenter
 {
     public const string Introduction = "Пишите обычным текстом: расскажите, чему хотите научиться, ответьте на задание или задайте вопрос.";
+    public const string EnglishIntroduction = "Tell me what you'd like to learn, answer an exercise, or ask a question in your own words.";
 
     public static IReadOnlyList<string> Help(bool introduce, bool consultation = false, OwnDay.Domain.Dialogue.DialogueContext? context = null,
         Guid? selectedProgramId = null)
@@ -15,7 +16,8 @@ public static class TelegramDialoguePresenter
             (selectedProgramId is null || selectedProgramId == context?.Consultation?.CreatedProgramId))
         {
             var prompt = context?.Consultation is { CreatedProgramId: not null } completed
-                ? Render(new(DialogueReplyKind.FirstProgramReady, [completed.OriginalGoal, completed.PracticalUse!]))
+                ? Render(new(DialogueReplyKind.FirstProgramReady, [completed.DisplayGoal ?? completed.OriginalGoal,
+                    completed.DisplayPracticalUse ?? completed.PracticalUse!], FirstGoalConsultation.InEnglish(completed.OriginalGoal)))
                 : Render(new(context?.Consultation is null ? DialogueReplyKind.AskGoal :
                     context.Consultation.PracticalUse is null ? DialogueReplyKind.AskPracticalUse :
                     context.Consultation.Experience is null ? DialogueReplyKind.AskExperience : DialogueReplyKind.ConsultationRetry));
@@ -36,25 +38,40 @@ public static class TelegramDialoguePresenter
             {
                 DialogueReplyKind.AskGoal => "What would you like to learn? Tell me the subject or skill.",
                 DialogueReplyKind.AskPracticalUse => "Where would you use this skill? We will measure progress toward your goal by whether you can solve a new task in that situation independently and explain your solution.",
+                DialogueReplyKind.ClarifyPracticalUse => "Could you give one example of where you'd use this skill?",
                 DialogueReplyKind.AskExperience => "What can you already do in this area? Name a familiar task, give your current level, or say that you are starting from scratch.",
                 DialogueReplyKind.AskRelevantExperience => $"What can you already do toward your goal “{values[0]}”? Give one example or say “no experience”.",
                 DialogueReplyKind.ConsultationPaused => "Your goal and answers are saved. Write “continue” when you're ready.",
                 DialogueReplyKind.ConsultationRetry => "Your goal and answers are saved. Write “retry” to try creating the program again.",
                 DialogueReplyKind.DiagnosticQuestion => values[0] + "\nAnswer the question or write “skip” to open the exercise.",
                 DialogueReplyKind.DiagnosticOffer => "Write “yes” to see the optional diagnostic question or “skip” to open the exercise.",
-                DialogueReplyKind.FirstProgramReady => $"Goal saved: {values[0]}\nApplication: {values[1]}\nFirst topics: {values[2]}\n" +
-                    (values[4].Length > 0 ? $"Success criterion: {values[4]}\n" : "") +
-                    (values[3] == "start" ? "Write “continue” to open the first exercise." :
+                DialogueReplyKind.FirstProgramReady => $"Goal saved — {values[0]}\nApplication — {TelegramCurriculumPresenter.DisplayGoal(values[1])}\n" +
+                    (values.Count > 2 ? $"First topics — {values[2]}\n" : "") +
+                    (values.Count > 4 && values[4].Length > 0 ? $"Success criterion — {TelegramCurriculumPresenter.DisplayGoal(values[4])}\n" : "") +
+                    (values.Count > 3 && values[3] == "start" ? "Write “continue” to open the first exercise." :
                         "You can start with a short diagnostic. Write “yes” to see the question or “skip” to open the first exercise."),
+                DialogueReplyKind.SessionEnded => "We'll stop here. Your progress is saved. Write “continue” when you're ready.",
+                DialogueReplyKind.ExerciseCriteria => "What to work on\n" + string.Join("\n\n", values),
+                DialogueReplyKind.NoActiveLesson => "There is no open exercise. Write “continue” to get started.",
+                DialogueReplyKind.AskNewGoal => "What would you like to learn instead? Write “change goal to” followed by your goal. I’ll ask you to confirm the change.",
+                DialogueReplyKind.Paused => "The exercise is on pause. Write “continue” to return to the same question.",
+                DialogueReplyKind.NeedBinding => "Write “continue” to open the current exercise, then send your message again.",
+                DialogueReplyKind.ChooseAnswerOrQuestion => "Is that your answer to the exercise or a question about it? Write “answer” or “question”.",
                 _ => null
             };
             if (english is not null) return [english];
         }
-        if (reply.Kind == DialogueReplyKind.Recap) return ["Текущее упражнение: " + values[0], values[1],
-            .. values.Count > 3 && !string.IsNullOrWhiteSpace(values[3]) ? new[] { "Ранее разбирали (помощь сохранена):\n" + values[3] } : Array.Empty<string>(),
-            values[2] + "\n\n" + (values.Count > 4 && values[4] == "Paused"
-                ? "Упражнение на паузе. Напишите «Продолжим», чтобы вернуться к этому вопросу."
-                : "Напишите ответ или вопрос по упражнению. «Пауза» сохраняет вопрос, «помощь» показывает текущую точку возврата.")];
+        if (reply.Kind == DialogueReplyKind.Recap)
+        {
+            var paused = values.Count > 4 && values[4] == "Paused";
+            var action = reply.InEnglish
+                ? paused ? "Write “continue” to return to this exercise." : "Write your answer or ask for help."
+                : paused ? "Напишите «Продолжим», чтобы вернуться к этому вопросу." : "Напишите ответ или попросите помощь.";
+            var guidance = values.Count > 3 && !string.IsNullOrWhiteSpace(values[3])
+                ? new[] { (reply.InEnglish ? "Earlier guidance\n" : "Ранее разбирали\n") + values[3] } : Array.Empty<string>();
+            return [(reply.InEnglish ? "Current exercise — " : "Текущее упражнение — ") + values[0], values[1],
+                .. guidance, TelegramLearningPresenter.RenderTask(values[2], reply.TaskContent) + "\n\n" + action];
+        }
         if (reply.Kind is DialogueReplyKind.ConfirmFinish or DialogueReplyKind.ConfirmProgramSelection or
             DialogueReplyKind.ConfirmProgramCreation or DialogueReplyKind.ConfirmGoalIntent or DialogueReplyKind.ConfirmProgramSwitch or
             DialogueReplyKind.ConfirmGoalSwitch or DialogueReplyKind.ConfirmRouteEdit or DialogueReplyKind.ConfirmGoalUpdate)
@@ -86,7 +103,7 @@ public static class TelegramDialoguePresenter
             DialogueReplyKind.ChoiceUnbound => "Выбор не относится к текущему уточнению. Прочитайте последний вопрос и выберите ответ после него.",
             DialogueReplyKind.ChoiceExpired => "Уточнение устарело или выбор поступил до вопроса. Проверьте текущий урок и повторите выбор после этого сообщения.",
             DialogueReplyKind.OriginalStale => "Исходная реплика больше не относится к текущему упражнению. Ничего не оценено.",
-            DialogueReplyKind.NoActiveLesson => "Сейчас нет активного упражнения. Для существующей программы: /learn_next. Новая программа: /learn_request <цель> | <опыт>.",
+            DialogueReplyKind.NoActiveLesson => "Сейчас нет открытого упражнения. Напишите «Продолжим».",
             DialogueReplyKind.Paused => "Упражнение на паузе. Напишите «Продолжим», чтобы вернуться к тому же вопросу.",
             DialogueReplyKind.NeedBinding => "Вопрос неактуален или занятие на паузе. Напишите «Продолжим» и повторите реплику. Ничего не оценено.",
             DialogueReplyKind.NeedActualInput => "Сейчас нет ожидающего выбора. Отправьте сам ответ или вопрос по упражнению; ничего не оценено.",
@@ -101,6 +118,7 @@ public static class TelegramDialoguePresenter
             DialogueReplyKind.ChoosePauseOrResume => "Уточните одно действие: «пауза» или «продолжить». Учебное состояние пока не изменено.",
             DialogueReplyKind.AskGoal => "Чему вы хотите научиться? Напишите «Хочу…» и свою цель.",
             DialogueReplyKind.AskPracticalUse => "Для чего эти знания нужны прежде всего? Опишите ситуацию, в которой хотите их применить. Будем считать цель достигнутой, когда вы сможете самостоятельно решить новую задачу в этой ситуации и объяснить решение.",
+            DialogueReplyKind.ClarifyPracticalUse => "Можете привести один пример ситуации, в которой пригодятся эти знания?",
             DialogueReplyKind.AskExperience => "Что вы уже умеете в этой области? Можно назвать знакомую задачу, указать свой уровень или сказать, что начинаете с нуля.",
             DialogueReplyKind.AskRelevantExperience => "Какой опыт у вас именно по цели «" + TelegramCurriculumPresenter.DisplayGoal(values[0]) +
                 "»? Назовите один знакомый пример или напишите «с нуля».",
@@ -116,7 +134,8 @@ public static class TelegramDialoguePresenter
                     : "Можно начать с короткой диагностики. Напишите «давай» или «пропустить»."),
             DialogueReplyKind.DiagnosticQuestion => values[0] + "\nОтветьте на вопрос или напишите «пропустить», чтобы перейти к упражнению.",
             DialogueReplyKind.DiagnosticOffer => "Можно начать с короткой диагностики. Напишите «давай», чтобы увидеть вопрос, или «пропустить», чтобы открыть упражнение.",
-            DialogueReplyKind.SessionEnded => "Сессия завершена. История и открытое упражнение сохранены. Напишите «Продолжим», когда будете готовы.",
+            DialogueReplyKind.SessionEnded => "Сессия завершена. Ваш прогресс сохранён. Напишите «Продолжим», когда будете готовы.",
+            DialogueReplyKind.ExerciseCriteria => "На что обратить внимание\n" + string.Join("\n\n", values),
             _ => "Учебный диалог временно недоступен. Попробуйте позже."
         }];
     }

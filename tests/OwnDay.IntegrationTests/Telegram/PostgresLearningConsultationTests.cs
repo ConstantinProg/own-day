@@ -151,8 +151,50 @@ public sealed partial class PostgresLearningProviderTests
         Assert.Contains(turns[1], program.GoalCriterion);
         Assert.Equal(probe.Material.Question, (await db.Set<Lesson>().SingleAsync()).Question);
         var replies = await db.TelegramOutboxMessages.Select(message => message.Text).ToListAsync();
-        Assert.Contains(replies, reply => reply.Contains("First topics: Triangle angles", StringComparison.Ordinal));
+        Assert.Contains(replies, reply => reply.Contains("First topics — Triangle angles", StringComparison.Ordinal));
         Assert.Contains(replies, reply => reply.Contains(probe.Material.Theory, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Post_ConsultationAmbiguityAndCorrection_KeepsOriginalGoalAndClarifiedUse()
+    {
+        const string original = "Хочу научиться моделировать портфлеь";
+        const string corrected = "Хочу научиться моделировать портфель";
+        const string special = "Сравнивать MOEX API и MA(20) в C#";
+        const string experience = "Начинаю с нуля";
+        var probe = new Probe("")
+        {
+            Plan = request => new("Финансы", [new("portfolio", "Портфель", [])], null,
+                Wording: request.Experience.Contains(special, StringComparison.Ordinal)
+                    ? new(corrected, "Сравнивать NYSE API и MA(21) в C#", false)
+                    : new(null, null, true))
+        };
+        using var host = ConsultationHost(probe);
+        using var client = host.CreateClient();
+        await SendEnglishAsync(client, 1, original);
+        await SendEnglishAsync(client, 2, "мод.");
+        await SendEnglishAsync(client, 3, experience);
+        await using (var db = Open())
+        {
+            Assert.Empty(await db.Set<LearningProgram>().ToListAsync());
+            var draft = (await db.Set<DialogueContext>().SingleAsync()).Consultation!;
+            Assert.Null(draft.PracticalUse);
+            Assert.Equal(experience, draft.Experience);
+        }
+
+        await SendEnglishAsync(client, 4, special);
+        await using var result = Open();
+        var program = await result.Set<LearningProgram>().SingleAsync();
+        var consultation = (await result.Set<DialogueContext>().SingleAsync()).Consultation!;
+        Assert.Equal(original, program.Goal);
+        Assert.Equal(special, consultation.PracticalUse);
+        Assert.Contains(special, program.GoalCriterion);
+        Assert.Equal(corrected, consultation.DisplayGoal);
+        Assert.Null(consultation.DisplayPracticalUse);
+        var replies = await result.TelegramOutboxMessages.Select(reply => reply.Text).ToArrayAsync();
+        Assert.Contains(replies, reply => reply.Contains("пример ситуации", StringComparison.Ordinal));
+        Assert.Contains(replies, reply => reply.Contains(corrected, StringComparison.Ordinal) && reply.Contains(special, StringComparison.Ordinal));
+        Assert.DoesNotContain(replies, reply => reply.Contains("NYSE", StringComparison.Ordinal));
     }
 
     [Fact]

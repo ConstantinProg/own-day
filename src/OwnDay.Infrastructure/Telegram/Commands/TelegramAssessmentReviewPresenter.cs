@@ -5,55 +5,61 @@ namespace OwnDay.Infrastructure.Telegram.Commands;
 
 public static class TelegramAssessmentReviewPresenter
 {
-    public static IReadOnlyList<string> Render(AssessmentReviewResult result) => result switch
+    public static IReadOnlyList<string> Render(AssessmentReviewResult result, bool english = false) => result switch
     {
-        AssessmentReviewResult.Detail detail => RenderDetail(detail),
-        AssessmentReviewResult.Unavailable => ["Проверка оценки временно недоступна. Действующее решение сохранено. Повторите запрос позже."],
-        AssessmentReviewResult.NotFound => ["Оценка не найдена. Напишите «почему такая оценка», чтобы открыть последний разбор."],
-        AssessmentReviewResult.Stale => ["Запрос пересмотра устарел, уже обработан или неполон. Откройте разбор и укажите урок, текущую версию и аргумент."],
+        AssessmentReviewResult.Detail detail => RenderDetail(detail, english),
+        AssessmentReviewResult.Unavailable => [english ? "The review is temporarily unavailable. Your existing result is saved."
+            : "Проверка оценки временно недоступна. Действующее решение сохранено. Повторите запрос позже."],
+        AssessmentReviewResult.NotFound => [english ? "There is no saved assessment to explain yet."
+            : "Пока нет сохранённой оценки, которую можно разобрать."],
+        AssessmentReviewResult.Stale => [english ? "Open the latest assessment and use its appeal details."
+            : "Запрос пересмотра устарел, уже обработан или неполон. Откройте разбор и укажите урок, текущую версию и аргумент."],
         _ => throw new ArgumentOutOfRangeException(nameof(result))
     };
 
-    private static IReadOnlyList<string> RenderDetail(AssessmentReviewResult.Detail detail)
+    private static IReadOnlyList<string> RenderDetail(AssessmentReviewResult.Detail detail, bool english)
     {
         var evidence = detail.Attempt.Evidence;
         var messages = new List<string>
         {
             $"{detail.Attempt.Lesson.Topic}\n{detail.Attempt.Lesson.Question}\n\n" +
-            $"Исходная оценка — {Credit(evidence.AssessedCorrect, evidence.AssessmentStatus)}.\n" +
-            $"Действующая оценка — {Credit(evidence.EffectiveCorrect, evidence.EffectiveAssessmentStatus)}. Версия {evidence.ReviewVersion}.",
-            "Ответ\n" + evidence.Answer,
-            "Основание исходной оценки\n" + evidence.AssessmentFeedback
+            (english ? "Original result — " : "Исходная оценка — ") + Credit(evidence.AssessedCorrect, evidence.AssessmentStatus, english) + ".\n" +
+            (english ? "Current result — " : "Действующая оценка — ") + Credit(evidence.EffectiveCorrect, evidence.EffectiveAssessmentStatus, english) + ".",
+            (english ? "Your answer\n" : "Ответ\n") + evidence.Answer,
+            (english ? "Why it received that result\n" : "Основание исходной оценки\n") + evidence.AssessmentFeedback
         };
         if (evidence.RubricEvidence?.Evaluation is { } evaluation &&
             evidence.Content?.StructuredRubric is { } rubric)
         {
             if (evaluation.InitialAnswer != evidence.Answer)
-                messages.Add("Исходная реплика\n" + evaluation.InitialAnswer);
-            messages.Add("Сохранённые критерии " + evidence.Content.Version + "\n" +
+                messages.Add((english ? "First reply\n" : "Исходная реплика\n") + evaluation.InitialAnswer);
+            messages.Add((english ? "Exercise criteria\n" : "Сохранённые критерии\n") +
                 string.Join("\n\n", rubric.Criteria.Select(criterion =>
                 {
                     var mark = evaluation.Assessment.Criteria.Single(item => item.Code == criterion.Code);
                     return $"{criterion.Requirement}\n{mark.Reason}";
                 })));
-            messages.Add($"Для пересмотра укажите аргумент.\n/learn_appeal {evidence.LessonId} | {evidence.ReviewVersion} | <аргумент>");
+            messages.Add(english
+                ? $"To appeal, describe why.\n/learn_appeal {evidence.LessonId} | {evidence.ReviewVersion} | <reason>"
+                : $"Для пересмотра укажите аргумент.\n/learn_appeal {evidence.LessonId} | {evidence.ReviewVersion} | <аргумент>");
         }
         if ((detail.Revision ?? evidence.ReviewHistory?.Revisions.LastOrDefault()) is { } revision)
         {
             var outcome = revision.Outcome switch
             {
-                AssessmentReviewOutcome.Changed => "Оценка пересмотрена.",
-                AssessmentReviewOutcome.Confirmed => "Проверка подтвердила действующую оценку.",
-                _ => $"Однозначного вывода нет. Можно пройти отдельное упражнение. /learn_practice {evidence.SkillId}"
+                AssessmentReviewOutcome.Changed => english ? "The assessment was updated." : "Оценка пересмотрена.",
+                AssessmentReviewOutcome.Confirmed => english ? "The review confirmed the result." : "Проверка подтвердила действующую оценку.",
+                _ => english ? "The review was inconclusive. You can ask for another exercise."
+                    : "Однозначного вывода нет. Можно попросить ещё одно упражнение."
             };
             messages.Insert(0, outcome + "\n\n" + revision.Primary.Rationale);
             if (revision.Verification is { } verification)
-                messages.Add("Повторная проверка\n" + verification.Rationale);
+                messages.Add((english ? "Second check\n" : "Повторная проверка\n") + verification.Rationale);
         }
         return messages;
     }
 
-    private static string Credit(bool correct, AnswerAssessmentStatus status) => status is
-        AnswerAssessmentStatus.Conflict or AnswerAssessmentStatus.Inconclusive ? "неопределённо"
-        : correct ? "зачтено" : "не зачтено";
+    private static string Credit(bool correct, AnswerAssessmentStatus status, bool english) => status is
+        AnswerAssessmentStatus.Conflict or AnswerAssessmentStatus.Inconclusive ? english ? "uncertain" : "неопределённо"
+        : correct ? english ? "credited" : "зачтено" : english ? "not credited" : "не зачтено";
 }

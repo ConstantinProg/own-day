@@ -9,11 +9,14 @@ namespace OwnDay.IntegrationTests.Telegram;
 public sealed partial class PostgresLearningProviderTests
 {
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Post_SubjectDiagnosticSelfReport_KeepsLevelUnknown(bool continueDiagnosis)
+    [InlineData("Очень смутно", false)]
+    [InlineData("Что-то слышал", true)]
+    [InlineData("Не уверен", false)]
+    [InlineData("Кажется, понимаю", false)]
+    [InlineData("Никогда не сталкивался", false)]
+    [InlineData("Знаю, но объяснить не могу", false)]
+    public async Task Post_SubjectDiagnosticSelfReport_KeepsLevelUnknownAndAsksFollowUp(string answer, bool proposedFollowUp)
     {
-        const string answer = "Очень смутно";
         CurriculumTopic[] topics = [new("orders", "Биржевые заявки", [])];
         var probe = new Probe("")
         {
@@ -23,7 +26,7 @@ public sealed partial class PostgresLearningProviderTests
                     return new("Биржа", topics, "Чем лимитная заявка отличается от рыночной?");
                 Assert.True(request.SelfReportedUncertainty);
                 return new("Биржа", [new("advanced", "Арбитраж", [])],
-                    continueDiagnosis ? "Кто передаёт поручение инвестора на биржу?" : null,
+                    proposedFollowUp ? "Кто передаёт поручение инвестора на биржу?" : null,
                     "Не знает материал.", DiagnosticStartingLevel.Foundation);
             }
         };
@@ -41,10 +44,40 @@ public sealed partial class PostgresLearningProviderTests
         Assert.True(observation.SelfReportedUncertainty);
         Assert.DoesNotContain("Не знает", observation.Interpretation);
         Assert.Equal(DiagnosticStartingLevel.Unknown, diagnostic.StartingLevel);
-        Assert.Equal(continueDiagnosis, program.DiagnosticPending);
+        Assert.True(program.DiagnosticPending);
+        Assert.NotEqual(observation.Question, program.DiagnosticQuestion);
         Assert.Equal("orders", Assert.Single(program.CurrentRoute.Topics).Code);
         Assert.Empty(await db.Set<LearningEvidence>().ToListAsync());
-        Assert.Equal(continueDiagnosis ? 0 : 1, await db.Set<Lesson>().CountAsync());
+        Assert.Empty(await db.Set<Lesson>().ToListAsync());
+    }
+
+    [Fact]
+    public async Task Post_SubjectDiagnosticExplicitRequestForBasics_StartsWithoutAssigningLevel()
+    {
+        var probe = new Probe("")
+        {
+            Plan = _ => new("Биржа", [new("orders", "Биржевые заявки", [])], "Как исполнится лимитная заявка?")
+        };
+        using var host = ConsultationHost(probe);
+        using var client = host.CreateClient();
+        string[] turns = ["Хочу изучить биржу", "инвистиции", "Начинаю с нуля", "давай", "Давайте начнём с основ"];
+        for (var index = 0; index < turns.Length; index++)
+            await SendEnglishAsync(client, index + 1, turns[index]);
+
+        await using var db = Open();
+        var program = await db.Set<LearningProgram>().Include(item => item.Routes).SingleAsync();
+        var diagnostic = program.SubjectDiagnostic!;
+        Assert.False(program.DiagnosticPending);
+        Assert.False(diagnostic.Deferred);
+        Assert.Equal(DiagnosticAnswerKind.StartWithFoundations, Assert.Single(diagnostic.Observations).Kind);
+        Assert.Equal(DiagnosticStartingLevel.Unknown, diagnostic.StartingLevel);
+        Assert.Equal(1, program.CurrentRoute.Version);
+        Assert.Equal(1, probe.KindCalls["plan"]);
+        Assert.Empty(await db.Set<LearningEvidence>().ToListAsync());
+        Assert.Single(await db.Set<Lesson>().ToListAsync());
+        Assert.Equal("инвистиции", (await db.Set<DialogueContext>().SingleAsync()).Consultation!.PracticalUse);
+        Assert.Contains(await db.TelegramOutboxMessages.Select(reply => reply.Text).ToListAsync(),
+            text => text.Contains("инвестиции", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]

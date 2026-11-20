@@ -7,7 +7,11 @@ using OwnDay.Domain.Learning;
 namespace OwnDay.Application.Dialogue;
 
 [JsonConverter(typeof(JsonStringEnumConverter<LearningIntent>))]
-public enum LearningIntent { Ambiguous, Answer, Clarify, Pause, Resume, Progress, Next, GoalChange, StudyGoal, RelevantExperience }
+public enum LearningIntent
+{
+    Ambiguous, Answer, Clarify, Pause, Resume, Progress, Next, GoalChange, StudyGoal, RelevantExperience,
+    EndSession, RevealSolution, PreviousTopic, ExplainAssessment, ShowCriteria
+}
 public sealed record LearningIntentInput(string Input, string Question, string? Goal, string? Discipline,
     string[] RecentInteractions, LearningIntent[] Allowed, Guid? ProgramId = null, int? RouteVersion = null,
     uint? ProgramVersion = null, long DialogueRevision = 0, Guid? PromptId = null);
@@ -61,12 +65,13 @@ public enum DialogueReplyKind
     ConfirmProgramSelection, ConfirmProgramCreation, ConfirmGoalIntent,
     AskGoal, AskPracticalUse, AskExperience, ConsultationRetry, ConsultationUnavailable, FirstProgramReady, ConsultationPaused, MustEndPractice,
     AskNewGoal, ConfirmProgramSwitch, ConfirmGoalSwitch, GoalChanged, DiagnosticOffer, DiagnosticQuestion, AskRelevantExperience,
-    SessionEnded, ConfirmRouteEdit, RouteEditHelp, ConfirmGoalUpdate, ChooseMatchingProgram
+    SessionEnded, ConfirmRouteEdit, RouteEditHelp, ConfirmGoalUpdate, ChooseMatchingProgram, ExerciseCriteria, ClarifyPracticalUse
 }
-public sealed record DialogueReply(DialogueReplyKind Kind, IReadOnlyList<string>? Values = null, bool InEnglish = false);
+public sealed record DialogueReply(DialogueReplyKind Kind, IReadOnlyList<string>? Values = null, bool InEnglish = false,
+    LearningContent? TaskContent = null);
 public sealed record DialogueDecision(DialogueContext Context, DialogueOperationKind? Execute, string Arguments,
     DialogueReply? Reply = null, DialogueAudit? Audit = null, FirstProgramCreation? Creation = null)
 {
     public bool SuggestReviewsOnReturn { get; init; }
 }
-public sealed record FirstProgramCreation(string Goal, string Experience, string? GoalCriterion);
+public sealed record FirstProgramCreation(string Goal, string Experience, string? GoalCriterion, string PracticalUse);

@@ -41,6 +41,8 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
 
         var normalized = Normalize(turn.Text);
         var command = turn.Command;
+        var naturalAction = command is null ? Deterministic(normalized) : null;
+        var english = FirstGoalConsultation.InEnglish(lesson?.Theory ?? program?.Goal);
         var anotherExercise = command is null && normalized is "ещё задание" or "еще задание" or
             "ещё упражнение" or "еще упражнение" or "another exercise";
         if (command is DialogueOperationKind.ExplainAssessment or DialogueOperationKind.AppealAssessment)
@@ -85,16 +87,10 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
         var returning = false;
         if (sessions is not null && turn.SourceOrder > 0)
         {
-            if (command == DialogueOperationKind.EndSession ||
-                command is null && normalized is "завершить сессию" or "закончить сессию" or "end session")
-            {
-                await sessions.EndAsync(turn, program?.Id, lesson, token);
-                context.Synchronize(lesson, turn.Now, turn.SourceOrder);
-                context.AdvanceResponseBoundary(turn.SourceOrder);
-                return Reply(context, DialogueReplyKind.SessionEnded);
-            }
+            if ((command ?? naturalAction) == DialogueOperationKind.EndSession)
+                return await EndSessionAsync(context, turn, lesson, program, english, token);
 
-            var sessionAction = command ?? Deterministic(normalized);
+            var sessionAction = command ?? naturalAction;
             if (program is not null && sessionAction is not (DialogueOperationKind.Progress or DialogueOperationKind.Finish or
                     DialogueOperationKind.Confirm or DialogueOperationKind.Cancel or DialogueOperationKind.None))
                 returning = await sessions.RecordActivityAsync(turn, program.Id, lesson, token);
@@ -137,7 +133,7 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
             return resolved with { Audit = new("confirmation_resolved", Confirmation: confirmedProposal,
                 OriginalRequestId: confirmedProposal.OriginalRequestId, ChosenAction: confirmedProposal.Operation) };
         }
-        if (context.PendingConfirmation is not null && command is null && Deterministic(normalized) is DialogueOperationKind.Pause or DialogueOperationKind.Resume)
+        if (context.PendingConfirmation is not null && naturalAction is DialogueOperationKind.Pause or DialogueOperationKind.Resume)
             context.Synchronize(lesson, turn.Now);
         if (context.PendingConfirmation is { } confirmation && command is null)
             return ConfirmationReply(context, confirmation);
@@ -227,10 +223,10 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
                 return PracticeAction(context, turn, DialogueOperationKind.NextPractice);
             if (program.PracticeStatus is LearningPracticeStatus.Running or LearningPracticeStatus.Paused)
             {
-                if (command == DialogueOperationKind.Pause || command is null && normalized is "пауза" or "pause" or "мне пора, продолжим позже")
+                if ((command ?? naturalAction) == DialogueOperationKind.Pause)
                     return PracticeAction(context, turn, DialogueOperationKind.PausePractice);
                 if (command is null && normalized is "хватит практики" or "закончим практику") return PracticeAction(context, turn, DialogueOperationKind.StopPractice);
-                if (command == DialogueOperationKind.Resume || command is null && normalized is "продолжим" or "продолжить" or "resume")
+                if ((command ?? naturalAction) == DialogueOperationKind.Resume)
                     return PracticeAction(context, turn, DialogueOperationKind.ResumePractice);
             }
         }
@@ -257,8 +253,8 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
         if (anotherExercise)
             return lesson is not null ? Recap(context, lesson)
                 : PracticeAction(context, turn, DialogueOperationKind.PracticeLastSkill);
-        if (lesson is null && program is not null && (command == DialogueOperationKind.Resume ||
-            command is null && Deterministic(normalized) == DialogueOperationKind.Resume))
+        if (lesson is null && program is not null && ((command ?? naturalAction) == DialogueOperationKind.Resume ||
+            command is null && normalized is "давай" or "let's go"))
             return new(context, DialogueOperationKind.Next, "") { SuggestReviewsOnReturn = returning && program.PendingDiagnosticQuestion is null };
 
         var bound = lesson is not null && turn.ReceiptLessonId == lesson.Id &&
@@ -266,54 +262,71 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
             (context.ResponseAfterSourceOrder == 0 || turn.SourceOrder > context.ResponseAfterSourceOrder);
         if (command is { } explicitAction)
             return await DecideActionAsync(context, turn, explicitAction, turn.Text, lesson, program, stamp, false, bound, token);
-        if (lesson is not null && (ExplanationPreference.Parse(turn.Text) is not null || turn.Text.TrimEnd().EndsWith('?') &&
-            MarketLearningContent.Identify(turn.Text, lesson.Topic + " " + program?.Discipline) != MarketFactRequest.None))
-            return await DecideActionAsync(context, turn, DialogueOperationKind.Clarify, turn.Text, lesson, program, stamp, false, bound, token);
-
         if (normalized is "помощь" or "help" or "что дальше" or "как продолжить")
-            return lesson is null ? Reply(context, DialogueReplyKind.NoActiveLesson) : Recap(context, lesson);
+            return lesson is null ? new(context, null, "", new(DialogueReplyKind.NoActiveLesson, InEnglish: english)) : Recap(context, lesson);
+        if (lesson is null && program is not null && FirstGoalConsultation.IsExplicitStudyGoal(normalized))
+            return new(context, null, "", new(programSwitchEnabled ? DialogueReplyKind.AskNewGoal : DialogueReplyKind.NoActiveLesson, InEnglish: english));
 
-        if ((normalized.Contains("пауза", StringComparison.Ordinal) || normalized.Contains("pause", StringComparison.Ordinal)) &&
-            (normalized.Contains("продолж", StringComparison.Ordinal) || normalized.Contains("resume", StringComparison.Ordinal)))
-            return OpenChoice(context, turn, stamp, [DialogueOperationKind.Pause, DialogueOperationKind.Resume]);
         if (normalized is "другая тема" or "другая цель" or "another topic" or "another goal")
             return OpenChoice(context, turn, stamp, [DialogueOperationKind.Clarify, DialogueOperationKind.ChangeGoal]);
-        var deterministic = Deterministic(normalized);
-        if (deterministic != DialogueOperationKind.Clarify &&
-            (normalized.Contains("объясни", StringComparison.Ordinal) || normalized.Contains("поясни", StringComparison.Ordinal) ||
-             normalized.Contains("это правильно", StringComparison.Ordinal)))
-            return OpenChoice(context, turn, stamp, [DialogueOperationKind.Answer, DialogueOperationKind.Clarify]);
-        if (deterministic is { } action)
+        var awaiting = lesson?.Status == LessonStatus.AwaitingAnswer;
+        if (naturalAction is { } action && (!awaiting || action is not (DialogueOperationKind.Clarify or DialogueOperationKind.RevealSolution)))
             return await DecideActionAsync(context, turn, action, turn.Text, lesson, program, stamp, false, bound, token);
-        if (lesson?.Status != LessonStatus.AwaitingAnswer)
-            return Reply(context, lesson is null ? DialogueReplyKind.NoActiveLesson : DialogueReplyKind.Paused);
-        if (!bound) return Reply(context, DialogueReplyKind.NeedBinding);
-        if (normalized is "давай" or "пропустить" or "пропустим" or "позже" or "skip" or "later")
-            return Recap(context, lesson);
+        if (!awaiting && program is null)
+            return new(context, null, "", new(lesson is null ? DialogueReplyKind.NoActiveLesson : DialogueReplyKind.Paused, InEnglish: english));
+        if (awaiting && !bound || !awaiting && turn.SourceOrder <= context.ResponseAfterSourceOrder)
+            return Reply(context, DialogueReplyKind.NeedBinding);
+        if (awaiting && normalized is "давай" or "пропустить" or "пропустим" or "позже" or "skip" or "later")
+            return Recap(context, lesson!);
         if (normalized is "ответ" or "вопрос" or "answer" or "question")
             return Reply(context, DialogueReplyKind.NeedActualInput);
-        if (normalized is "yes" or "no" && (lesson.ResponseQuestion.Contains("yes or no", StringComparison.OrdinalIgnoreCase) ||
+        if (awaiting && normalized is "yes" or "no" && (lesson!.ResponseQuestion.Contains("yes or no", StringComparison.OrdinalIgnoreCase) ||
             lesson.ResponseQuestion.Contains("yes/no", StringComparison.OrdinalIgnoreCase)))
             return await DecideActionAsync(context, turn, DialogueOperationKind.Answer, turn.Text, lesson, program, stamp, false, bound, token);
-        if (normalized is "да" or "нет" or "yes" or "no" or "потом" or "не знаю" ||
-            normalized.Contains("ignore previous", StringComparison.Ordinal) || normalized.Contains("ignore system", StringComparison.Ordinal))
+        if (awaiting && (normalized is "да" or "нет" or "yes" or "no" or "потом" or "не знаю" ||
+            normalized.Contains("ignore previous", StringComparison.Ordinal) || normalized.Contains("ignore system", StringComparison.Ordinal)))
             return OpenChoice(context, turn, stamp, [DialogueOperationKind.Answer, DialogueOperationKind.Clarify]);
-        var allowed = new[] { LearningIntent.Ambiguous, LearningIntent.Answer, LearningIntent.Clarify,
-            LearningIntent.Pause, LearningIntent.Resume, LearningIntent.Progress, LearningIntent.Next, LearningIntent.GoalChange };
+        LearningIntent[] allowed = awaiting
+            ? [LearningIntent.Ambiguous, LearningIntent.Answer, LearningIntent.Clarify, LearningIntent.Pause, LearningIntent.Resume,
+                LearningIntent.Progress, LearningIntent.Next, LearningIntent.GoalChange, LearningIntent.EndSession,
+                LearningIntent.RevealSolution, LearningIntent.PreviousTopic, LearningIntent.ExplainAssessment, LearningIntent.ShowCriteria]
+            : [LearningIntent.Ambiguous, LearningIntent.Resume, LearningIntent.Next, LearningIntent.Progress,
+                LearningIntent.EndSession, LearningIntent.PreviousTopic, LearningIntent.ExplainAssessment, LearningIntent.ShowCriteria];
         LearningIntentProposal proposal;
         try
         {
-            proposal = await resolver.ResolveAsync(new(turn.Text, lesson.ResponseQuestion, program?.Goal, program?.Discipline,
-                lesson.Interactions.OrderByDescending(interaction => interaction.Id).Take(3)
-                    .Select(interaction => interaction.Explanation[..Math.Min(500, interaction.Explanation.Length)]).ToArray(), allowed,
+            proposal = await resolver.ResolveAsync(new(turn.Text, lesson?.ResponseQuestion ?? "", program?.Goal, program?.Discipline,
+                lesson?.Interactions.OrderByDescending(interaction => interaction.Id).Take(3)
+                    .Select(interaction => interaction.Explanation[..Math.Min(500, interaction.Explanation.Length)]).ToArray() ?? [], allowed,
                 program?.Id, program?.RouteVersion, program?.Version, context.Revision, context.PromptId), token);
         }
         catch (Learning.LessonProviderException)
         {
-            return OpenChoice(context, turn, stamp, [DialogueOperationKind.Answer, DialogueOperationKind.Clarify]);
+            proposal = new(LearningIntent.Ambiguous);
         }
         if (!allowed.Contains(proposal.Intent) || proposal.Intent == LearningIntent.Ambiguous)
-            return OpenChoice(context, turn, stamp, [DialogueOperationKind.Answer, DialogueOperationKind.Clarify]);
+        {
+            if (!awaiting) return new(context, null, "", new(lesson is null ? DialogueReplyKind.NoActiveLesson : DialogueReplyKind.Paused, InEnglish: english));
+            var conflictingNavigation = (normalized.Contains("пауза", StringComparison.Ordinal) || normalized.Contains("pause", StringComparison.Ordinal)) &&
+                (normalized.Contains("продолж", StringComparison.Ordinal) || normalized.Contains("resume", StringComparison.Ordinal));
+            return OpenChoice(context, turn, stamp, conflictingNavigation
+                ? [DialogueOperationKind.Pause, DialogueOperationKind.Resume] : [DialogueOperationKind.Answer, DialogueOperationKind.Clarify]);
+        }
+        if (awaiting && proposal.Intent == LearningIntent.ShowCriteria)
+        {
+            var requirements = lesson!.AssessmentContent?.StructuredRubric?.QuestionText() ?? lesson.Question;
+            return new(context, null, "", new(DialogueReplyKind.ExerciseCriteria, [requirements], english));
+        }
+        if (proposal.Intent == LearningIntent.ExplainAssessment && lesson is
+            { Status: LessonStatus.AwaitingAnswer, HasPendingLegacyAssessment: false, RubricEvaluation.Final: false })
+        {
+            var reasons = lesson.RubricEvaluation.Assessment.Criteria
+                .Where(item => item.Result != RubricCriterionResult.Met).Select(item => item.Reason).ToArray();
+            return new(context, null, "", new(DialogueReplyKind.ExerciseCriteria,
+                [.. reasons, lesson.ResponseQuestion], english));
+        }
+        if (proposal.Intent == LearningIntent.EndSession && sessions is not null && turn.SourceOrder > 0)
+            return await EndSessionAsync(context, turn, lesson, program, english, token);
         var proposedAction = proposal.Intent switch
         {
             LearningIntent.Answer => DialogueOperationKind.Answer,
@@ -322,9 +335,28 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
             LearningIntent.Resume => DialogueOperationKind.Resume,
             LearningIntent.Progress => DialogueOperationKind.Progress,
             LearningIntent.Next => DialogueOperationKind.Next,
+            LearningIntent.EndSession => DialogueOperationKind.Pause,
+            LearningIntent.PreviousTopic => DialogueOperationKind.PreviousTopic,
+            LearningIntent.RevealSolution => DialogueOperationKind.RevealSolution,
+            LearningIntent.ExplainAssessment or LearningIntent.ShowCriteria => DialogueOperationKind.ExplainAssessment,
             _ => DialogueOperationKind.ChangeGoal
         };
+        if (lesson is null && proposedAction == DialogueOperationKind.Resume)
+            proposedAction = DialogueOperationKind.Next;
+        if (proposedAction == DialogueOperationKind.ExplainAssessment)
+            return new(context, proposedAction, "");
         return await DecideActionAsync(context, turn, proposedAction, turn.Text, lesson, program, stamp, false, bound, token);
+    }
+
+    private async Task<DialogueDecision> EndSessionAsync(DialogueContext context, DialogueTurn turn, Lesson? lesson,
+        DialogueProgramSnapshot? program, bool english, CancellationToken token)
+    {
+        if (turn.SourceOrder <= context.ResponseAfterSourceOrder)
+            return new(context, null, "", new(DialogueReplyKind.NeedBinding, InEnglish: english));
+        await sessions!.EndAsync(turn, program?.Id, lesson, token);
+        if (lesson is not null) context.Synchronize(lesson, turn.Now, turn.SourceOrder);
+        context.AdvanceResponseBoundary(turn.SourceOrder);
+        return new(context, null, "", new(DialogueReplyKind.SessionEnded, InEnglish: english));
     }
 
     private static DialogueDecision DecideDiagnostic(DialogueContext context, DialogueTurn turn, string normalized, DialogueProgramSnapshot program, string question)
@@ -342,15 +374,17 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
             action == DialogueOperationKind.Next;
         if (skip && (bound || !answering && !offer))
             return new(context, DialogueOperationKind.CompleteDiagnostic, "skip");
+        if (bound && CurriculumService.WantsFoundations(turn.Text))
+            return new(context, DialogueOperationKind.CompleteDiagnostic, turn.Text);
 
         if (action == DialogueOperationKind.Resume ||
-            (normalized is "давай" or "да" or "yes" or "start" or "начнём диагностику") && (bound || !offer))
+            (normalized is "давай" or "start" or "начнём диагностику" || !answering && normalized is "да" or "yes") && (bound || !offer))
         {
             if (!answering) context.BindDiagnosticQuestion(program.Id, question, turn.Now, turn.SourceOrder);
             return new(context, null, "", new(DialogueReplyKind.DiagnosticQuestion, [question], english));
         }
         if (!answering) return new(context, null, "", new(DialogueReplyKind.DiagnosticOffer, InEnglish: english));
-        if (bound && !skip && action is null && normalized is not ("нет" or "no" or "помощь" or "help") &&
+        if (bound && !skip && action is null && normalized is not ("помощь" or "help") &&
             !turn.Text.TrimEnd().EndsWith('?'))
             return new(context, DialogueOperationKind.CompleteDiagnostic, turn.Text);
         return new(context, null, "", new(DialogueReplyKind.DiagnosticQuestion, [question], english));
@@ -469,7 +503,8 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
         return new(context, operation, arguments);
     }
     private static DialogueDecision Recap(DialogueContext context, Lesson lesson) => new(context, null, "", new(DialogueReplyKind.Recap,
-        [lesson.Topic, lesson.Theory, lesson.ResponseQuestion, lesson.SavedGuidance ?? "", lesson.Status.ToString()]));
+        [lesson.Topic, lesson.Theory, lesson.ResponseQuestion, lesson.SavedGuidance ?? "", lesson.Status.ToString()],
+        FirstGoalConsultation.InEnglish(lesson.Theory), lesson.ResponseQuestion == lesson.Question ? lesson.Content : null));
     private static string Normalize(string text) => text.Trim().TrimEnd('.', '!').ToLowerInvariant();
     private static string Bounded(string text) => text[..Math.Min(500, text.Length)];
     private static string WithProgramTarget(string stamp, DialogueProgramSnapshot? program) =>
@@ -485,6 +520,7 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
     };
     private static DialogueOperationKind? Deterministic(string text)
     {
+        if (text is "завершить сессию" or "закончить сессию" or "на сегодня хватит" or "end session" or "that's enough for today") return DialogueOperationKind.EndSession;
         if (text is "пауза" or "поставь на паузу" or "мне пора, продолжим позже" or "продолжим позже" or "pause" or "stop") return DialogueOperationKind.Pause;
         if (text is "продолжим" or "продолжить" or "давай продолжим" or "resume" or "continue") return DialogueOperationKind.Resume;
         if (text is "прогресс" or "мой прогресс" or "покажи прогресс" or "progress") return DialogueOperationKind.Progress;
@@ -493,10 +529,6 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
         if (text is "покажи решение" or "покажи полное решение" or "дай полный ответ" or "show the solution")
             return DialogueOperationKind.RevealSolution;
         if (text is "дай подсказку" or "подскажи" or "hint") return DialogueOperationKind.Clarify;
-        if (text.StartsWith("объясни", StringComparison.Ordinal) || text.StartsWith("поясни", StringComparison.Ordinal) ||
-            text.StartsWith("объясняй ", StringComparison.Ordinal) || text.StartsWith("explain in ", StringComparison.Ordinal) ||
-            text.StartsWith("не понял", StringComparison.Ordinal) || text.StartsWith("не поняла", StringComparison.Ordinal) ||
-            text.StartsWith("почему здесь", StringComparison.Ordinal) || text.StartsWith("не знаю, объясни", StringComparison.Ordinal)) return DialogueOperationKind.Clarify;
         if (text.StartsWith("хочу другую цель", StringComparison.Ordinal) || text.StartsWith("сменить цель", StringComparison.Ordinal)) return DialogueOperationKind.ChangeGoal;
         return null;
     }

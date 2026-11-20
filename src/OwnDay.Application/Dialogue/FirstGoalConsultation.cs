@@ -10,13 +10,21 @@ public static class FirstGoalConsultation
     {
         if (result is CurriculumResult.Program created)
         {
-            context.CompleteConsultation(created.Value, turn.Now, turn.SourceOrder);
+            context.CompleteConsultation(created.Value, turn.Now, turn.SourceOrder, created.Wording?.Goal, created.Wording?.PracticalUse);
             if (created.Value.EnglishDiagnostic is not null) context.BindDiagnostic(created.Value, turn.Now, turn.SourceOrder);
+            var draft = context.Consultation!;
+            var practicalUse = draft.DisplayPracticalUse ?? draft.PracticalUse!;
+            var criterion = created.Value.GoalCriterion?.Replace(draft.PracticalUse!, practicalUse, StringComparison.Ordinal);
             return new(context, null, "", new(DialogueReplyKind.FirstProgramReady,
-                [created.Value.Goal, context.Consultation!.PracticalUse!,
+                [draft.DisplayGoal ?? created.Value.Goal, practicalUse,
                     string.Join(" → ", created.Value.CurrentRoute.Topics.Take(3).Select(topic => topic.Title)),
-                    created.Value.DiagnosticPending ? "diagnostic" : "start", created.Value.GoalCriterion ?? ""],
+                    created.Value.DiagnosticPending ? "diagnostic" : "start", criterion ?? ""],
                 InEnglish: InEnglish(created.Value.Goal)), new("first_program_created"));
+        }
+        if (result is CurriculumResult.ClarifyPracticalUse)
+        {
+            context.ClarifyPracticalUse(turn.Now, turn.SourceOrder);
+            return Reply(context, DialogueReplyKind.ClarifyPracticalUse) with { Audit = new("practical_use_clarification") };
         }
         context.RestoreConsultation(turn.Now, turn.SourceOrder);
         return Reply(context, DialogueReplyKind.ConsultationRetry) with { Audit = new("consultation_creation_failed") };
@@ -54,7 +62,7 @@ public static class FirstGoalConsultation
         if (context.Consultation.AfterSourceOrder > 0 && turn.SourceOrder <= context.Consultation.AfterSourceOrder ||
             turn.ReceiptPromptId != context.PromptId) return Prompt(context);
 
-        if (context.Consultation.Experience is not null)
+        if (context.Consultation is { PracticalUse: not null, Experience: not null })
             return normalized is "повторить" or "создать" or "retry" ? Create(context) : Prompt(context);
         if (normalized is "да" or "нет" or "yes" or "no" or "ответ" or "вопрос" or "answer" or "question" ||
             text.Length < 2 || text.EndsWith('?') || context.Consultation.PracticalUse is null && normalized == "не знаю") return Prompt(context);
@@ -64,8 +72,10 @@ public static class FirstGoalConsultation
         if (context.Consultation.PracticalUse is null)
         {
             if (text.Length > 400) return Prompt(context);
+            if (normalized is "не уверен" or "не уверена" or "не могу сказать" or "not sure" or "i don't know")
+                return Reply(context, DialogueReplyKind.ClarifyPracticalUse);
             context.RecordPracticalUse(text, turn.Now, turn.SourceOrder);
-            return Reply(context, DialogueReplyKind.AskExperience);
+            return context.Consultation.Experience is null ? Reply(context, DialogueReplyKind.AskExperience) : Create(context);
         }
         if (text.Length > 500) return Prompt(context);
         var shortExperience = normalized.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length <= 2;
@@ -96,15 +106,15 @@ public static class FirstGoalConsultation
         var experience = english && draft.PracticalUseDefinesCriterion
             ? $"Application: {draft.PracticalUse}\nExperience: {draft.Experience}"
             : $"Применение: {draft.PracticalUse}\nОпыт: {draft.Experience}";
-        return new(context, null, "", Creation: new(draft.OriginalGoal, experience, criterion));
+        return new(context, null, "", Creation: new(draft.OriginalGoal, experience, criterion, draft.PracticalUse!));
     }
     private static DialogueDecision Reply(DialogueContext context, DialogueReplyKind kind) =>
         new(context, null, "", new(kind, InEnglish: InEnglish(context.Consultation?.OriginalGoal)));
 
-    internal static bool InEnglish(string? text) => text is not null &&
+    public static bool InEnglish(string? text) => text is not null &&
         text.Any(char.IsAsciiLetter) && !text.Any(character => character is >= '\u0400' and <= '\u052f');
 
-    private static bool IsExplicitStudyGoal(string text) =>
+    internal static bool IsExplicitStudyGoal(string text) =>
         EnglishLearningContent.IsEnglishGoal(text) ||
         text.StartsWith("научиться ", StringComparison.Ordinal) ||
         text.StartsWith("learn ", StringComparison.Ordinal) ||

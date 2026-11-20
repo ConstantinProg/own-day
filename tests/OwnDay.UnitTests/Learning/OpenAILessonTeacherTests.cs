@@ -353,21 +353,25 @@ public sealed class OpenAILessonTeacherTests
     }
 
     [Theory]
-    [InlineData(LessonInteractionKind.Clarification)]
-    [InlineData(LessonInteractionKind.AlternativeExplanation)]
-    public async Task ExplainAsync_DialogueRequest_SendsBoundedContextAndStructuredExplanation(LessonInteractionKind kind)
+    [InlineData(LessonInteractionKind.Clarification, true, MaterialSourceStatus.Unverified)]
+    [InlineData(LessonInteractionKind.AlternativeExplanation, false, MaterialSourceStatus.None)]
+    public async Task ExplainAsync_DialogueRequest_SendsBoundedContextAndKeepsVerificationStatus(LessonInteractionKind kind,
+        bool needsCurrentVerification, MaterialSourceStatus expected)
     {
         using var handler = new ResponseHandler(JsonSerializer.Serialize(new
         {
             id = "test", model = "test", created = 1, @object = "chat.completion",
             choices = new[] { new { index = 0, finish_reason = "stop",
-                message = new { role = "assistant", content = "{\"Explanation\":\"Example\"}" } } }
+                message = new { role = "assistant", content = JsonSerializer.Serialize(new { Explanation = "Example",
+                    NeedsCurrentVerification = needsCurrentVerification }) } } }
         }));
         using var http = new HttpClient(handler);
         var lesson = Lesson.Start(new UserId(1), "Topic", "Theory", "Question");
         lesson.AddExplanation(LessonInteractionKind.Clarification, "Earlier request", "Earlier transcript");
         var result = await Teacher(http, new RecordingLogger()).ExplainAsync(lesson, "A detour", kind, CancellationToken.None);
         Assert.Equal("Example", result.Explanation);
+        Assert.Equal(expected, result.Provenance!.Status);
+        Assert.Equal("OpenAI:test", result.Provenance.Generator);
         using var body = JsonDocument.Parse(handler.RequestBody!);
         var messages = body.RootElement.GetProperty("messages");
         Assert.Contains("untrusted data", messages[0].GetProperty("content").GetString());

@@ -25,9 +25,10 @@ public sealed class EfCurriculumStore(OwnDayDbContext db) : ICurriculumStore
         db.Set<Lesson>().Include(lesson => lesson.Interactions.OrderByDescending(interaction => interaction.Id).Take(10))
             .SingleOrDefaultAsync(lesson => lesson.UserId == user && lesson.Id == lessonId, token);
 
-    public Task<Lesson?> FindLastProgramLessonAsync(UserId user, Guid programId, CancellationToken token) =>
+    public Task<Lesson?> FindLastProgramLessonAsync(UserId user, Guid programId, CancellationToken token, string? excludingTopic = null) =>
         (from lesson in db.Set<Lesson>() join evidence in db.Set<LearningEvidence>() on lesson.Id equals evidence.LessonId
-         where lesson.UserId == user && evidence.UserId == user && lesson.ProgramId == programId && lesson.Status == LessonStatus.Completed && lesson.SkillId != null
+         where lesson.UserId == user && evidence.UserId == user && lesson.ProgramId == programId && lesson.Status == LessonStatus.Completed && lesson.SkillId != null &&
+               (excludingTopic == null || lesson.TopicCode != excludingTopic)
          orderby evidence.ObservedAt descending, lesson.Id descending
          select lesson).FirstOrDefaultAsync(token);
     public Task<LearningProgram?> FindAsync(UserId user, CancellationToken token) =>

@@ -168,11 +168,11 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
         {
             var result = await CreateCurriculum(services, session).CreateAsync(request.UserId, creation.Goal, creation.Experience, null, token,
                 processing.EnglishDiagnosticEnabled || text?.EnglishDiagnosticAllowed == true, goalCriterion: creation.GoalCriterion,
-                subjectDiagnostic: true);
+                subjectDiagnostic: true, consultationUse: creation.PracticalUse);
             session.EnsureComplete();
             var completed = FirstGoalConsultation.CompleteCreation(decision.Context, result, turn);
             return new(null, completed.Audit!.Code)
-                { Replies = Introduce(introduce, TelegramDialoguePresenter.Render(completed.Reply!)) };
+                { Replies = Introduce(introduce, TelegramDialoguePresenter.Render(completed.Reply!), completed.Reply!.InEnglish) };
         }
         if (decision.Execute is not { } operation)
         {
@@ -186,7 +186,7 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
             }
             session.EnsureComplete();
             return new(null, decision.Audit?.Code ?? "dialogue_reply")
-                { Replies = Introduce(introduce, dialogueReplies), DialogueOutcomeJson = audit };
+                { Replies = Introduce(introduce, dialogueReplies, reply.InEnglish), DialogueOutcomeJson = audit };
         }
         if (operation == DialogueOperationKind.ReviewSuggestions || decision.SuggestReviewsOnReturn)
         {
@@ -243,7 +243,16 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
                 ? await assessments.ReviewAsync(request.UserId, request.Id, decision.Arguments, token)
                 : await assessments.ExplainAsync(request.UserId, program?.Id, decision.Arguments, token);
             session.EnsureComplete();
-            return new(null, "assessment_review") { Replies = TelegramAssessmentReviewPresenter.Render(result) };
+            return new(null, "assessment_review")
+                { Replies = TelegramAssessmentReviewPresenter.Render(result, FirstGoalConsultation.InEnglish(lesson?.Theory ?? program?.Goal)) };
+        }
+        if (operation == DialogueOperationKind.PreviousTopic)
+        {
+            var previous = program is null ? null : await CreateCurriculum(services, session).PreviousTopicAsync(request.UserId,
+                program.Id, lesson?.ProgramId == program.Id ? lesson.TopicCode : null, token);
+            session.EnsureComplete();
+            return new(null, "previous_topic")
+                { Replies = TelegramLearningPresenter.RenderPreviousTopic(previous, lesson, FirstGoalConsultation.InEnglish(program?.Goal ?? lesson?.Theory)) };
         }
         if (operation == DialogueOperationKind.Diagnose && program?.HasEnglishDiagnostic == true && lesson is null)
         {
@@ -273,7 +282,9 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
                 decision.Context.Synchronize(current, now, turn.SourceOrder);
             }
             session.EnsureComplete();
-            return new(null, "diagnostic_reply") { Replies = Introduce(introduce, TelegramCurriculumPresenter.Render(result)) };
+            var russian = MarketLearningContent.InRussian(program?.Goal ?? turn.Text);
+            return new(null, "diagnostic_reply")
+                { Replies = Introduce(introduce, TelegramCurriculumPresenter.Render(result, russian), !russian) };
         }
         if (operation is DialogueOperationKind.SwitchProgram or DialogueOperationKind.SwitchGoal or DialogueOperationKind.SwitchGoalWithCriterion or
             DialogueOperationKind.SwitchCreateProgram or DialogueOperationKind.SwitchCreateProjectProgram)
@@ -326,7 +337,8 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
         else
         {
             var name = operation is DialogueOperationKind.None or DialogueOperationKind.StartOtherLesson ? command!.Name : CommandName(operation);
-            replies = await handler.HandleAsync(new(name, decision.Arguments, request.UserId), token, program?.Discipline);
+            replies = await handler.HandleAsync(new(name, decision.Arguments, request.UserId), token, program?.Discipline,
+                MarketLearningContent.InRussian(lesson?.Theory ?? program?.Goal ?? turn.Text));
         }
         var practiceResult = await CreatePractice(services, session).SynchronizeAsync(request.UserId, operation, token);
         if (practiceResult is not null) replies = [.. replies, .. TelegramPracticePresenter.Render(practiceResult)];
@@ -338,8 +350,8 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
         return new(null, decision.Audit?.Code ?? "reply_committed") { Replies = Introduce(introduce, replies), DialogueOutcomeJson = audit };
     }
 
-    private static IReadOnlyList<string> Introduce(bool introduce, IReadOnlyList<string> replies) => introduce
-        ? [TelegramDialoguePresenter.Introduction, .. replies] : replies;
+    private static IReadOnlyList<string> Introduce(bool introduce, IReadOnlyList<string> replies, bool english = false) => introduce
+        ? [english ? TelegramDialoguePresenter.EnglishIntroduction : TelegramDialoguePresenter.Introduction, .. replies] : replies;
 
     private static DialogueOperationKind CommandKind(string name) => name switch
     {

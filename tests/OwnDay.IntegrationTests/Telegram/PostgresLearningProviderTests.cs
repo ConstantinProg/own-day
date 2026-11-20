@@ -285,6 +285,7 @@ public sealed partial class PostgresLearningProviderTests : IAsyncLifetime
     {
         var probe = new Probe("")
         {
+            Intent = LearningIntent.Clarify,
             MarketResponse = request => new(sourceAvailable ? HttpStatusCode.OK : HttpStatusCode.ServiceUnavailable)
             {
                 RequestMessage = request,
@@ -325,8 +326,29 @@ public sealed partial class PostgresLearningProviderTests : IAsyncLifetime
         Assert.Equal(2, await observer.Set<LearningAppliedOperation>().CountAsync());
         var replies = await observer.TelegramOutboxMessages.Select(message => message.Text).ToArrayAsync();
         Assert.Contains(replies, reply => reply.Contains(explanation.Provenance.Reference!, StringComparison.Ordinal));
-        Assert.Equal(sourceAvailable, replies.Any(reply => reply.Contains($"Проверено {_now:O}", StringComparison.Ordinal)));
+        Assert.Equal(sourceAvailable, replies.Any(reply => reply.Contains($"Проверено {_now:yyyy-MM-dd}", StringComparison.Ordinal)));
         Assert.Equal(!sourceAvailable, replies.Any(reply => reply.Contains("Источник недоступен", StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public async Task Post_CurrentMarketDetailWithoutSupportedCheck_WarnsOnceInRussianAndKeepsProvenance()
+    {
+        var probe = new Probe("")
+        {
+            MarketResponse = _ => throw new InvalidOperationException("No authoritative check exists for this fact.")
+        };
+        using var host = DialogueHost(probe);
+        using var client = host.CreateClient();
+        await SendEnglishAsync(client, 1, "/learn Какое сейчас расписание торгов Московской биржи?");
+
+        await using var db = Open();
+        var lesson = await db.Set<Lesson>().SingleAsync();
+        Assert.Equal(MaterialSourceStatus.Unverified, lesson.Provenance!.Status);
+        Assert.Null(lesson.Provenance.VerifiedStatement);
+        var replies = await db.TelegramOutboxMessages.Select(message => message.Text).ToArrayAsync();
+        Assert.Single(replies, reply => reply.Contains("Актуальные детали не удалось подтвердить", StringComparison.Ordinal));
+        Assert.DoesNotContain(replies, reply => reply.Contains(lesson.Provenance.Generator, StringComparison.Ordinal) ||
+            reply.Contains("unverified", StringComparison.OrdinalIgnoreCase));
     }
 
     [Theory]
@@ -433,12 +455,14 @@ public sealed partial class PostgresLearningProviderTests : IAsyncLifetime
         public System.Collections.Concurrent.ConcurrentDictionary<string, int> KindCalls { get; } = new();
         public bool IgnoreCancellation { get; init; }
         public LearningIntent Intent { get; init; } = LearningIntent.Answer;
+        public Func<LearningIntentInput, LearningIntent>? Recognize { get; init; }
         public Func<HttpRequestMessage, HttpResponseMessage>? MarketResponse { get; init; }
         public CurriculumProposal Curriculum { get; init; } = new("English", [new("root", "Read an email", [])], null);
         public Func<CurriculumRequest, CurriculumProposal>? Plan { get; init; }
         public LessonMaterial Material { get; init; } = new("Theory", "Question");
         public Func<LessonRequest, LessonMaterial>? Generate { get; init; }
         public Func<LessonSnapshot, string, LessonAssessment>? Assessment { get; init; }
+        public LessonExplanation Explanation { get; init; } = new("Explanation");
         public System.Collections.Concurrent.ConcurrentQueue<LearningIntentInput> IntentInputs { get; } = new();
         public System.Collections.Concurrent.ConcurrentQueue<string> AssessedAnswers { get; } = new();
         public System.Collections.Concurrent.ConcurrentQueue<LessonSnapshot> AssessedLessons { get; } = new();
@@ -504,12 +528,12 @@ public sealed partial class PostgresLearningProviderTests : IAsyncLifetime
         public async Task<LessonAssessment> AssessAsync(LessonSnapshot lesson, string answer, CancellationToken token)
         { probe.AssessedAnswers.Enqueue(answer); probe.AssessedLessons.Enqueue(lesson); await BlockAsync("assess", token); return probe.Assessment?.Invoke(lesson, answer) ?? new("Feedback", true); }
         public async Task<LearningIntentProposal> ResolveAsync(LearningIntentInput input, CancellationToken token)
-        { probe.IntentInputs.Enqueue(input); await BlockAsync("intent", token); return new(probe.Intent); }
+        { probe.IntentInputs.Enqueue(input); await BlockAsync("intent", token); return new(probe.Recognize?.Invoke(input) ?? probe.Intent); }
         public async Task<LessonExplanation> ExplainAsync(LessonSnapshot lesson, string request, LessonInteractionKind kind, CancellationToken token)
         {
             probe.ExplanationKinds.Enqueue(kind);
             await BlockAsync("explain", token);
-            if (probe.MarketResponse is not { } market) return new("Explanation");
+            if (probe.MarketResponse is not { } market) return probe.Explanation;
             using var reader = new MoexLessonSourceReader(new HttpClient(new MarketHandler(market)), new Clock());
             return await MarketTeacher(reader).ExplainAsync(lesson, request, kind, token);
         }

@@ -27,7 +27,7 @@ public sealed partial class PostgresLearningProviderTests
             await db.SaveChangesAsync();
         }
 
-        var probe = new Probe("");
+        var probe = new Probe("") { Intent = OwnDay.Application.Dialogue.LearningIntent.Clarify };
         using (var host = SwitchHost(probe))
         using (var client = host.CreateClient())
         {
