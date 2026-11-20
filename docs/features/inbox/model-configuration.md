@@ -67,7 +67,11 @@ against saving completed results twice remain in force. A crash can still cause 
 database persistence remains idempotent. Failed jobs are terminal. Use the documented manual operator command to
 create a new analysis version when required; changing settings alone does not resubmit failures.
 
-## VPS rollout
+## Historical Inbox VPS rollout
+
+This rollout describes the retired Inbox worker. For current deployment and
+Learning provider settings, see [GitHub deployment configuration](../../deployment/GITHUB_SECRETS.md)
+and [Learning cost control](../learning/cost-control.md).
 
 1. Stop all old app instances before the migration. Avoid running old workers alongside the new release: old
    code cannot check the new saved parameters.

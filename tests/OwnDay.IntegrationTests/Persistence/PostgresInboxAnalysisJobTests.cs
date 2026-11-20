@@ -10,10 +10,13 @@ using Microsoft.Extensions.Hosting;
 using Npgsql;
 using OwnDay.Application.Inbox;
 using OwnDay.Application.Inbox.Analysis;
+using OwnDay.Application.Learning.Requests;
 using OwnDay.Domain;
 using OwnDay.Domain.Inbox;
 using OwnDay.Infrastructure.Persistence;
 using OwnDay.Infrastructure.Telegram.Cleanup;
+using OwnDay.Infrastructure.Telegram.Delivery;
+using OpenAI.Chat;
 using Xunit;
 
 namespace OwnDay.IntegrationTests.Persistence;
@@ -82,11 +85,12 @@ public sealed class PostgresInboxAnalysisJobTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Post_LegacyInboxBackgroundEnabled_PreservesSavedWorkAndQueuesLearning()
+    public async Task Post_LegacyInboxBackgroundEnabled_PreservesSavedWorkWhileLearningProcesses()
     {
         var item = await CaptureAsync();
         var analysis = InboxAnalysis.Start(Owner, item.Id, 1, new("fake", "v1", "v1"), "{}", "context", "input", item.CapturedAt);
-        analysis.Finish(InboxAnalysisStatus.Failed, item.CapturedAt, "{}");
+        analysis.Finish(InboxAnalysisStatus.Completed, item.CapturedAt, "{}",
+            JsonSerializer.Deserialize<InboxAnalysisOutput>(Response().Json, InboxAnalysisJson.Options)!);
         await using (var seed = Db())
         {
             seed.InboxAnalyses.Add(analysis);
@@ -101,6 +105,13 @@ public sealed class PostgresInboxAnalysisJobTests : IAsyncLifetime
         await PostAsync(client);
         await PostAsync(client);
         await using var db = Db();
+        while (!await db.TelegramOutboxMessages.AnyAsync(
+            reply => reply.LearningRequestId != null && reply.Status == OutboxMessageStatus.Sent &&
+                reply.Text.StartsWith("No programs yet."), Token))
+        {
+            await Task.Delay(50, Token);
+        }
+
         var saved = await db.InboxItems.SingleAsync(Token);
         Assert.Equal(item.Id, saved.Id);
         Assert.Equal(InboxItemStatus.Active, saved.Status);
@@ -108,8 +119,8 @@ public sealed class PostgresInboxAnalysisJobTests : IAsyncLifetime
         Assert.Equal(analysis.Id, (await db.InboxAnalyses.SingleAsync(Token)).Id);
         Assert.Empty(await db.InboxAutomaticApplications.ToListAsync(Token));
         Assert.Single(await db.ProcessedTelegramUpdates.ToListAsync(Token));
-        Assert.Single(await db.Set<OwnDay.Application.Learning.Requests.LearningRequest>().ToListAsync(Token));
-        Assert.Empty(await db.TelegramOutboxMessages.ToListAsync(Token));
+        Assert.Equal(LearningRequestStatus.Completed, (await db.Set<LearningRequest>().SingleAsync(Token)).Status);
+        Assert.Empty(await db.Actions.ToListAsync(Token));
     }
 
     [Fact]
@@ -560,7 +571,7 @@ public sealed class PostgresInboxAnalysisJobTests : IAsyncLifetime
         request.Content = new StringContent("""
             {"update_id":1001,"message":{"message_id":1001,"date":1790244000,
             "from":{"id":101,"is_bot":false,"first_name":"Test"},
-            "chat":{"id":101,"type":"private"},"text":"private capture"}}
+            "chat":{"id":101,"type":"private"},"text":"/learn_progress"}}
             """, Encoding.UTF8, "application/json");
         using var response = await client.SendAsync(request, Token).WaitAsync(TimeSpan.FromSeconds(5), Token);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -599,15 +610,22 @@ public sealed class PostgresInboxAnalysisJobTests : IAsyncLifetime
             {
                 Assert.DoesNotContain(services, descriptor => descriptor.ServiceType == typeof(IHostedService) &&
                     descriptor.ImplementationType?.Name.Contains("Inbox", StringComparison.Ordinal) == true);
-                services.RemoveAll<IHostedService>();
-                services.RemoveAll<ITelegramMessageCleaner>();
-                services.AddSingleton<ITelegramMessageCleaner, NoOpCleaner>();
+                services.Replace(ServiceDescriptor.Singleton<ITelegramMessageCleaner, NoOpCleaner>());
+                services.Replace(ServiceDescriptor.Singleton<ITelegramMessageSender, NoOpSender>());
+                services.Replace(ServiceDescriptor.Singleton<Func<ChatClient>>(
+                    () => throw new InvalidOperationException("This test must not invoke OpenAI.")));
             });
         }
 
         private sealed class NoOpCleaner : ITelegramMessageCleaner
         {
             public Task DeleteMessageAsync(long chatId, int messageId, CancellationToken cancellationToken) => Task.CompletedTask;
+        }
+
+        private sealed class NoOpSender : ITelegramMessageSender
+        {
+            public Task SendMessageAsync(long chatId, string text, string? replyMarkupJson, CancellationToken cancellationToken) =>
+                Task.CompletedTask;
         }
     }
 }
