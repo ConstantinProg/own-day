@@ -42,5 +42,17 @@ internal static class InboxObservabilityModel
             entity.HasIndex(a => new { a.UserId, a.Code, a.InboxItemId });
             entity.HasIndex(a => new { a.Kind, a.TargetId }).IsUnique().HasFilter("\"Code\" = 'created'");
         });
+        modelBuilder.Entity<OpenAIBudgetCarryover>(entity =>
+        {
+            entity.ToTable("openai_budget_carryover");
+            entity.HasKey(total => new { total.UserId, total.Month });
+            entity.HasIndex(total => total.Month);
+            entity.Property(total => total.UserId).HasColumnName("user_id");
+            entity.Property(total => total.Month).HasColumnName("month");
+            entity.Property(total => total.CallCount).HasColumnName("call_count");
+            entity.Property(total => total.ChargedTokens).HasColumnName("charged_tokens");
+            entity.Property(total => total.ChargedUsd).HasPrecision(20, 12).HasColumnName("charged_usd");
+            entity.Property(total => total.HasUnknownCost).HasColumnName("has_unknown_cost");
+        });
     }
 }

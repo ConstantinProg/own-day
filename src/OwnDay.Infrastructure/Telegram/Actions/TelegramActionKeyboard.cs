@@ -1,5 +1,6 @@
 using System.Text.Json;
 using OwnDay.Application.Learning;
+using OwnDay.Application.TesterMode;
 using OwnDay.Domain.Dialogue;
 using OwnDay.Domain.Learning;
 using OwnDay.Infrastructure.Telegram.Commands;
@@ -9,6 +10,12 @@ namespace OwnDay.Infrastructure.Telegram.Actions;
 
 public sealed class TelegramActionKeyboard(TelegramActionCodec codec)
 {
+    internal TelegramLearningReply RenderConfirmation(string text, string label, TesterModeConfirmation confirmation, long owner, long chat)
+    {
+        var button = InlineKeyboardButton.WithCallbackData(label, codec.Encode(confirmation, owner, chat));
+        return new(text, JsonSerializer.Serialize(new InlineKeyboardMarkup(new[] { new[] { button } })));
+    }
+
     internal TelegramLearningReply Render(TelegramLearningReply reply, long owner, long chat, DateTimeOffset now,
         DialogueContext? dialogue, Lesson? lesson = null)
     {

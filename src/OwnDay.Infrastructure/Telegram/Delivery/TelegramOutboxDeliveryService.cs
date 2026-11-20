@@ -63,7 +63,7 @@ public sealed class TelegramOutboxDeliveryService
                 continue;
             }
 
-            long? owner = message.StudyInvitationId is not null ? message.ChatId : null;
+            long? owner = message.ChatId > 0 ? message.ChatId : null;
             if (persistedOrder && message.LearningRequestId is { } requestId)
             {
                 var requestOwner = await _dbContext.Set<LearningRequest>().AsNoTracking()

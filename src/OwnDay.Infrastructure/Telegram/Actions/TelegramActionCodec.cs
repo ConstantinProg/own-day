@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Extensions.Options;
 using OwnDay.Application.Learning;
+using OwnDay.Application.TesterMode;
 using OwnDay.Infrastructure.Telegram.Configuration;
 
 namespace OwnDay.Infrastructure.Telegram.Actions;
@@ -12,6 +13,7 @@ public sealed class TelegramActionCodec
     private const string Prefix = "a1.";
     private const int PayloadSize = 30;
     private const int TagSize = 12;
+    private const int TesterKindOffset = 128;
     private const int EncodedSize = (PayloadSize + TagSize) / 3 * 4;
     private readonly byte[] _key;
 
@@ -43,32 +45,14 @@ public sealed class TelegramActionCodec
         }
         else BinaryPrimitives.WriteInt64BigEndian(bytes[17..25], action.Revision);
         bytes[25] = action.Option;
-        BinaryPrimitives.WriteUInt32BigEndian(bytes[26..30], checked((uint)expiresAt.ToUnixTimeSeconds()));
-        WriteTag(bytes[..PayloadSize], owner, chat, bytes[PayloadSize..]);
-        return Prefix + Convert.ToBase64String(bytes).Replace('+', '-').Replace('/', '_');
+        return Sign(bytes, owner, chat, expiresAt);
     }
 
     public bool TryDecode(string data, long owner, long chat, out LearningAction? action, out DateTimeOffset expiresAt)
     {
         action = null;
-        expiresAt = default;
-        if (owner <= 0 || chat != owner || data.Length != Prefix.Length + EncodedSize ||
-            !data.StartsWith(Prefix, StringComparison.Ordinal))
-            return false;
-
-        Span<char> base64 = stackalloc char[EncodedSize];
-        for (var index = 0; index < base64.Length; index++)
-        {
-            var character = data[index + Prefix.Length];
-            if (!char.IsAsciiLetterOrDigit(character) && character is not ('-' or '_')) return false;
-            base64[index] = character switch { '-' => '+', '_' => '/', _ => character };
-        }
-
         Span<byte> bytes = stackalloc byte[PayloadSize + TagSize];
-        if (!Convert.TryFromBase64Chars(base64, bytes, out var written) || written != bytes.Length) return false;
-        Span<byte> tag = stackalloc byte[TagSize];
-        WriteTag(bytes[..PayloadSize], owner, chat, tag);
-        if (!CryptographicOperations.FixedTimeEquals(tag, bytes[PayloadSize..])) return false;
+        if (!TryReadSigned(data, owner, chat, bytes, out expiresAt)) return false;
 
         var kind = (LearningActionKind)bytes[0];
         var decoded = kind switch
@@ -84,8 +68,59 @@ public sealed class TelegramActionCodec
             _ => new LearningAction(kind, new Guid(bytes[1..17]), BinaryPrimitives.ReadInt64BigEndian(bytes[17..25]), bytes[25])
         };
         if (!IsValid(decoded)) return false;
-        expiresAt = DateTimeOffset.FromUnixTimeSeconds(BinaryPrimitives.ReadUInt32BigEndian(bytes[26..30]));
         action = decoded;
+        return true;
+    }
+
+    public string Encode(TesterModeConfirmation confirmation, long owner, long chat)
+    {
+        if (owner <= 0 || chat != owner || confirmation.Id == Guid.Empty || !Enum.IsDefined(confirmation.Operation))
+            throw new ArgumentException("Invalid Tester Mode action.", nameof(confirmation));
+        Span<byte> bytes = stackalloc byte[PayloadSize + TagSize];
+        bytes.Clear();
+        bytes[0] = checked((byte)(TesterKindOffset + (int)confirmation.Operation));
+        confirmation.Id.TryWriteBytes(bytes[1..17]);
+        return Sign(bytes, owner, chat, confirmation.ExpiresAt);
+    }
+
+    public bool TryDecodeTester(string data, long owner, long chat, out TesterModeConfirmation? confirmation)
+    {
+        confirmation = null;
+        Span<byte> bytes = stackalloc byte[PayloadSize + TagSize];
+        if (!TryReadSigned(data, owner, chat, bytes, out var expiresAt)) return false;
+        var operation = (TesterModeOperation)(bytes[0] - TesterKindOffset);
+        var id = new Guid(bytes[1..17]);
+        if (!Enum.IsDefined(operation) || id == Guid.Empty) return false;
+        confirmation = new(id, operation, expiresAt);
+        return true;
+    }
+
+    private string Sign(Span<byte> bytes, long owner, long chat, DateTimeOffset expiresAt)
+    {
+        BinaryPrimitives.WriteUInt32BigEndian(bytes[26..30], checked((uint)expiresAt.ToUnixTimeSeconds()));
+        WriteTag(bytes[..PayloadSize], owner, chat, bytes[PayloadSize..]);
+        return Prefix + Convert.ToBase64String(bytes).Replace('+', '-').Replace('/', '_');
+    }
+
+    private bool TryReadSigned(string data, long owner, long chat, Span<byte> bytes, out DateTimeOffset expiresAt)
+    {
+        expiresAt = default;
+        if (owner <= 0 || chat != owner || data.Length != Prefix.Length + EncodedSize ||
+            !data.StartsWith(Prefix, StringComparison.Ordinal))
+            return false;
+
+        Span<char> base64 = stackalloc char[EncodedSize];
+        for (var index = 0; index < base64.Length; index++)
+        {
+            var character = data[index + Prefix.Length];
+            if (!char.IsAsciiLetterOrDigit(character) && character is not ('-' or '_')) return false;
+            base64[index] = character switch { '-' => '+', '_' => '/', _ => character };
+        }
+        if (!Convert.TryFromBase64Chars(base64, bytes, out var written) || written != bytes.Length) return false;
+        Span<byte> tag = stackalloc byte[TagSize];
+        WriteTag(bytes[..PayloadSize], owner, chat, tag);
+        if (!CryptographicOperations.FixedTimeEquals(tag, bytes[PayloadSize..])) return false;
+        expiresAt = DateTimeOffset.FromUnixTimeSeconds(BinaryPrimitives.ReadUInt32BigEndian(bytes[26..30]));
         return true;
     }
 

@@ -1,4 +1,5 @@
 using OwnDay.Application.TesterMode;
+using OwnDay.Domain.Dialogue;
 
 namespace OwnDay.Infrastructure.Telegram.Commands;
 
@@ -16,14 +17,60 @@ internal static class TelegramTesterModeText
         (TesterModeResult.InvalidSecret, false) => "Incorrect code. Try again or use /cancel.",
         (TesterModeResult.Locked, true) => "Слишком много попыток. Повторите /tester позже.",
         (TesterModeResult.Locked, false) => "Too many attempts. Try /tester again later.",
-        (TesterModeResult.Active, true) => "Режим тестировщика активен. /tester_off отключает его.",
-        (TesterModeResult.Active, false) => "Tester Mode is active. Use /tester_off to turn it off.",
+        (TesterModeResult.Active, true) => "Режим тестировщика активен.\n/tester_status — моё состояние.\n/tester_reset — сбросить мои данные.\n/tester_off — отключить доступ.",
+        (TesterModeResult.Active, false) => "Tester Mode is active.\n/tester_status — view my state.\n/tester_reset — reset my data.\n/tester_off — turn off access.",
         (TesterModeResult.Revoked, true) => "Доступ к режиму тестировщика отключён.",
         (TesterModeResult.Revoked, false) => "Tester Mode access is off.",
         (TesterModeResult.Cancelled, true) => "Действие в режиме тестировщика отменено.",
         (TesterModeResult.Cancelled, false) => "Tester Mode action cancelled.",
         (TesterModeResult.Expired, true) => "Время ожидания истекло. Если хотите продолжить, запустите команду заново.",
         (TesterModeResult.Expired, false) => "The request expired. Run the command again to continue.",
+        (TesterModeResult.Confirm, true) => "Сброс удалит ваши задачи, обучение, настройки и диалоги. Доступ тестировщика сохранится. Подтвердите сброс кнопкой или введите /cancel.",
+        (TesterModeResult.Confirm, false) => "Reset clears your tasks, learning, settings, and dialogue. Tester Mode access stays active. Confirm with the button or use /cancel.",
+        (TesterModeResult.Reset, true) => "Ваше состояние сброшено. Отправьте /start, чтобы начать заново.",
+        (TesterModeResult.Reset, false) => "Your state was reset. Send /start to begin again.",
+        (TesterModeResult.InvalidCommand, true) => "Введите /tester для списка команд. Команды не принимают аргументы.",
+        (TesterModeResult.InvalidCommand, false) => "Use /tester for the list of commands. Send commands without arguments.",
         _ => throw new ArgumentOutOfRangeException(nameof(result))
     };
+
+    public static string RenderStatus(TesterModeStatus status, bool russian)
+    {
+        var progress = status.CompletedTopics is { } completed
+            ? (russian ? $"Темы выбранной программы — {completed} из {status.TotalTopics} завершено."
+                : $"Selected program — {completed} of {status.TotalTopics} topics completed.")
+            : (russian ? "Нет выбранной программы." : "No program selected.");
+        var dialogue = DescribeDialogue(status.Phase, status.ExpectedResponse, russian);
+        return russian
+            ? $"Задачи — открыто {status.ActiveTasks}, завершено {status.CompletedTasks}.\nПрограммы — {status.Programs}. {progress}\n" +
+              $"Упражнения — активно {status.ActiveExercises}, на паузе {status.PausedExercises}, отложено {status.SuspendedExercises}.\n" +
+              $"Диалог — {dialogue}.\nУчебные запросы в обработке или очереди — {status.PendingLearningRequests}."
+            : $"Tasks — {status.ActiveTasks} open, {status.CompletedTasks} completed.\nPrograms — {status.Programs}. {progress}\n" +
+              $"Exercises — {status.ActiveExercises} active, {status.PausedExercises} paused, {status.SuspendedExercises} suspended.\n" +
+              $"Dialogue — {dialogue}.\nLearning requests queued or processing — {status.PendingLearningRequests}.";
+    }
+
+    private static string DescribeDialogue(DialoguePhase? phase, DialogueExpectedResponse? expectedResponse, bool russian)
+    {
+        var (ru, en) = phase switch
+        {
+            DialoguePhase.Consultation => ("выбор учебной цели", "choosing a learning goal"),
+            DialoguePhase.DiagnosticOffer => ("предложена диагностика", "diagnostic offered"),
+            DialoguePhase.Diagnostic => ("диагностика", "diagnostic in progress"),
+            DialoguePhase.Learning => ("обучение", "learning"),
+            DialoguePhase.Paused => ("пауза", "paused"),
+            DialoguePhase.Confirmation => ("подтверждение", "confirmation"),
+            _ => ("нет активного диалога", "no active dialogue")
+        };
+        var (expectedRu, expectedEn) = expectedResponse switch
+        {
+            DialogueExpectedResponse.ConsultationDetail => (", ожидаются уточнения цели", ", waiting for goal details"),
+            DialogueExpectedResponse.DiagnosticChoice => (", ожидается выбор", ", waiting for a choice"),
+            DialogueExpectedResponse.DiagnosticAnswer or DialogueExpectedResponse.LessonAnswer => (", ожидается ответ", ", waiting for an answer"),
+            DialogueExpectedResponse.IntentChoice => (", ожидается уточнение", ", waiting for clarification"),
+            DialogueExpectedResponse.ChangeConfirmation => (", ожидается подтверждение", ", waiting for confirmation"),
+            _ => (string.Empty, string.Empty)
+        };
+        return russian ? ru + expectedRu : en + expectedEn;
+    }
 }

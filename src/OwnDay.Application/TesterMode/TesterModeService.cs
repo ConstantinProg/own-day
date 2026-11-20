@@ -4,11 +4,6 @@ using OwnDay.Domain;
 
 namespace OwnDay.Application.TesterMode;
 
-public enum TesterModeResult
-{
-    Disabled, AuthorizationRequired, PromptForSecret, InvalidSecret, Locked, Active, Revoked, Cancelled, Expired
-}
-
 public sealed class TesterModeService(ITesterModeStore store, TesterModeOptions options)
 {
     private const string SecretPrefix = "ownday-tester-";
@@ -21,7 +16,7 @@ public sealed class TesterModeService(ITesterModeStore store, TesterModeOptions 
 
     public static bool ContainsSecretPrefix(string? text) => text?.Contains(SecretPrefix, StringComparison.OrdinalIgnoreCase) == true;
 
-    public async Task<TesterModeResult?> HandleAsync(UserId user, int updateId, string? command, string? text,
+    public async Task<TesterModeResponse?> HandleAsync(UserId user, int updateId, string? command, string? text, bool hasArguments,
         DateTimeOffset now, CancellationToken cancellationToken)
     {
         var containsSecret = ContainsSecretPrefix(text);
@@ -29,7 +24,24 @@ public sealed class TesterModeService(ITesterModeStore store, TesterModeOptions 
             return IsTesterCommand(command) || containsSecret ? TesterModeResult.Disabled : null;
 
         var state = await store.FindAsync(user, cancellationToken);
-        if (command == "tester" && !containsSecret)
+        if (IsTesterCommand(command) && !containsSecret)
+            return await HandleCommandAsync(user, state, command!, hasArguments, updateId, now, cancellationToken);
+        if (command == "cancel" && state?.PromptExpiresAt > now && !containsSecret)
+        {
+            state.ClosePrompt();
+            return TesterModeResult.Cancelled;
+        }
+        if (!containsSecret && (command is not null || state?.HasSecretPrompt != true))
+            return null;
+        return HandleSecret(state, command, text, updateId, now);
+    }
+
+    private async Task<TesterModeResponse> HandleCommandAsync(UserId user, TesterModeState? state, string command,
+        bool hasArguments, int updateId, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        if (hasArguments)
+            return TesterModeResult.InvalidCommand;
+        if (command == "tester")
         {
             if (state is null)
             {
@@ -45,24 +57,46 @@ public sealed class TesterModeService(ITesterModeStore store, TesterModeOptions 
                 state.RequestSecret(updateId, now.AddSeconds(options.ConfirmationTimeoutSeconds));
             return TesterModeResult.PromptForSecret;
         }
-        if (command == "tester_off" && !containsSecret)
+        if (command == "tester_off")
         {
             state?.Revoke();
             return TesterModeResult.Revoked;
         }
-        if (command == "cancel" && state?.PromptExpiresAt > now && !containsSecret)
-        {
-            state.ClosePrompt();
-            return TesterModeResult.Cancelled;
-        }
-        if (IsTesterCommand(command) && !containsSecret)
+        if (state?.Authorized != true)
             return TesterModeResult.AuthorizationRequired;
+        if (command == "tester_status")
+            return new(TesterModeResult.Status, Status: await store.ReadStatusAsync(user, cancellationToken));
+        if (command == "tester_reset")
+        {
+            if (updateId <= state.PromptUpdateId)
+                return TesterModeResult.Expired;
+            return new(TesterModeResult.Confirm, state.RequestConfirmation(TesterModeOperation.Reset, updateId,
+                now.AddSeconds(options.ConfirmationTimeoutSeconds)));
+        }
+        return TesterModeResult.InvalidCommand;
+    }
 
-        if (!containsSecret && (command is not null || state?.PromptExpiresAt is null))
-            return null;
+    public async Task<TesterModeResponse> ConfirmAsync(UserId user, TesterModeConfirmation confirmation, int updateId,
+        DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        if (!Enabled)
+            return TesterModeResult.Disabled;
+        var state = await store.FindAsync(user, cancellationToken);
+        if (state?.Authorized != true)
+            return TesterModeResult.AuthorizationRequired;
+        if (!state.MatchesConfirmation(confirmation, updateId, now))
+            return TesterModeResult.Expired;
+
+        await store.ClearUserDataAsync(user, confirmation.Operation, cancellationToken);
+        state.ClosePrompt();
+        return TesterModeResult.Reset;
+    }
+
+    private TesterModeResponse HandleSecret(TesterModeState? state, string? command, string? text, int updateId, DateTimeOffset now)
+    {
         if (state?.IsBlocked(now) == true)
             return TesterModeResult.Locked;
-        if (state?.PromptExpiresAt is not { } expiry || command is not null)
+        if (state?.HasSecretPrompt != true || state.PromptExpiresAt is not { } expiry || command is not null)
             return TesterModeResult.AuthorizationRequired;
         if (expiry <= now)
         {

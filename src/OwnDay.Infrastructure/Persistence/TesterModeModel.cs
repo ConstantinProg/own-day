@@ -19,6 +19,8 @@ internal static class TesterModeModel
             entity.Property(state => state.PromptUpdateId).HasColumnName("prompt_update_id");
             entity.Property(state => state.FailedAttempts).HasColumnName("failed_attempts");
             entity.Property(state => state.AttemptWindowEndsAt).HasColumnName("attempt_window_ends_at");
+            entity.Property(state => state.ConfirmationId).HasColumnName("confirmation_id");
+            entity.Property(state => state.PendingOperation).HasColumnName("pending_operation");
         });
     }
 }

@@ -32,10 +32,7 @@ public sealed class EfOpenAIRequestLedger(IServiceScopeFactory scopes, IOptions<
         await using var scope = scopes.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
-        if (db.Database.IsNpgsql())
-        {
-            await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock({BudgetLock})", cancellationToken);
-        }
+        await LockBudgetAsync(db, cancellationToken);
         long owner;
         int sequence;
         if (analysisId is { } inboxId)
@@ -51,7 +48,8 @@ public sealed class EfOpenAIRequestLedger(IServiceScopeFactory scopes, IOptions<
             var source = await (from attempt in db.Set<LearningProviderAttempt>()
                                 join request in db.Set<LearningRequest>() on attempt.RequestId equals request.Id
                                 where attempt.Id == physicalAttemptId && attempt.FinishedAt == null
-                                select new { request.UserId, attempt.Number }).SingleAsync(cancellationToken);
+                                select new { request.UserId, attempt.Number }).SingleOrDefaultAsync(cancellationToken);
+            if (source is null) return null;
             if (await db.OpenAIRequestAttempts.AnyAsync(a => a.LearningProviderAttemptId == physicalAttemptId, cancellationToken)) return null;
             owner = source.UserId.Value;
             sequence = source.Number;
@@ -64,22 +62,27 @@ public sealed class EfOpenAIRequestLedger(IServiceScopeFactory scopes, IOptions<
         var end = month.AddMonths(1);
         var monthly = db.OpenAIRequestAttempts.Where(a => a.StartedAt >= month && a.StartedAt < end);
         var userMonthly = monthly.Where(a => a.UserId == owner);
+        var carryover = db.Set<OpenAIBudgetCarryover>();
+        var monthlyCarryover = carryover.Where(total => total.Month == DateOnly.FromDateTime(month));
+        var carried = await ReadCarriedBudgetAsync(monthlyCarryover, cancellationToken);
+        var userCarried = await ReadCarriedBudgetAsync(monthlyCarryover.Where(total => total.UserId == owner), cancellationToken);
         var price = settings.Models.GetValueOrDefault(descriptor.Model);
         decimal? reservation = price?.InputUsdPerMillion is { } inputPrice && price.OutputUsdPerMillion is { } outputPrice &&
             price.CachedInputUsdPerMillion is { } cachedPrice
             ? settings.TokensPerRequest * Math.Max(inputPrice, Math.Max(outputPrice, cachedPrice)) / 1_000_000m : null;
         var charged = settings.TokenLimit is null ? 0 :
-            await db.OpenAIRequestAttempts.SumAsync(a => (long?)a.ChargedTokens, cancellationToken) ?? 0;
-        var monthlyTokens = await monthly.SumAsync(a => (long?)a.ChargedTokens, cancellationToken) ?? 0;
-        var userTokens = await userMonthly.SumAsync(a => (long?)a.ChargedTokens, cancellationToken) ?? 0;
-        var monthlyUsd = await monthly.SumAsync(a => a.ChargedUsd ?? a.EstimatedUsd, cancellationToken) ?? 0;
+            (await db.OpenAIRequestAttempts.SumAsync(a => (long?)a.ChargedTokens, cancellationToken) ?? 0) +
+            await carryover.SumAsync(total => total.ChargedTokens, cancellationToken);
+        var monthlyTokens = carried.Tokens + (await monthly.SumAsync(a => (long?)a.ChargedTokens, cancellationToken) ?? 0);
+        var userTokens = userCarried.Tokens + (await userMonthly.SumAsync(a => (long?)a.ChargedTokens, cancellationToken) ?? 0);
+        var monthlyUsd = carried.Usd + (await monthly.SumAsync(a => a.ChargedUsd ?? a.EstimatedUsd, cancellationToken) ?? 0);
         if (settings.TokenLimit is { } limit && settings.TokensPerRequest > limit - charged ||
             settings.TokensPerRequest > settings.MonthlyTokenLimit - monthlyTokens ||
             settings.TokensPerRequest > settings.MonthlyUserTokenLimit - userTokens ||
-            await monthly.CountAsync(cancellationToken) >= settings.MonthlyCallLimit ||
-            await userMonthly.CountAsync(cancellationToken) >= settings.MonthlyUserCallLimit ||
+            carried.Calls + await monthly.LongCountAsync(cancellationToken) >= settings.MonthlyCallLimit ||
+            userCarried.Calls + await userMonthly.LongCountAsync(cancellationToken) >= settings.MonthlyUserCallLimit ||
             settings.MonthlyUsdLimit is { } usdLimit && (reservation is null || reservation > usdLimit - monthlyUsd ||
-                await monthly.AnyAsync(a => a.ChargedUsd == null && a.EstimatedUsd == null, cancellationToken)))
+                carried.HasUnknownCost || await monthly.AnyAsync(a => a.ChargedUsd == null && a.EstimatedUsd == null, cancellationToken)))
         {
             logger.LogWarning("OpenAI admission blocked for owner {Owner}: {Code}.", owner, "budget_limit");
             return null;
@@ -108,12 +111,9 @@ public sealed class EfOpenAIRequestLedger(IServiceScopeFactory scopes, IOptions<
         var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         // Same lock fences reconciliation and admission, including concurrent duplicate completion.
-        if (db.Database.IsNpgsql())
-        {
-            await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock({BudgetLock})", cancellationToken);
-        }
-        var row = await db.OpenAIRequestAttempts.SingleAsync(a => a.Id == id, cancellationToken);
-        if (row.FinishedAt is not null)
+        await LockBudgetAsync(db, cancellationToken);
+        var row = await db.OpenAIRequestAttempts.SingleOrDefaultAsync(a => a.Id == id, cancellationToken);
+        if (row is null || row.FinishedAt is not null)
         {
             return;
         }
@@ -145,4 +145,49 @@ public sealed class EfOpenAIRequestLedger(IServiceScopeFactory scopes, IOptions<
         logger.LogInformation("OpenAI request {AttemptId}, analysis {AnalysisId}: {Code}, input {InputTokens}, cached {CachedTokens}, output {OutputTokens}, estimated USD {EstimatedUsd}.",
             id, row.AnalysisId, code, row.InputTokens, row.CachedInputTokens, row.OutputTokens, row.EstimatedUsd);
     }
+
+    internal static async Task PreserveOwnerChargesAsync(OwnDayDbContext db, long userId, CancellationToken cancellationToken)
+    {
+        await LockBudgetAsync(db, cancellationToken);
+        var attempts = db.OpenAIRequestAttempts.Where(attempt => attempt.UserId == userId);
+        var totals = await attempts.GroupBy(attempt => new { attempt.StartedAt.Year, attempt.StartedAt.Month })
+            .Select(month => new
+            {
+                month.Key.Year,
+                month.Key.Month,
+                Calls = month.LongCount(),
+                Tokens = month.Sum(attempt => attempt.ChargedTokens),
+                Usd = month.Sum(attempt => attempt.ChargedUsd ?? attempt.EstimatedUsd ?? 0),
+                HasUnknownCost = month.Any(attempt => attempt.ChargedUsd == null && attempt.EstimatedUsd == null)
+            }).ToListAsync(cancellationToken);
+        foreach (var source in totals)
+        {
+            var month = new DateOnly(source.Year, source.Month, 1);
+            var carryover = await db.Set<OpenAIBudgetCarryover>().FindAsync([userId, month], cancellationToken);
+            if (carryover is null)
+            {
+                carryover = new OpenAIBudgetCarryover { UserId = userId, Month = month };
+                db.Add(carryover);
+            }
+            carryover.CallCount += source.Calls;
+            carryover.ChargedTokens += source.Tokens;
+            carryover.ChargedUsd += source.Usd;
+            carryover.HasUnknownCost |= source.HasUnknownCost;
+        }
+        await attempts.ExecuteDeleteAsync(cancellationToken);
+    }
+
+    private static async Task LockBudgetAsync(OwnDayDbContext db, CancellationToken cancellationToken)
+    {
+        if (db.Database.IsNpgsql())
+            await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock({BudgetLock})", cancellationToken);
+    }
+
+    private static async Task<CarriedBudget> ReadCarriedBudgetAsync(IQueryable<OpenAIBudgetCarryover> totals, CancellationToken cancellationToken) =>
+        await totals.GroupBy(_ => 1)
+            .Select(month => new CarriedBudget(month.Sum(total => total.CallCount), month.Sum(total => total.ChargedTokens),
+                month.Sum(total => total.ChargedUsd), month.Any(total => total.HasUnknownCost)))
+            .SingleOrDefaultAsync(cancellationToken);
+
+    private readonly record struct CarriedBudget(long Calls, long Tokens, decimal Usd, bool HasUnknownCost);
 }

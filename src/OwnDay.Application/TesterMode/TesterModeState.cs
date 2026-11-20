@@ -13,8 +13,11 @@ public sealed class TesterModeState(UserId userId)
     public int PromptUpdateId { get; private set; }
     public int FailedAttempts { get; private set; }
     public DateTimeOffset? AttemptWindowEndsAt { get; private set; }
+    public Guid? ConfirmationId { get; private set; }
+    public TesterModeOperation? PendingOperation { get; private set; }
 
     internal bool IsBlocked(DateTimeOffset now) => FailedAttempts >= MaximumFailures && AttemptWindowEndsAt > now;
+    internal bool HasSecretPrompt => PromptExpiresAt is not null && PendingOperation is null;
 
     internal void RequestSecret(int updateId, DateTimeOffset expiresAt)
     {
@@ -53,5 +56,20 @@ public sealed class TesterModeState(UserId userId)
     {
         PromptUpdateId = 0;
         PromptExpiresAt = null;
+        ConfirmationId = null;
+        PendingOperation = null;
     }
+
+    internal TesterModeConfirmation RequestConfirmation(TesterModeOperation operation, int updateId, DateTimeOffset expiresAt)
+    {
+        PromptUpdateId = updateId;
+        PromptExpiresAt = expiresAt;
+        PendingOperation = operation;
+        ConfirmationId = Guid.NewGuid();
+        return new(ConfirmationId.Value, operation, expiresAt);
+    }
+
+    internal bool MatchesConfirmation(TesterModeConfirmation confirmation, int updateId, DateTimeOffset now) =>
+        confirmation.Id == ConfirmationId && confirmation.Operation == PendingOperation &&
+        updateId > PromptUpdateId && PromptExpiresAt > now && confirmation.ExpiresAt > now;
 }

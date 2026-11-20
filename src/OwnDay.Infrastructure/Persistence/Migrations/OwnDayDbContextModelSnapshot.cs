@@ -1047,11 +1047,26 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
             b.Property<long>("UserId").ValueGeneratedNever().HasColumnType("bigint").HasColumnName("user_id");
             b.Property<DateTimeOffset?>("AttemptWindowEndsAt").HasColumnType("timestamp with time zone").HasColumnName("attempt_window_ends_at");
             b.Property<bool>("Authorized").HasColumnType("boolean").HasColumnName("authorized");
+            b.Property<Guid?>("ConfirmationId").HasColumnType("uuid").HasColumnName("confirmation_id");
             b.Property<int>("FailedAttempts").HasColumnType("integer").HasColumnName("failed_attempts");
+            b.Property<int?>("PendingOperation").HasColumnType("integer").HasColumnName("pending_operation");
             b.Property<DateTimeOffset?>("PromptExpiresAt").HasColumnType("timestamp with time zone").HasColumnName("prompt_expires_at");
             b.Property<int>("PromptUpdateId").HasColumnType("integer").HasColumnName("prompt_update_id");
             b.HasKey("UserId");
             b.ToTable("tester_mode_users");
+        });
+
+        modelBuilder.Entity("OwnDay.Infrastructure.Persistence.OpenAIBudgetCarryover", b =>
+        {
+            b.Property<long>("UserId").HasColumnType("bigint").HasColumnName("user_id");
+            b.Property<DateOnly>("Month").HasColumnType("date").HasColumnName("month");
+            b.Property<long>("CallCount").HasColumnType("bigint").HasColumnName("call_count");
+            b.Property<long>("ChargedTokens").HasColumnType("bigint").HasColumnName("charged_tokens");
+            b.Property<decimal>("ChargedUsd").HasPrecision(20, 12).HasColumnType("numeric(20,12)").HasColumnName("charged_usd");
+            b.Property<bool>("HasUnknownCost").HasColumnType("boolean").HasColumnName("has_unknown_cost");
+            b.HasKey("UserId", "Month");
+            b.HasIndex("Month");
+            b.ToTable("openai_budget_carryover");
         });
 
         modelBuilder.Entity("OwnDay.Domain.Learning.Lesson", b =>

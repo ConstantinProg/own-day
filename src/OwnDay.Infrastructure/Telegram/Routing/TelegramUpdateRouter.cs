@@ -35,11 +35,13 @@ public sealed class TelegramUpdateRouter
         if (update.CallbackQuery is { From.IsBot: false, Data: { } actionData } callbackAction &&
             (actionData.StartsWith("a", StringComparison.Ordinal) || actionData.StartsWith("lc:", StringComparison.Ordinal)))
         {
-            if (callbackAction.Message is { Chat.Type: ChatType.Private, Id: > 0 } source &&
-                _actions is not null &&
-                _actions.TryDecode(actionData, callbackAction.From.Id, source.Chat.Id, out var action, out var expiresAt))
+            if (callbackAction.Message is { Chat.Type: ChatType.Private, Id: > 0 } source && _actions is not null)
             {
-                return new TelegramUpdateRouteResult.Action(new UserId(callbackAction.From.Id), source.Chat.Id, action!, expiresAt);
+                var owner = new UserId(callbackAction.From.Id);
+                if (_actions.TryDecode(actionData, owner.Value, source.Chat.Id, out var action, out var expiresAt))
+                    return new TelegramUpdateRouteResult.Action(owner, source.Chat.Id, action!, expiresAt);
+                if (_actions.TryDecodeTester(actionData, owner.Value, source.Chat.Id, out var confirmation))
+                    return new TelegramUpdateRouteResult.TesterAction(owner, source.Chat.Id, confirmation!);
             }
             return new TelegramUpdateRouteResult.UnavailableAction(IsRussian(callbackAction.From.LanguageCode));
         }
