@@ -72,6 +72,31 @@ remain authoritative for argument validation and behavior.
 
 ## Deployment
 
+### Upgrading the tutoring dialogue
+
+Drain the Learning queue on the current image before deploying the adaptive dialogue
+or changing its provider step sequence. Provider checkpoints include the allowed
+intents and step order. A new consumer may otherwise complete a prepared request as
+`stale_target` and ask the learner to repeat it.
+
+1. Pause Telegram webhook ingress at the proxy with HTTP 503 so Telegram can retry.
+   Keep the current application and Learning worker running during the drain.
+2. Check the application database. Both counts must be zero before replacing the
+   image. Ready includes requests waiting for a retry. Running includes active and
+   expired leases that the current worker must recover.
+
+   ```sql
+   SELECT count(*) FILTER (WHERE status = 1) AS ready,
+          count(*) FILTER (WHERE status = 2) AS running
+   FROM learning_requests;
+   ```
+
+3. Deploy the new image while ingress is paused, then restore ingress after the new
+   worker is healthy. Follow the same sequence before rolling back across the policy
+   change. For a deployment triggered by a push to `main`, drain before pushing.
+
+### Schema and topology
+
 Apply `AddLearningRequests` before starting this code. It only creates a table and
 nullable columns/indexes/constraints on the existing outbox; old rows remain valid.
 The previous Host can run against the expanded schema. Roll back code without dropping

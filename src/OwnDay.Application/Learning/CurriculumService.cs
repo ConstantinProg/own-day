@@ -25,7 +25,7 @@ public interface ICurriculumStore
 public sealed record CurriculumProposal(string Discipline, CurriculumTopic[] Topics, string? DiagnosticQuestion,
     string? DiagnosticInterpretation = null, DiagnosticStartingLevel? StartingLevel = null,
     DiagnosticAnswerKind? DiagnosticAnswerKind = null, ConsultationWording? Wording = null);
-public sealed record ConsultationWording(string? Goal, string? PracticalUse, bool ClarifyPracticalUse);
+public sealed record ConsultationWording(bool ClarifyPracticalUse);
 public sealed record CurriculumRequest(string Goal, string Experience, string? Question, string? Answer, string? Discipline = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] DiagnosticQuestionContext[]? PriorObservations = null)
 {
@@ -43,10 +43,7 @@ public interface ICurriculumPlanner
 
 public abstract record CurriculumResult
 {
-    public sealed record Program(LearningProgram Value, string? ResumeNotice = null) : CurriculumResult
-    {
-        public ConsultationWording? Wording { get; init; }
-    }
+    public sealed record Program(LearningProgram Value, string? ResumeNotice = null) : CurriculumResult;
     public sealed record ClarifyPracticalUse : CurriculumResult;
     public sealed record Lesson(LearningResult Value) : CurriculumResult
     {
@@ -82,7 +79,7 @@ public abstract record CurriculumResult
 
 public sealed partial class CurriculumService(ICurriculumStore store, ICurriculumPlanner planner,
     ILessonStore lessons, ILessonTeacher teacher, StructuredItemService projects, KnowledgeService knowledge,
-    ITeachingPlanner teachingPlanner, IActionStore actions)
+    ITeachingPlanner teachingPlanner, IActionStore actions, Func<int>? remainingProviderSteps = null)
 {
     public const int PageSize = 10;
     public const int MaxPageNumber = int.MaxValue / PageSize;
@@ -125,13 +122,7 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
             if (suspendCurrent) await SuspendAsync(current, currentContext, active, token);
             store.Add(program);
             await store.SelectAsync(program, token);
-            return new CurriculumResult.Program(program)
-            {
-                Wording = consultationUse is not null
-                    ? new(LearningGoalText.AcceptCorrection(goal, proposal.Wording?.Goal, LearningProgram.MaxGoalLength),
-                        LearningGoalText.AcceptCorrection(consultationUse, proposal.Wording?.PracticalUse, 400), false)
-                    : null
-            };
+            return new CurriculumResult.Program(program);
         }
         catch (Exception exception) when (exception is LessonProviderException or ArgumentException)
         {
@@ -280,9 +271,9 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
             var count = diagnostic.Observations.Length + 1;
             var substantiveAnswers = diagnostic.Observations.Count(item => item.HasSubjectContent) + (uncertain ? 0 : 1);
             var followUp = count >= SubjectDiagnostic.MaxQuestions ? null : proposal.DiagnosticQuestion;
-            var enoughToStop = count >= 3 || count == 2 && (substantiveAnswers == 0 ||
+            var canFinishEarly = count >= 3 || count == 2 && (substantiveAnswers == 0 ||
                 substantiveAnswers == 2 && proposal.StartingLevel != DiagnosticStartingLevel.Unknown);
-            if (followUp is null && !enoughToStop || uncertain && followUp is not null && RepeatsDiagnosticQuestion(program, followUp))
+            if (followUp is null && !canFinishEarly || uncertain && followUp is not null && RepeatsDiagnosticQuestion(program, followUp))
                 followUp = FallbackDiagnosticQuestion(program, russian);
             var level = substantiveAnswers >= 2 && followUp is null ? proposal.StartingLevel.Value : DiagnosticStartingLevel.Unknown;
             var noEvidence = russian ? "Ответ не даёт предметных сведений для оценки." : "The answer does not demonstrate subject knowledge.";
@@ -332,7 +323,7 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
         NormalizeDiagnostic(program.DiagnosticQuestion!) == NormalizeDiagnostic(question) ||
         program.SubjectDiagnostic!.Observations.Any(item => NormalizeDiagnostic(item.Question) == NormalizeDiagnostic(question));
 
-    private static string FallbackDiagnosticQuestion(LearningProgram program, bool russian)
+    private static string? FallbackDiagnosticQuestion(LearningProgram program, bool russian)
     {
         var topic = program.CurrentRoute.Topics.First().Title;
         string[] questions = russian
@@ -340,7 +331,7 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
                 $"В какой ситуации пригодится знание темы «{topic}»?", $"Какое понятие по теме «{topic}» вам уже знакомо?"]
             : [$"Can you give one simple example of “{topic}”?", $"How would you describe “{topic}” in your own words?",
                 $"When would “{topic}” be useful?", $"Which idea from “{topic}” is already familiar to you?"];
-        return questions.First(question => !RepeatsDiagnosticQuestion(program, question));
+        return questions.FirstOrDefault(question => !RepeatsDiagnosticQuestion(program, question));
     }
 
     public async Task<CurriculumResult> CompleteDiagnosticAndStartAsync(UserId user, string answer, CancellationToken token)
@@ -424,13 +415,17 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
             {
                 var feedback = shared is not null ? [] : status?.Evidence.TakeLast(3)
                     .Select(e => e.AssessmentFeedback[..Math.Min(e.AssessmentFeedback.Length, 500)]).ToArray() ?? [];
-                var proposal = await teachingPlanner.ProposeAsync(new(program.Goal, program.Discipline, program.CurrentRoute.Topics,
-                    topic.Code, completed, state, feedback), token);
+                var useSimplerExample = remainingProviderSteps?.Invoke() == 1;
+                var proposal = useSimplerExample
+                    ? new TeachingProposal(nameof(TeachingAction.Simplify), topic.Code, "Use a smaller example at the current topic after repeated difficulty.")
+                    : await teachingPlanner.ProposeAsync(new(program.Goal, program.Discipline, program.CurrentRoute.Topics,
+                        topic.Code, completed, state, feedback), token);
                 token.ThrowIfCancellationRequested();
                 var satisfied = completed.Concat(route.Path?.SkippedTopics ?? []).ToHashSet(StringComparer.Ordinal);
                 if (!AdaptiveTeaching.TryValidate(proposal, topic, route.Topics, satisfied, state, out var action))
                     return new CurriculumResult.ProviderUnavailable();
-                var reason = $"{proposal.Action}: {topic.Code} -> {proposal.TopicCode}. Evidence: {state.PositiveAssessments} positive, {state.NegativeAssessments} negative AI assessments. AI rationale: {proposal.Reason}";
+                var rationaleLabel = useSimplerExample ? "Rationale" : "AI rationale";
+                var reason = $"{proposal.Action}: {topic.Code} -> {proposal.TopicCode}. Evidence: {state.PositiveAssessments} positive, {state.NegativeAssessments} negative AI assessments. {rationaleLabel}: {proposal.Reason}";
                 revision = program.ProposeAdaptation(proposal.TopicCode, reason);
                 topic = program.CurrentRoute.Topics.Single(t => t.Code == proposal.TopicCode);
                 teaching = new(action, reason, state, feedback);

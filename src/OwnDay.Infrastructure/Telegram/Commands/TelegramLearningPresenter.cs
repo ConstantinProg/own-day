@@ -1,4 +1,3 @@
-using OwnDay.Application.Dialogue;
 using OwnDay.Application.Learning;
 using OwnDay.Domain.Learning;
 
@@ -136,8 +135,7 @@ public static class TelegramLearningPresenter
     {
         var russian = MarketLearningContent.InRussian(session.Theory ?? session.Topic + session.Question);
         if (session.Content?.Kind is LearningContentKind.ReadingChoice or LearningContentKind.OpenWriting)
-            return TelegramDialoguePresenter.Render(new(DialogueReplyKind.Recap,
-                [session.Topic, session.Theory ?? "", session.Question, session.LastExplanation ?? "", session.Status.ToString()], !russian));
+            return RenderRecap(session, !russian);
         var guidance = session.LastExplanation is { } saved
             ? (russian ? "\n\nПоследняя подсказка\n" : "\n\nLast hint\n") + saved[..Math.Min(saved.Length, 500)] : "";
         var action = session.Status == LessonStatus.Paused
@@ -147,7 +145,20 @@ public static class TelegramLearningPresenter
         return [$"{session.Topic}\n{RenderTask(session.Question, content)}{guidance}\n\n{action}"];
     }
 
-    internal static string RenderTask(string question, LearningContent? content) =>
+    internal static IReadOnlyList<string> RenderRecap(LearningResult.Session session, bool english)
+    {
+        var action = session.Status == LessonStatus.Paused
+            ? english ? "Write “continue” to return to this exercise." : "Напишите «Продолжим», чтобы вернуться к этому вопросу."
+            : english ? "Write your answer or ask for help." : "Напишите ответ или попросите помощь.";
+        var guidance = string.IsNullOrWhiteSpace(session.LastExplanation) ? Array.Empty<string>()
+            : new[] { (english ? "Earlier guidance\n" : "Ранее разбирали\n") + session.LastExplanation };
+        var content = session.IsClarifyingAnswer ? null : session.Content;
+        return [(english ? "Current exercise — " : "Текущее упражнение — ") + session.Topic,
+            .. string.IsNullOrWhiteSpace(session.Theory) ? [] : new[] { session.Theory },
+            .. guidance, RenderTask(session.Question, content) + "\n\n" + action];
+    }
+
+    private static string RenderTask(string question, LearningContent? content) =>
         content is { Id: not LearningContent.GeneratedExerciseId, StructuredRubric.Version: 1 } legacy
         ? string.Join('\n', new[] { question }.Concat(legacy.StructuredRubric.Criteria
             .Select(criterion => criterion.Requirement).Where(requirement => !question.Contains(requirement, StringComparison.Ordinal))))

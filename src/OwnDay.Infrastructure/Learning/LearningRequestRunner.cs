@@ -25,7 +25,7 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
     {
         // At most planner + generator followed by apply. Each iteration disposes all
         // tracked state before any external I/O; a provider is never available in apply.
-        for (var phase = 0; phase < 3; phase++)
+        for (var phase = 0; phase <= LearningProviderSession.MaxSteps; phase++)
         {
             LearningProviderStep pending;
             try
@@ -125,7 +125,7 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
     private static CurriculumService CreateCurriculum(IServiceProvider services, LearningProviderSession session) =>
         new(services.GetRequiredService<ICurriculumStore>(), session, services.GetRequiredService<ILessonStore>(), session,
             services.GetRequiredService<StructuredItemService>(), services.GetRequiredService<KnowledgeService>(), session,
-            services.GetRequiredService<IActionStore>());
+            services.GetRequiredService<IActionStore>(), () => session.RemainingSteps);
 
     private static LearningPracticeService CreatePractice(IServiceProvider services, LearningProviderSession session) =>
         new(services.GetRequiredService<ICurriculumStore>(), services.GetRequiredService<ILessonStore>(),

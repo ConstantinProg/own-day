@@ -58,6 +58,48 @@ public sealed class LearningDialogueServiceTests
     }
 
     [Fact]
+    public async Task Decide_AssessmentExplanationBeforeFinalAnswer_ShowsOnlyPublishedQuestion()
+    {
+        const string question = "Какая планета ближе всего к Солнцу?";
+        var rubric = new ExerciseRubric(ExerciseRubric.QuestionScopedVersion, ExerciseEvidenceKind.Recognition,
+            [new("planet", question)]);
+        var lesson = Lesson.Start(Owner, "Планеты", "Порядок планет", question,
+            content: new LearningContent(LearningContent.GeneratedExerciseId, "rubric-v2", LearningContentKind.StructuredExercise,
+                "Порядок планет", question, question, rubric));
+        lesson.ApplyRubricAssessment("Самая маленькая", "Уточните ответ",
+            new([new("planet", RubricCriterionResult.Unclear, "Нужно назвать Меркурий.")]), Guid.NewGuid());
+        var context = DialogueContext.Create(Owner, lesson, Now);
+        var result = await new LearningDialogueService(new Store { Context = context }, new Resolver(LearningIntent.ExplainAssessment))
+            .DecideAsync(new(Guid.NewGuid(), Owner, null, "Почему не засчитано?", lesson.Id, context.PromptId, Now, Now),
+                lesson, null, Stamp, default);
+
+        Assert.Null(result.Execute);
+        Assert.Equal(DialogueReplyKind.ExerciseCriteria, result.Reply!.Kind);
+        Assert.Equal(question, Assert.Single(result.Reply.Values!));
+        Assert.Equal(AnswerAssistance.Independent, lesson.Assistance);
+    }
+
+    [Theory]
+    [InlineData("Can we move on?", LearningIntent.Next, DialogueOperationKind.NextPractice, 1)]
+    [InlineData("I am ready to pick up where I left off", LearningIntent.Resume, DialogueOperationKind.ResumePractice, 1)]
+    [InlineData("давай", LearningIntent.Ambiguous, DialogueOperationKind.ResumePractice, 0)]
+    public async Task Decide_NavigationBetweenExercises_UsesPracticeRules(string text, LearningIntent intent,
+        DialogueOperationKind expected, int calls)
+    {
+        var context = DialogueContext.Create(Owner, null, Now);
+        var program = new DialogueProgramSnapshot(Guid.NewGuid(), "Read emails", "English", 1,
+            HasEnglishDiagnostic: true, PracticeStatus: LearningPracticeStatus.Paused);
+        var resolver = new Resolver(intent);
+        var result = await new LearningDialogueService(new Store { Context = context }, resolver)
+            .DecideAsync(new(Guid.NewGuid(), Owner, null, text, null, context.PromptId, Now, Now, SourceOrder: 2),
+                null, program, Stamp, default);
+
+        Assert.Equal(expected, result.Execute);
+        Assert.Equal(calls, resolver.Calls);
+        Assert.Equal(2, context.ResponseAfterSourceOrder);
+    }
+
+    [Fact]
     public async Task Decide_ResolvedClarification_UsesOriginalInputWithoutCallingClassifierAgain()
     {
         var lesson = Lesson.Start(Owner, "English", "Theory", "Write a polite request.");

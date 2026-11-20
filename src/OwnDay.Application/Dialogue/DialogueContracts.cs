@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using OwnDay.Domain;
 using OwnDay.Domain.Dialogue;
 using OwnDay.Domain.Learning;
+using OwnDay.Application.Learning;
 
 namespace OwnDay.Application.Dialogue;
 
@@ -68,7 +69,7 @@ public enum DialogueReplyKind
     SessionEnded, ConfirmRouteEdit, RouteEditHelp, ConfirmGoalUpdate, ChooseMatchingProgram, ExerciseCriteria, ClarifyPracticalUse
 }
 public sealed record DialogueReply(DialogueReplyKind Kind, IReadOnlyList<string>? Values = null, bool InEnglish = false,
-    LearningContent? TaskContent = null);
+    LearningResult.Session? Recap = null);
 public sealed record DialogueDecision(DialogueContext Context, DialogueOperationKind? Execute, string Arguments,
     DialogueReply? Reply = null, DialogueAudit? Audit = null, FirstProgramCreation? Creation = null)
 {

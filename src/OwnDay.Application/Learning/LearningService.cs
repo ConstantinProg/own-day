@@ -453,7 +453,7 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
         Provenance = lesson.Provenance, ProjectActionId = lesson.ProjectActionId, Transfer = lesson.Transfer,
         Content = lesson.Content, Theory = lesson.Theory,
         IsClarifyingAnswer = lesson.ResponseQuestion != lesson.Question,
-        LastExplanation = lesson.Content is null ? null : lesson.SavedGuidance
+        LastExplanation = lesson.SavedGuidance
     };
 
     private static void ValidateUser(UserId user, CancellationToken token)

@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Npgsql;
 using Microsoft.Extensions.DependencyInjection;
+using OwnDay.Application.Dialogue;
 using OwnDay.Application.Learning.Requests;
 using OwnDay.Domain.Learning;
 using Xunit;
@@ -15,7 +16,15 @@ public sealed partial class PostgresLearningProviderTests
     [Fact]
     public async Task Post_TwoExercisesAcrossRestart_RequiresExplicitNextAndStopsAtRequestedCount()
     {
-        var probe = new Probe("");
+        var probe = new Probe("")
+        {
+            Recognize = input => input.Input switch
+            {
+                "Можем перейти к следующему?" => LearningIntent.Next,
+                "Готов снова заниматься" => LearningIntent.Resume,
+                _ => LearningIntent.Answer
+            }
+        };
         using (var host = PracticeHost(probe))
         using (var client = host.CreateClient())
         {
@@ -33,10 +42,16 @@ public sealed partial class PostgresLearningProviderTests
         using (var client = restarted.CreateClient())
         {
             await SendEnglishAsync(client, 7, "пауза");
-            await SendEnglishAsync(client, 8, "Продолжим");
-            await SendEnglishAsync(client, 9, "A second answer.");
-            await SendEnglishAsync(client, 10, "дальше");
-            using var duplicate = await PostPublicAsync(client, 10, "дальше");
+            await SendEnglishAsync(client, 8, "Можем перейти к следующему?");
+            await using (var db = Open())
+            {
+                Assert.Single(await db.Set<Lesson>().ToListAsync());
+                Assert.Equal(LearningPracticeStatus.Paused, (await db.Set<LearningContext>().SingleAsync()).Practice!.Status);
+            }
+            await SendEnglishAsync(client, 9, "Готов снова заниматься");
+            await SendEnglishAsync(client, 10, "A second answer.");
+            await SendEnglishAsync(client, 11, "дальше");
+            using var duplicate = await PostPublicAsync(client, 11, "дальше");
             duplicate.EnsureSuccessStatusCode();
         }
         await using var result = Open();

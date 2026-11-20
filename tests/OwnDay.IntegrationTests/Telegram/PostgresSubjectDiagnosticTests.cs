@@ -52,6 +52,33 @@ public sealed partial class PostgresLearningProviderTests
     }
 
     [Fact]
+    public async Task Post_SubjectDiagnosticExhaustsFallbackQuestions_StartsLessonWithUnknownLevel()
+    {
+        CurriculumTopic[] topics = [new("orders", "Биржевые заявки", [])];
+        var probe = new Probe("")
+        {
+            Plan = request => request.Question is null
+                ? new("Биржа", topics, "Можете привести один простой пример по теме «Биржевые заявки»?")
+                : new("Биржа", topics, request.Question, "Самооценка.", DiagnosticStartingLevel.Unknown)
+        };
+        using var host = ConsultationHost(probe);
+        using var client = host.CreateClient();
+        string[] turns = ["Хочу изучить биржу", "Самостоятельно подавать заявки", "Начинаю с нуля",
+            "давай", "Очень смутно", "Не уверен", "Что-то слышал", "Не знаю"];
+        for (var index = 0; index < turns.Length; index++)
+            await SendEnglishAsync(client, index + 1, turns[index]);
+
+        await using var db = Open();
+        var program = await db.Set<LearningProgram>().SingleAsync();
+        Assert.False(program.DiagnosticPending);
+        var diagnostic = program.SubjectDiagnostic!;
+        Assert.Equal(DiagnosticStartingLevel.Unknown, diagnostic.StartingLevel);
+        Assert.Equal(4, diagnostic.Observations.Select(item => item.Question).Distinct().Count());
+        Assert.Single(await db.Set<Lesson>().ToListAsync());
+        Assert.Empty(await db.Set<LearningEvidence>().ToListAsync());
+    }
+
+    [Fact]
     public async Task Post_SubjectDiagnosticExplicitRequestForBasics_StartsWithoutAssigningLevel()
     {
         var probe = new Probe("")

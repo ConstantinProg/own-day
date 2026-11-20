@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Npgsql;
 using OwnDay.Application.Dialogue;
+using OwnDay.Application.Learning;
 using OwnDay.Domain.Dialogue;
 using OwnDay.Domain.Learning;
 using Xunit;
@@ -156,18 +157,18 @@ public sealed partial class PostgresLearningProviderTests
     }
 
     [Fact]
-    public async Task Post_ConsultationAmbiguityAndCorrection_KeepsOriginalGoalAndClarifiedUse()
+    public async Task Post_ConsultationAmbiguity_KeepsOriginalGoalAndClarifiedUse()
     {
-        const string original = "Хочу научиться моделировать портфлеь";
-        const string corrected = "Хочу научиться моделировать портфель";
+        const string original = "Хочу научиться разбирать график";
         const string special = "Сравнивать MOEX API и MA(20) в C#";
         const string experience = "Начинаю с нуля";
         var probe = new Probe("")
         {
             Plan = request => new("Финансы", [new("portfolio", "Портфель", [])], null,
                 Wording: request.Experience.Contains(special, StringComparison.Ordinal)
-                    ? new(corrected, "Сравнивать NYSE API и MA(21) в C#", false)
-                    : new(null, null, true))
+                    ? System.Text.Json.JsonSerializer.Deserialize<ConsultationWording>(
+                        """{"Goal":"Хочу научиться разбирать графит","PracticalUse":"Сравнивать NYSE API и MA(21) в C#","ClarifyPracticalUse":false}""")
+                    : new(true))
         };
         using var host = ConsultationHost(probe);
         using var client = host.CreateClient();
@@ -189,12 +190,10 @@ public sealed partial class PostgresLearningProviderTests
         Assert.Equal(original, program.Goal);
         Assert.Equal(special, consultation.PracticalUse);
         Assert.Contains(special, program.GoalCriterion);
-        Assert.Equal(corrected, consultation.DisplayGoal);
-        Assert.Null(consultation.DisplayPracticalUse);
         var replies = await result.TelegramOutboxMessages.Select(reply => reply.Text).ToArrayAsync();
         Assert.Contains(replies, reply => reply.Contains("пример ситуации", StringComparison.Ordinal));
-        Assert.Contains(replies, reply => reply.Contains(corrected, StringComparison.Ordinal) && reply.Contains(special, StringComparison.Ordinal));
-        Assert.DoesNotContain(replies, reply => reply.Contains("NYSE", StringComparison.Ordinal));
+        Assert.Contains(replies, reply => reply.Contains(original, StringComparison.Ordinal) && reply.Contains(special, StringComparison.Ordinal));
+        Assert.DoesNotContain(replies, reply => reply.Contains("графит", StringComparison.Ordinal) || reply.Contains("NYSE", StringComparison.Ordinal));
     }
 
     [Fact]

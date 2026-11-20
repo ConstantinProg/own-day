@@ -83,7 +83,9 @@ public sealed class LearningProviderSession(IReadOnlyList<LearningProviderStep> 
     Func<string>? targets = null)
     : ILessonTeacher, ICurriculumPlanner, ITeachingPlanner, ILearningIntentResolver
 {
+    public const int MaxSteps = 2;
     private int _ordinal;
+    public int RemainingSteps => MaxSteps - _ordinal;
 
     public Task<LearningIntentProposal> ResolveAsync(LearningIntentInput input, CancellationToken token) =>
         ConsumeAsync<LearningIntentProposal>("intent", input, token);
@@ -122,7 +124,7 @@ public sealed class LearningProviderSession(IReadOnlyList<LearningProviderStep> 
         var fingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(json)));
         var stamp = targetStamp();
         var ordinal = _ordinal++;
-        if (ordinal >= 2) throw new InvalidOperationException("Learning command exceeded its provider step limit.");
+        if (ordinal >= MaxSteps) throw new InvalidOperationException("Learning command exceeded its provider step limit.");
         if (ordinal == steps.Count)
             throw new LearningProviderRequiredException(new()
             {

@@ -16,8 +16,8 @@ public static class TelegramDialoguePresenter
             (selectedProgramId is null || selectedProgramId == context?.Consultation?.CreatedProgramId))
         {
             var prompt = context?.Consultation is { CreatedProgramId: not null } completed
-                ? Render(new(DialogueReplyKind.FirstProgramReady, [completed.DisplayGoal ?? completed.OriginalGoal,
-                    completed.DisplayPracticalUse ?? completed.PracticalUse!], FirstGoalConsultation.InEnglish(completed.OriginalGoal)))
+                ? Render(new(DialogueReplyKind.FirstProgramReady, [completed.OriginalGoal, completed.PracticalUse!],
+                    FirstGoalConsultation.InEnglish(completed.OriginalGoal)))
                 : Render(new(context?.Consultation is null ? DialogueReplyKind.AskGoal :
                     context.Consultation.PracticalUse is null ? DialogueReplyKind.AskPracticalUse :
                     context.Consultation.Experience is null ? DialogueReplyKind.AskExperience : DialogueReplyKind.ConsultationRetry));
@@ -45,7 +45,7 @@ public static class TelegramDialoguePresenter
                 DialogueReplyKind.ConsultationRetry => "Your goal and answers are saved. Write “retry” to try creating the program again.",
                 DialogueReplyKind.DiagnosticQuestion => values[0] + "\nAnswer the question or write “skip” to open the exercise.",
                 DialogueReplyKind.DiagnosticOffer => "Write “yes” to see the optional diagnostic question or “skip” to open the exercise.",
-                DialogueReplyKind.FirstProgramReady => $"Goal saved — {values[0]}\nApplication — {TelegramCurriculumPresenter.DisplayGoal(values[1])}\n" +
+                DialogueReplyKind.FirstProgramReady => $"Goal saved — {TelegramCurriculumPresenter.DisplayGoal(values[0])}\nApplication — {TelegramCurriculumPresenter.DisplayGoal(values[1])}\n" +
                     (values.Count > 2 ? $"First topics — {values[2]}\n" : "") +
                     (values.Count > 4 && values[4].Length > 0 ? $"Success criterion — {TelegramCurriculumPresenter.DisplayGoal(values[4])}\n" : "") +
                     (values.Count > 3 && values[3] == "start" ? "Write “continue” to open the first exercise." :
@@ -61,17 +61,7 @@ public static class TelegramDialoguePresenter
             };
             if (english is not null) return [english];
         }
-        if (reply.Kind == DialogueReplyKind.Recap)
-        {
-            var paused = values.Count > 4 && values[4] == "Paused";
-            var action = reply.InEnglish
-                ? paused ? "Write “continue” to return to this exercise." : "Write your answer or ask for help."
-                : paused ? "Напишите «Продолжим», чтобы вернуться к этому вопросу." : "Напишите ответ или попросите помощь.";
-            var guidance = values.Count > 3 && !string.IsNullOrWhiteSpace(values[3])
-                ? new[] { (reply.InEnglish ? "Earlier guidance\n" : "Ранее разбирали\n") + values[3] } : Array.Empty<string>();
-            return [(reply.InEnglish ? "Current exercise — " : "Текущее упражнение — ") + values[0], values[1],
-                .. guidance, TelegramLearningPresenter.RenderTask(values[2], reply.TaskContent) + "\n\n" + action];
-        }
+        if (reply.Recap is { } recap) return TelegramLearningPresenter.RenderRecap(recap, reply.InEnglish);
         if (reply.Kind is DialogueReplyKind.ConfirmFinish or DialogueReplyKind.ConfirmProgramSelection or
             DialogueReplyKind.ConfirmProgramCreation or DialogueReplyKind.ConfirmGoalIntent or DialogueReplyKind.ConfirmProgramSwitch or
             DialogueReplyKind.ConfirmGoalSwitch or DialogueReplyKind.ConfirmRouteEdit or DialogueReplyKind.ConfirmGoalUpdate)

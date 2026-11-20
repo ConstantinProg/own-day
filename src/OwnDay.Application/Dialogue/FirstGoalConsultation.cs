@@ -10,15 +10,13 @@ public static class FirstGoalConsultation
     {
         if (result is CurriculumResult.Program created)
         {
-            context.CompleteConsultation(created.Value, turn.Now, turn.SourceOrder, created.Wording?.Goal, created.Wording?.PracticalUse);
+            context.CompleteConsultation(created.Value, turn.Now, turn.SourceOrder);
             if (created.Value.EnglishDiagnostic is not null) context.BindDiagnostic(created.Value, turn.Now, turn.SourceOrder);
             var draft = context.Consultation!;
-            var practicalUse = draft.DisplayPracticalUse ?? draft.PracticalUse!;
-            var criterion = created.Value.GoalCriterion?.Replace(draft.PracticalUse!, practicalUse, StringComparison.Ordinal);
             return new(context, null, "", new(DialogueReplyKind.FirstProgramReady,
-                [draft.DisplayGoal ?? created.Value.Goal, practicalUse,
+                [created.Value.Goal, draft.PracticalUse!,
                     string.Join(" → ", created.Value.CurrentRoute.Topics.Take(3).Select(topic => topic.Title)),
-                    created.Value.DiagnosticPending ? "diagnostic" : "start", criterion ?? ""],
+                    created.Value.DiagnosticPending ? "diagnostic" : "start", created.Value.GoalCriterion ?? ""],
                 InEnglish: InEnglish(created.Value.Goal)), new("first_program_created"));
         }
         if (result is CurriculumResult.ClarifyPracticalUse)

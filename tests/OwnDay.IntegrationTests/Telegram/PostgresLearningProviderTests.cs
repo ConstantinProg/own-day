@@ -391,6 +391,48 @@ public sealed partial class PostgresLearningProviderTests : IAsyncLifetime
         }
     }
 
+    [Fact]
+    public async Task Post_NaturalNextAfterRepeatedDifficulty_SimplifiesWithinTwoProviderSteps()
+    {
+        const string topic = "Лимитная заявка";
+        var program = LearningProgram.Create(_user, "Освоить биржевые заявки", "Начинающий", null, "Биржа",
+            [new("orders", topic, [])], null);
+        var skill = Skill.Create(_user, topic);
+        await using (var db = Open())
+        {
+            db.AddRange(program, LearningContext.Create(program), skill);
+            for (var index = 0; index < 2; index++)
+            {
+                var lesson = Lesson.Start(_user, topic, "Теория", $"Вопрос {index + 1}");
+                lesson.LinkToProgram(program, "orders");
+                lesson.LinkToSkill(skill);
+                lesson.Complete("Ошибочный ответ", "Неверно", false);
+                db.AddRange(lesson, LearningEvidence.FromAnswer(lesson, _now.AddMinutes(index), "test"));
+            }
+            await db.SaveChangesAsync();
+        }
+        var probe = new Probe("")
+        {
+            Intent = LearningIntent.Next,
+            Generate = request =>
+            {
+                Assert.Equal(TeachingAction.Simplify, request.Teaching!.Action);
+                Assert.Equal(topic, request.Topic);
+                return new("Пример с одной заявкой.", "Какую цену укажете?");
+            }
+        };
+        using var host = DialogueHost(probe);
+        using var client = host.CreateClient();
+        await SendEnglishAsync(client, 1, "Давай теперь попробуем ещё");
+
+        await using var result = Open();
+        var lessonAfter = await result.Set<Lesson>().SingleAsync(item => item.Status == LessonStatus.AwaitingAnswer);
+        Assert.Equal(PedagogicalStrategy.Simplify, lessonAfter.Teaching!.Strategy);
+        Assert.Equal(new[] { "intent", "generate" }, await result.Set<LearningProviderStep>().OrderBy(step => step.Ordinal)
+            .Select(step => step.Kind).ToArrayAsync());
+        Assert.Equal(2, probe.Calls);
+    }
+
     private async Task EnqueueAsync(string command, string arguments)
     {
         await using var db = Open();

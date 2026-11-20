@@ -1,3 +1,4 @@
+using OwnDay.Application.Dialogue;
 using OwnDay.Application.Learning;
 using OwnDay.Application.Learning.Requests;
 using OwnDay.Domain;
@@ -37,6 +38,25 @@ public sealed class LearningProviderSessionTests
         await Assert.ThrowsAsync<StaleLearningPreparationException>(() => stale.GenerateAsync(request, default));
         var changed = new LearningProviderSession([step], () => "v1");
         await Assert.ThrowsAsync<StaleLearningPreparationException>(() => changed.GenerateAsync(new LessonRequest("Other"), default));
+    }
+
+    [Fact]
+    public async Task Resolve_PreparedIntentAcrossRestart_PreservesBudgetAndRejectsChangedPolicy()
+    {
+        var input = new LearningIntentInput("Can we keep going?", "", "Learn algebra", "Math", [],
+            [LearningIntent.Ambiguous, LearningIntent.Next]);
+        var initial = new LearningProviderSession([], () => "targets-v1");
+        var pending = await Assert.ThrowsAsync<LearningProviderRequiredException>(() => initial.ResolveAsync(input, default));
+        var savedIntent = pending.Step.WithResult(new LearningIntentProposal(LearningIntent.Next));
+        var restarted = new LearningProviderSession([savedIntent], () => "targets-v1");
+        Assert.Equal(LearningIntent.Next, (await restarted.ResolveAsync(input, default)).Intent);
+        Assert.Equal(1, restarted.RemainingSteps);
+        var generation = await Assert.ThrowsAsync<LearningProviderRequiredException>(() => restarted.GenerateAsync(new("Algebra"), default));
+        Assert.Equal(1, generation.Step.Ordinal);
+
+        var upgraded = new LearningProviderSession([savedIntent], () => "targets-v1");
+        await Assert.ThrowsAsync<StaleLearningPreparationException>(() =>
+            upgraded.ResolveAsync(input with { Allowed = [.. input.Allowed, LearningIntent.PreviousTopic] }, default));
     }
 
     [Fact]
