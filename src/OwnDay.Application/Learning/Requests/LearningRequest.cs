@@ -13,6 +13,8 @@ public enum LearningRequestStatus
 public sealed record LearningCommandInput(string Name, string Arguments, Guid? LessonId = null,
     Guid? PromptId = null, long? DialogueRevision = null, bool ProgramSwitchAllowed = false);
 
+public sealed record LearningActionInput(LearningAction Action, DateTimeOffset ExpiresAt, bool InRussian, bool ProgramSwitchAllowed = false);
+
 public sealed class LearningRequest
 {
     public Guid Id { get; init; } = Guid.NewGuid();

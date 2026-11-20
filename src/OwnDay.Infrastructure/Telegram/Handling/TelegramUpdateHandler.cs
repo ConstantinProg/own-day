@@ -14,6 +14,7 @@ using OwnDay.Application.Dialogue;
 using OwnDay.Domain;
 using OwnDay.Domain.Dialogue;
 using OwnDay.Infrastructure.Persistence;
+using OwnDay.Infrastructure.Telegram.Actions;
 using OwnDay.Infrastructure.Telegram.Cleanup;
 using OwnDay.Infrastructure.Telegram.Commands;
 using OwnDay.Infrastructure.Telegram.Delivery;
@@ -35,6 +36,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
     private readonly ApplicationVersion _applicationVersion;
     private readonly ITelegramCallbackResponder? _callbackResponder;
     private readonly LearningRequestProcessingOptions _processing;
+    private readonly TelegramActionKeyboard? _keyboard;
 
     public TelegramUpdateHandler(
         TelegramUpdateRouter router,
@@ -50,7 +52,8 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         TelegramStudyCommandHandler study,
         ApplicationVersion applicationVersion,
         ITelegramCallbackResponder? callbackResponder = null,
-        IOptions<LearningRequestProcessingOptions>? processing = null)
+        IOptions<LearningRequestProcessingOptions>? processing = null,
+        TelegramActionKeyboard? keyboard = null)
     {
         ArgumentNullException.ThrowIfNull(router);
         ArgumentNullException.ThrowIfNull(languageFlow);
@@ -71,6 +74,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         _applicationVersion = applicationVersion;
         _callbackResponder = callbackResponder;
         _processing = processing?.Value ?? new();
+        _keyboard = keyboard;
     }
 
     public async Task HandleAsync(
@@ -86,7 +90,26 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
             return;
         }
 
-        await HandleRoutedAsync(update, route, cancellationToken);
+        if (route is TelegramUpdateRouteResult.UnavailableAction unavailable)
+        {
+            await AcknowledgeAsync(update, cancellationToken, unavailable.InRussian
+                ? "Действие недоступно. Откройте последнее сообщение или напишите «Продолжим»."
+                : "Action unavailable. Use the latest message or write “continue”.");
+            return;
+        }
+
+        try
+        {
+            await HandleRoutedAsync(update, route, cancellationToken);
+        }
+        catch (LearningAcceptanceUnavailableException) when (route is TelegramUpdateRouteResult.Action)
+        {
+            var russian = update.CallbackQuery?.From.LanguageCode?.StartsWith("ru", StringComparison.OrdinalIgnoreCase) == true;
+            await AcknowledgeAsync(update, cancellationToken, russian
+                ? "Сейчас не удалось принять действие. Попробуйте чуть позже."
+                : "The action could not be accepted right now. Try again shortly.");
+            throw;
+        }
     }
 
     private async Task HandleRoutedAsync(Update update, TelegramUpdateRouteResult route, CancellationToken cancellationToken)
@@ -119,18 +142,19 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
             return;
         }
 
-        var userId = route is TelegramUpdateRouteResult.Text routedText
-            ? routedText.UserId.Value
-            : ((TelegramUpdateRouteResult.Dispatch)route).Command.UserId.Value;
+        var user = route switch
+        {
+            TelegramUpdateRouteResult.Action action => action.UserId,
+            TelegramUpdateRouteResult.Text text => text.UserId,
+            TelegramUpdateRouteResult.Dispatch dispatch => dispatch.Command.UserId,
+            _ => throw new InvalidOperationException("Unexpected route.")
+        };
         if (_dbContext.Database.IsNpgsql())
         {
             await _dbContext.Database.ExecuteSqlInterpolatedAsync(
-                $"SELECT pg_advisory_xact_lock({userId})", cancellationToken);
+                $"SELECT pg_advisory_xact_lock({user.Value})", cancellationToken);
         }
 
-        var user = route is TelegramUpdateRouteResult.Text textRoute
-            ? textRoute.UserId
-            : ((TelegramUpdateRouteResult.Dispatch)route).Command.UserId;
         var dialogue = await _dbContext.Set<DialogueContext>().SingleOrDefaultAsync(context => context.UserId == user, cancellationToken);
         if (dialogue is not null && (dialogue.SchemaVersion != DialogueContext.CurrentSchemaVersion || dialogue.Consultation is { Version: not 1 }))
             throw new InvalidOperationException("A compatible dialogue reader is required before accepting updates for this owner.");
@@ -155,7 +179,19 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
             await AcknowledgeAsync(update, cancellationToken);
         }
 
-        IReadOnlyList<string> replies;
+        if (route is TelegramUpdateRouteResult.Action contextual)
+        {
+            var databaseNow = await EnsureLearningAcceptanceAsync(cancellationToken);
+            await AddReceiptAsync(update, user, contextual.ChatId,
+                new LearningActionInput(contextual.Value, contextual.ExpiresAt,
+                    update.CallbackQuery?.From.LanguageCode?.StartsWith("ru", StringComparison.OrdinalIgnoreCase) == true,
+                    _processing.ProgramSwitchEnabled),
+                "learning_action", 1, databaseNow, ready: true, cancellationToken);
+            await CommitReceiptAsync(databaseNow);
+            return;
+        }
+
+        IReadOnlyList<TelegramLearningReply> replies;
         long chatId;
         if (route is TelegramUpdateRouteResult.Text ordinary)
         {
@@ -188,14 +224,6 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
             var command = dispatch.Command;
             await CloseLegacyInboxDraftAsync(user, cancellationToken);
             await _languageFlow.CloseAsync(user, cancellationToken);
-            if (command.Name == "learning_choice" && update.CallbackQuery is not null)
-            {
-                var databaseNow = await EnsureLearningAcceptanceAsync(cancellationToken);
-                var input = JsonSerializer.Deserialize<ChoiceInput>(command.Arguments, JsonSerializerOptions.Web)!;
-                await AddReceiptAsync(update, user, chatId, input, "learning_choice", 1, databaseNow, ready: true, cancellationToken);
-                await CommitReceiptAsync(databaseNow);
-                return;
-            }
             if (_learningCommands.Handles(command.Name) || command.Name == "cancel")
             {
                 var databaseNow = await EnsureLearningAcceptanceAsync(cancellationToken);
@@ -215,8 +243,14 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
                 introduceDialogue = true;
             }
             // Old commands and buttons explain the current dialogue without executing legacy actions.
-            replies = TelegramDialoguePresenter.Help(false, true, dialogue, selectedProgramForHelp,
-                showVersionCommand: command.Name == "help");
+            var help = TelegramDialoguePresenter.Help(false, true, dialogue, selectedProgramForHelp, showVersionCommand: command.Name == "help");
+            replies = [.. help.Select(text => new TelegramLearningReply(text))];
+            if (command.Name is "start" or "help" && help.Count > 0 &&
+                (selectedProgramForHelp is not null || dialogue.TargetLessonId is not null || dialogue.Consultation is not null))
+            {
+                var button = TelegramLearningReply.WithActions(help[^1], [new(LearningActionKind.Continue)], inRussian: true);
+                replies = [.. replies.SkipLast(1), _keyboard?.Render(button, user.Value, chatId, new(now), dialogue) ?? button];
+            }
         }
 
         if (introduceDialogue) replies = [TelegramDialoguePresenter.Introduction, .. replies];
@@ -224,7 +258,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         await CommitRepliesAsync(update, chatId, replies, now, transaction, cancellationToken);
     }
 
-    private async Task CommitRepliesAsync(Update update, long chatId, IReadOnlyList<string> replies, DateTime now,
+    private async Task CommitRepliesAsync(Update update, long chatId, IReadOnlyList<TelegramLearningReply> replies, DateTime now,
         IDbContextTransaction transaction, CancellationToken cancellationToken)
     {
         for (var index = 0; index < replies.Count; index++)
@@ -233,7 +267,8 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
             {
                 Id = Guid.NewGuid(),
                 ChatId = chatId,
-                Text = replies[index],
+                Text = replies[index].Text,
+                ReplyMarkupJson = replies[index].ReplyMarkupJson,
                 Status = OutboxMessageStatus.Pending,
                 AttemptCount = 0,
                 NextAttemptAt = now,
@@ -279,11 +314,12 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
     private async Task<DateTime> EnsureLearningAcceptanceAsync(CancellationToken token)
     {
         if (!_processing.DurableIngressEnabled || !_processing.Enabled || _processing.AcceptancePaused)
-            throw new InvalidOperationException("Learning acceptance is temporarily paused.");
+            throw new LearningAcceptanceUnavailableException("Learning acceptance is temporarily paused.");
         var now = await DatabaseNowAsync(token);
         var oldestAllowed = now.AddSeconds(-_processing.MaxQueueAgeSeconds);
         if (await _dbContext.Set<LearningRequest>().AnyAsync(request => request.Status != LearningRequestStatus.Completed &&
-            request.ReceivedAt < oldestAllowed, token)) throw new InvalidOperationException("Learning processing backlog requires recovery before accepting more work.");
+            request.ReceivedAt < oldestAllowed, token))
+            throw new LearningAcceptanceUnavailableException("Learning processing backlog requires recovery before accepting more work.");
         return now;
     }
 
@@ -327,7 +363,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         return request;
     }
 
-    private async Task AcknowledgeAsync(Update update, CancellationToken token)
+    private async Task AcknowledgeAsync(Update update, CancellationToken token, string? notice = null)
     {
         if (update.CallbackQuery is not { } callback || _callbackResponder is null)
         {
@@ -335,12 +371,16 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         }
         try
         {
-            await _callbackResponder.AnswerAsync(callback.Id, token);
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+            timeout.CancelAfter(TimeSpan.FromSeconds(2));
+            if (notice is null) await _callbackResponder.AnswerAsync(callback.Id, timeout.Token);
+            else await _callbackResponder.AnswerAsync(callback.Id, notice, timeout.Token);
         }
-        catch (Exception exception) when (exception is not OperationCanceledException && !token.IsCancellationRequested)
+        catch (Exception exception) when (!token.IsCancellationRequested)
         {
             _logger.LogWarning("Could not acknowledge Telegram callback ({ErrorType}).", exception.GetType().Name);
         }
     }
 
+    private sealed class LearningAcceptanceUnavailableException(string message) : InvalidOperationException(message);
 }

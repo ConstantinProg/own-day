@@ -73,24 +73,19 @@ public sealed class TelegramOutboxDeliveryService
                 owner = requestOwner.Value.Value;
             }
 
-            await using var deliveryTransaction = owner is not null
-                ? await _dbContext.Database.BeginTransactionAsync(cancellationToken) : null;
-            if (owner is { } ownerId)
+            await using var ownerLock = persistedOrder && owner is { } ownerId
+                ? await OwnerLock.AcquireAsync(_dbContext, ownerId, cancellationToken) : null;
+            if (owner is not null)
             {
-                if (persistedOrder)
-                    await _dbContext.Database.ExecuteSqlInterpolatedAsync(
-                        $"SELECT pg_advisory_xact_lock({ownerId})", cancellationToken);
                 var entry = _dbContext.Entry(message);
                 await entry.ReloadAsync(cancellationToken);
                 if (entry.State == EntityState.Detached || message.Status != OutboxMessageStatus.Pending)
                 {
-                    await deliveryTransaction!.CommitAsync(cancellationToken);
                     continue;
                 }
                 if (message.NextAttemptAt > _timeProvider.GetUtcNow().UtcDateTime)
                 {
                     blockedChats.Add(message.ChatId);
-                    await deliveryTransaction!.CommitAsync(cancellationToken);
                     continue;
                 }
             }
@@ -112,7 +107,6 @@ public sealed class TelegramOutboxDeliveryService
                     message.Status = OutboxMessageStatus.Failed;
                     message.LastError = "StudyInvitationSuppressed";
                     await _dbContext.SaveChangesAsync(cancellationToken);
-                    await deliveryTransaction!.CommitAsync(cancellationToken);
                     continue;
                 }
             }
@@ -126,15 +120,16 @@ public sealed class TelegramOutboxDeliveryService
                         Code = InboxEventCodes.BackgroundDeliveryRetry, At = now
                     });
                 }
-                await _messageSender.SendMessageAsync(
-                    message.ChatId,
-                    message.Text,
-                    message.ReplyMarkupJson,
-                    cancellationToken);
-
-                message.Status = OutboxMessageStatus.Sent;
-                message.SentAt = _timeProvider.GetUtcNow().UtcDateTime;
-                message.LastError = null;
+                if (message.EditMessageId is { } target)
+                    await _messageSender.EditKeyboardAsync(message.ChatId, target, message.ReplyMarkupJson, cancellationToken);
+                else
+                    await _messageSender.SendMessageAsync(message.ChatId, message.Text, message.ReplyMarkupJson, cancellationToken);
+                MarkSent(message);
+            }
+            catch (ApiRequestException exception) when (message.EditMessageId is not null && exception.ErrorCode == 400 &&
+                exception.Message.Contains("message is not modified", StringComparison.OrdinalIgnoreCase))
+            {
+                MarkSent(message);
             }
             catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
             {
@@ -148,7 +143,8 @@ public sealed class TelegramOutboxDeliveryService
                     Code = InboxEventCodes.BackgroundDeliveryError, At = _timeProvider.GetUtcNow().UtcDateTime
                 });
 
-                if (exception is ApiRequestException { ErrorCode: 400 or 403 or 404 })
+                if (exception is ApiRequestException { ErrorCode: 400 or 403 or 404 } ||
+                    message.EditMessageId is not null && (message.ReplyMarkupJson is null || message.AttemptCount >= 3))
                 {
                     message.Status = OutboxMessageStatus.Failed;
                     _logger.LogError(
@@ -170,10 +166,49 @@ public sealed class TelegramOutboxDeliveryService
 
             // Persist each attempt before a later send can be cancelled.
             await _dbContext.SaveChangesAsync(cancellationToken);
-            if (deliveryTransaction is not null) await deliveryTransaction.CommitAsync(cancellationToken);
         }
 
         // A full batch may have more ready messages behind it.
         return new BatchProcessingResult(messages.Count == BatchSize);
+    }
+
+    private void MarkSent(TelegramOutboxMessage message)
+    {
+        message.Status = OutboxMessageStatus.Sent;
+        message.SentAt = _timeProvider.GetUtcNow().UtcDateTime;
+        message.LastError = null;
+    }
+
+    private sealed class OwnerLock(OwnDayDbContext db, long owner) : IAsyncDisposable
+    {
+        public static async Task<OwnerLock> AcquireAsync(OwnDayDbContext db, long owner, CancellationToken token)
+        {
+            // Use the same fence as the Learning writers without holding a DB transaction during Telegram I/O.
+            await db.Database.OpenConnectionAsync(token);
+            try
+            {
+                await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_lock({owner})", token);
+                return new(db, owner);
+            }
+            catch
+            {
+                await db.Database.CloseConnectionAsync();
+                throw;
+            }
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            try
+            {
+                // Resource cleanup needs its own short budget even when delivery was cancelled.
+                using var release = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+                await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_unlock({owner})", release.Token);
+            }
+            finally
+            {
+                await db.Database.CloseConnectionAsync();
+            }
+        }
     }
 }

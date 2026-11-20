@@ -311,6 +311,7 @@ public sealed class OwnDayDbContext(DbContextOptions<OwnDayDbContext> options)
             entity.HasIndex(message => message.DeliveryOrder).IsUnique(Database.IsNpgsql());
             entity.Property(message => message.Text).HasColumnName("text");
             entity.Property(message => message.ReplyMarkupJson).HasColumnName("reply_markup_json");
+            entity.Property(message => message.EditMessageId).HasColumnName("edit_message_id");
             entity.Property(message => message.StudyInvitationId).HasColumnName("study_invitation_id");
             entity.Property(message => message.LearningRequestId).HasColumnName("learning_request_id");
             entity.Property(message => message.ReplyOrdinal).HasColumnName("reply_ordinal");

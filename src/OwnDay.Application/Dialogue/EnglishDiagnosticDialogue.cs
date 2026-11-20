@@ -31,7 +31,8 @@ public sealed class EnglishDiagnosticDialogue(ICurriculumStore programs, Curricu
         if (normalized is "пауза" or "pause" or "отмена" or "cancel" or "потом")
         {
             context.Interrupt(turn.Now, turn.SourceOrder);
-            return new(new CurriculumResult.Diagnostic(program, "Остановимся здесь. Ответы сохранены. Напишите «Продолжим»."), "diagnostic_paused");
+            return new(new CurriculumResult.Diagnostic(program, "Остановимся здесь. Ответы сохранены. Текстом — «Продолжим».")
+                { Paused = true }, "diagnostic_paused");
         }
         if (normalized is "продолжим" or "продолжить" or "resume")
         {
@@ -43,7 +44,7 @@ public sealed class EnglishDiagnosticDialogue(ICurriculumStore programs, Curricu
             return new(await curriculum.NextAsync(turn.UserId, token), "diagnostic_already_finished");
         }
         var bound = context.MatchesDiagnostic(program) && turn.ReceiptPromptId == context.PromptId &&
-            turn.SourceOrder > context.ResponseAfterSourceOrder &&
+            turn.IsAfterSourceOrder(context.ResponseAfterSourceOrder) &&
             (context.PromptOpenedAt is null || turn.ReceivedAt >= context.PromptOpenedAt);
         if (!bound)
         {

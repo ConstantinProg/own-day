@@ -161,15 +161,13 @@ public sealed partial class LearningService
             .Select(option => ChoiceLabel(option, state.Exercise.Format, russian))), feedback);
         var evidence = await knowledge.RecordAnswerAsync(lesson, "Published choice key", token);
         var learner = await knowledge.StateWithAnswerAsync(evidence, token);
-        var next = learner.EvidenceSummary is { Understanding: true, Application: true } && attempt.Outcome == ChoiceOutcome.Correct
-            ? russian ? "Следующая проверка — открытое интервальное повторение. Напишите «что повторить»." :
-                "The next check is an open spaced review. Write “what should I review?”."
-            : lesson.ProgramId is not null
-                ? russian ? "Напишите «дальше», чтобы объяснить принцип своими словами на новом примере по этой теме."
-                    : "Write “next” to explain the principle in your own words using a new example on this topic."
-            : russian ? "Напишите «ещё задание», чтобы объяснить принцип своими словами на новом примере." :
-                "Write “another exercise” to explain the principle in your own words using a new example.";
-        return new LearningResult.ChoiceReply(feedback + "\n\n" + next);
+        var continuation = learner.EvidenceSummary is { Understanding: true, Application: true } && attempt.Outcome == ChoiceOutcome.Correct
+            ? LearningContinuation.Review : lesson.ProgramId is not null ? LearningContinuation.NextTopic : LearningContinuation.Practice;
+        var next = continuation == LearningContinuation.Review
+            ? russian ? "Следующая проверка — открытое интервальное повторение." : "The next check is an open spaced review."
+            : russian ? "Следующая проверка — объяснить принцип своими словами на новом примере." :
+                "For the next check, explain the principle in your own words using a new example.";
+        return new LearningResult.ChoiceReply(feedback + "\n\n" + next, Continuation: continuation) { AssessedLessonId = lesson.Id };
     }
 
     private static LearningResult.ChoiceReply InvalidChoice(Lesson lesson)

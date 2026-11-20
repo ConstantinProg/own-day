@@ -8,7 +8,7 @@ namespace OwnDay.UnitTests.Learning;
 public sealed class TelegramLearningPresenterTests
 {
     [Fact]
-    public void Render_ChoicePromptAndPlainReplyWithSameText_OnlyPromptHasKeyboard()
+    public void Render_ChoicePromptAndPlainReplyWithSameText_OnlyPromptOffersChoices()
     {
         var prompt = new ChoicePrompt(Guid.NewGuid(), 1, 1, ChoiceFormat.SingleChoice, "Two plus two?",
             [new(1, "Four"), new(2, "Five")], [], InRussian: false);
@@ -20,12 +20,13 @@ public sealed class TelegramLearningPresenterTests
             reply =>
             {
                 Assert.Equal(question.Text, reply.Text);
-                Assert.Null(reply.ReplyMarkupJson);
+                Assert.Null(reply.Actions);
             },
             reply =>
             {
                 Assert.Equal(question.Text, reply.Text);
-                Assert.NotNull(reply.ReplyMarkupJson);
+                Assert.Equal(new[] { 1, 2 }, reply.Actions!.Where(action => action.Kind == LearningActionKind.SelectChoice)
+                    .Select(action => (int)action.Option));
             });
     }
 

@@ -3,13 +3,16 @@
 ## Current command ingress and rollout gate
 
 The producer is controlled by `Learning:Processing:DurableIngressEnabled` (default
-`false`). It requires `Enabled=true`; worker startup verifies PostgreSQL and all
+`true`). It requires `Enabled=true`; worker startup verifies PostgreSQL and all
 installed migrations before serving traffic. The schema is unchanged by this
 cutover. All Learning commands, including preference/schedule/selection writers
 and read-only commands, share the owner's sequence. Former productivity and Inbox
 commands show learning dialogue help. Invitation start is an existing command
-and uses this sequence. [Choice exercise callbacks](adaptive-choice.md) use the
-same sequence with the `learning_choice` version 1 payload.
+and uses this sequence. [Contextual actions](../telegram/ux.md#contextual-actions),
+including [choices](adaptive-choice.md), use the same sequence with version 1 of
+`learning_action`. The worker can still read previously accepted `learning_choice`
+version 1 requests. The callback's originating message ID addresses keyboard
+edits. Dialogue checks use the bound prompt or offer and the owner's queue order.
 
 Receipt atomically commits update deduplication, immutable versioned input and
 destination before HTTP 200. `ProcessedAt` means receipt completion for queued
@@ -72,6 +75,15 @@ Inbox text retain their current handling. Existing parsers, presenters and use c
 remain authoritative for argument validation and behavior.
 
 ## Deployment
+
+### Contextual actions rollout
+
+Provision the signing key and apply `AddTelegramKeyboardEdits` before the updated
+Host starts. Drain older work with a compatible consumer. Previously published
+unsigned choice buttons display a recovery notice. On rollback, pause ingress
+and drain `learning_action` requests and pending keyboard edit intents using
+the compatible worker and deliverer before switching to the old image. Keep the
+additive schema and existing data. Maintain one active Telegram deliverer.
 
 ### Upgrading the tutoring dialogue
 

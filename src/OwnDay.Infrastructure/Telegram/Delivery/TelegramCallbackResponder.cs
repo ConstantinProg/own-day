@@ -6,4 +6,7 @@ public sealed class TelegramCallbackResponder(ITelegramBotClient bot) : ITelegra
 {
     public Task AnswerAsync(string callbackId, CancellationToken cancellationToken) =>
         bot.AnswerCallbackQuery(callbackId, cancellationToken: cancellationToken);
+
+    public Task AnswerAsync(string callbackId, string notice, CancellationToken cancellationToken) =>
+        bot.AnswerCallbackQuery(callbackId, text: notice, showAlert: true, cancellationToken: cancellationToken);
 }

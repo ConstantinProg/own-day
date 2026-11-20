@@ -154,7 +154,10 @@ public abstract record LearningResult
     public sealed record SkillNotFound : LearningResult;
     public sealed record ReviewNotDue : LearningResult;
     public sealed record ReviewDeferred(DateTimeOffset DueAt) : LearningResult;
-    public sealed record ChoiceReply(string Message, ChoicePrompt? Prompt = null) : LearningResult;
+    public sealed record ChoiceReply(string Message, ChoicePrompt? Prompt = null, LearningContinuation? Continuation = null) : LearningResult
+    {
+        public Guid? AssessedLessonId { get; init; }
+    }
 }
 
 public sealed partial class LearningService(ILessonStore store, ILessonTeacher teacher, KnowledgeService knowledge, Guid? operationId = null,

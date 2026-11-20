@@ -67,7 +67,10 @@ public abstract record CurriculumResult
     public sealed record ProjectActionNotFound : CurriculumResult;
     public sealed record TransferUnavailable : CurriculumResult;
     public sealed record Progress(LearningProgress Value) : CurriculumResult;
-    public sealed record Diagnostic(LearningProgram Value, string? Notice = null) : CurriculumResult;
+    public sealed record Diagnostic(LearningProgram Value, string? Notice = null) : CurriculumResult
+    {
+        public bool Paused { get; init; }
+    }
     public sealed record SubjectDiagnosticQuestion(LearningProgram Value, string? Notice = null) : CurriculumResult;
     public sealed record NoProgress(int Page) : CurriculumResult;
     public sealed record RouteView(CurriculumRoute Route, bool Full, string? OptionalCheck = null) : CurriculumResult;

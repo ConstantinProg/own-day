@@ -9,4 +9,6 @@ public sealed class TelegramOptions
     public string? BotUsername { get; init; }
 
     public string? WebhookSecret { get; init; }
+
+    public string? CallbackSigningKey { get; init; }
 }

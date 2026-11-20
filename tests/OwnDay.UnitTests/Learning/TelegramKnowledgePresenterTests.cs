@@ -17,11 +17,12 @@ public sealed class TelegramKnowledgePresenterTests
             return new ReviewItem(skill, ReviewSchedule.FromAnswer(LearnerSkillStateTests.Answer(skill, true)));
         }).ToArray();
         var messages = TelegramKnowledgePresenter.Reviews(new(items, 2, true));
-        Assert.All(messages, m => Assert.InRange(m.Length, 1, 4096));
-        var text = string.Join("\n", messages);
+        Assert.All(messages, m => Assert.InRange(m.Text.Length, 1, 4096));
+        var text = string.Join("\n", messages.Select(message => message.Text));
         Assert.All(items, item => Assert.Contains($"/learn_review {item.Skill.Id}", text));
-        Assert.Contains("Previous: /learn_reviews 1", text);
-        Assert.Contains("Next: /learn_reviews 3", text);
+        Assert.Contains("Previous — /learn_reviews 1", text);
+        Assert.Contains("Next — /learn_reviews 3", text);
+        Assert.Equal(items.Length, messages.Count(reply => reply.Actions?.Any(action => action.Kind == LearningActionKind.StartReview) == true));
     }
 
     [Fact]

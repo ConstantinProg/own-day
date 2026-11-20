@@ -1,4 +1,5 @@
 using OwnDay.Application.Dialogue;
+using OwnDay.Application.Learning;
 
 namespace OwnDay.Infrastructure.Telegram.Commands;
 
@@ -38,9 +39,21 @@ public static class TelegramDialoguePresenter
         return introduce ? [Introduction, help] : [help];
     }
 
-    public static IReadOnlyList<TelegramLearningReply> Render(DialogueReply reply) => reply.Recap is { } recap
-        ? TelegramLearningPresenter.RenderRecap(recap, reply.InEnglish)
-        : [.. RenderText(reply)];
+    public static IReadOnlyList<TelegramLearningReply> Render(DialogueReply reply)
+    {
+        if (reply.Recap is { } recap) return TelegramLearningPresenter.RenderRecap(recap, reply.InEnglish);
+        if (reply.ProgramChoices is { } choices)
+            return ["Подходят несколько программ. Выберите программу ниже или уточните запрос. Все программы доступны через /learn_programs.",
+                .. choices.Select(item => TelegramLearningReply.WithActions($"{item.Goal} ({item.Discipline})\n/learn_select {item.Id}",
+                    [new(LearningActionKind.SelectProgram, item.Id)], inRussian: true))];
+        var text = RenderText(reply);
+        var actions = reply.Kind == DialogueReplyKind.FirstProgramReady
+            ? reply.Values is { Count: > 3 } values && values[3] == "start"
+                ? [new LearningAction(LearningActionKind.Continue)]
+                : LearningActionProvider.ForDialogue(DialogueReplyKind.DiagnosticOffer)
+            : LearningActionProvider.ForDialogue(reply.Kind);
+        return text.Count == 0 ? [] : [.. text.SkipLast(1), TelegramLearningReply.WithActions(text[^1], actions, !reply.InEnglish)];
+    }
 
     private static IReadOnlyList<string> RenderText(DialogueReply reply)
     {
@@ -89,8 +102,7 @@ public static class TelegramDialoguePresenter
                 DialogueReplyKind.ConfirmGoalUpdate => "Применить показанный маршрут к текущей программе и установить цель «" + values[0] + "»?",
                 _ => "Создать и выбрать новую программу по запросу «" + values[0] + "»? История прежней программы сохранится."
             };
-            return [summary + " Напишите «подтверждаю " + values[1] + "» или /learn_confirm " + values[1] +
-                ". Для отмены: /cancel. Код действует 10 минут."];
+            return [summary + "\n\nТекстом — /learn_confirm " + values[1] + " или /cancel. Код действует 10 минут."];
         }
         if (reply.Kind == DialogueReplyKind.RouteEditHelp)
             return ["Укажите код темы из /learn_route tree. Например, «пропустить тему basics» или «перенеси тему examples перед practice».\n" +

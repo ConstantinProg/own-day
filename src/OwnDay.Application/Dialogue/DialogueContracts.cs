@@ -55,7 +55,13 @@ public interface IDialogueStore
 }
 
 public sealed record DialogueTurn(Guid RequestId, UserId UserId, DialogueOperationKind? Command, string Text,
-    Guid? ReceiptLessonId, Guid? ReceiptPromptId, DateTimeOffset ReceivedAt, DateTimeOffset Now, uint? LessonVersion = null, long SourceOrder = 0);
+    Guid? ReceiptLessonId, Guid? ReceiptPromptId, DateTimeOffset ReceivedAt, DateTimeOffset Now, uint? LessonVersion = null, long SourceOrder = 0,
+    LearningAction? ContextualAction = null, long RequestSequence = 0)
+{
+    public long SessionSourceOrder => ContextualAction is null ? SourceOrder : RequestSequence;
+
+    public bool IsAfterSourceOrder(long boundary) => ContextualAction is not null || SourceOrder > boundary;
+}
 public sealed record DialogueAudit(string Code, DialogueConfirmation? Confirmation = null, DialogueClarification? Clarification = null,
     Guid? OriginalRequestId = null, DialogueOperationKind? ChosenAction = null, int Version = 1);
 public enum DialogueReplyKind
@@ -69,7 +75,7 @@ public enum DialogueReplyKind
     SessionEnded, ConfirmRouteEdit, RouteEditHelp, ConfirmGoalUpdate, ChooseMatchingProgram, ExerciseCriteria, ClarifyPracticalUse
 }
 public sealed record DialogueReply(DialogueReplyKind Kind, IReadOnlyList<string>? Values = null, bool InEnglish = false,
-    LearningResult.Session? Recap = null);
+    LearningResult.Session? Recap = null, IReadOnlyList<DialogueProgramReference>? ProgramChoices = null);
 public sealed record DialogueDecision(DialogueContext Context, DialogueOperationKind? Execute, string Arguments,
     DialogueReply? Reply = null, DialogueAudit? Audit = null, FirstProgramCreation? Creation = null)
 {

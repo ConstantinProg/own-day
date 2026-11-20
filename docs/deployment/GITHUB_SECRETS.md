@@ -95,6 +95,7 @@ These include:
 | `Telegram__BotToken`      | Authentication token for the OwnDay Telegram bot.               |
 | `Telegram__BotUsername`   | Telegram username used to identify commands addressed to OwnDay. |
 | `Telegram__WebhookSecret` | Secret used to authenticate incoming Telegram webhook requests. |
+| `Telegram__CallbackSigningKey` | Stable, random 32-byte Base64 key for contextual action signatures. |
 
 These values are stored directly on the production VPS and supplied to the OwnDay container through environment configuration.
 
@@ -154,6 +155,7 @@ Production VPS:
 * `Telegram__BotToken`
 * `Telegram__BotUsername`
 * `Telegram__WebhookSecret`
+* `Telegram__CallbackSigningKey`
 * database credentials and other future runtime secrets
 
 This keeps GitHub Actions responsible for deployment while the VPS remains responsible for application runtime configuration.

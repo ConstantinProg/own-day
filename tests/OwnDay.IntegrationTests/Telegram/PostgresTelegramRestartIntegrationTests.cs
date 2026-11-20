@@ -124,6 +124,7 @@ public sealed class PostgresTelegramRestartIntegrationTests
             builder.UseContentRoot(GetHostContentRoot());
             builder.UseSetting("ConnectionStrings:Default", connectionString);
             builder.UseSetting("Telegram:BotToken", "123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi");
+            builder.UseSetting("Telegram:CallbackSigningKey", Convert.ToBase64String(new byte[32]));
             builder.UseSetting("Telegram:BotUsername", "OwnDayBot");
             builder.UseSetting("Telegram:WebhookSecret", "integration-test-webhook-secret");
             builder.ConfigureServices(services =>

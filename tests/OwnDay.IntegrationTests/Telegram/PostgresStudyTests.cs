@@ -308,7 +308,8 @@ public sealed class PostgresStudyTests
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (!text.StartsWith("Time to study:", StringComparison.Ordinal) &&
-                !text.StartsWith("Есть открытое упражнение", StringComparison.Ordinal)) return Task.CompletedTask;
+                !text.StartsWith("Есть открытое упражнение", StringComparison.Ordinal) &&
+                !text.StartsWith("Your exercise on ", StringComparison.Ordinal)) return Task.CompletedTask;
             InvitationAttempts++;
             if (FailFirst && InvitationAttempts == 1) throw new HttpRequestException("Temporary failure");
             InvitationDeliveries++;

@@ -399,6 +399,8 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
 
         modelBuilder.Entity("OwnDay.Infrastructure.Persistence.TelegramOutboxMessage", b =>
         {
+            b.Property<int?>("EditMessageId").HasColumnType("integer").HasColumnName("edit_message_id");
+
             b.Property<string>("ReplyMarkupJson")
                 .HasColumnType("text")
                 .HasColumnName("reply_markup_json");

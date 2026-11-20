@@ -24,7 +24,7 @@ public sealed class LearningSessionService(ILearningSessionStore store)
             session.RecordActivity(at, lesson);
             return false;
         }
-        store.Add(LearningSession.Start(turn.UserId, programId, at, turn.SourceOrder, lesson));
+        store.Add(LearningSession.Start(turn.UserId, programId, at, turn.SessionSourceOrder, lesson));
         return session?.ProgramId == programId && (lesson is null || lesson.ProgramId == programId);
     }
 
@@ -34,7 +34,7 @@ public sealed class LearningSessionService(ILearningSessionStore store)
         if (session is not { EndedAt: null })
         {
             if (session?.ProgramId == programId || programId is not { } selected || lesson?.ProgramId != selected) return;
-            var closed = LearningSession.Start(turn.UserId, selected, turn.ReceivedAt, turn.SourceOrder, lesson);
+            var closed = LearningSession.Start(turn.UserId, selected, turn.ReceivedAt, turn.SessionSourceOrder, lesson);
             closed.End(turn.ReceivedAt, LearningSessionEnd.Explicit);
             store.Add(closed);
             return;

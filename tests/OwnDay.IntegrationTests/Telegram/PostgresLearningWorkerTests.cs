@@ -14,7 +14,6 @@ using OwnDay.Domain;
 using OwnDay.Domain.Learning;
 using OwnDay.Infrastructure.Learning;
 using OwnDay.Infrastructure.Persistence;
-using OwnDay.Infrastructure.Telegram.Commands;
 using OwnDay.Infrastructure.Telegram.Handling;
 using OwnDay.Infrastructure.Telegram.Routing;
 using Telegram.Bot.Types;
@@ -159,7 +158,7 @@ public sealed class PostgresLearningWorkerTests : IAsyncLifetime
         {
             started.TrySetResult();
             await release.Task.WaitAsync(token);
-            return new("reply_committed", TelegramLearningPresenter.Render(new LearningResult.NoActiveLesson()));
+            return new("reply_committed", ["First owner reply"]);
         }, default);
         try
         {
@@ -285,10 +284,10 @@ public sealed class PostgresLearningWorkerTests : IAsyncLifetime
         var lease = (await Store(scope).ClaimAsync(TimeSpan.FromMinutes(1), default))!;
         var applied = await Store(scope).ApplyAsync(lease, async (request, token) =>
         {
-            var result = await scope.ServiceProvider.GetRequiredService<LearningService>().PauseAsync(request.UserId, token);
+            Assert.IsType<LearningResult.Session>(await scope.ServiceProvider.GetRequiredService<LearningService>().PauseAsync(request.UserId, token));
             await scope.ServiceProvider.GetRequiredService<OwnDayDbContext>().Database.ExecuteSqlInterpolatedAsync(
                 $"UPDATE learning_requests SET lease_until = clock_timestamp() - interval '1 second' WHERE id = {request.Id}", token);
-            return new("reply_committed", TelegramLearningPresenter.Render(result));
+            return new("reply_committed", ["Exercise paused"]);
         }, default);
         Assert.False(applied);
         await using var observer = Open();

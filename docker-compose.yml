@@ -15,6 +15,7 @@ services:
       Telegram__BotToken: ${TELEGRAM_BOT_TOKEN:-CHANGE_ME}
       Telegram__BotUsername: ${TELEGRAM_BOT_USERNAME:-CHANGE_ME}
       Telegram__WebhookSecret: ${TELEGRAM_WEBHOOK_SECRET:-CHANGE_ME}
+      Telegram__CallbackSigningKey: ${TELEGRAM_CALLBACK_SIGNING_KEY:-}
       Llm__Enabled: false
     ports:
       - "8080:8080"

@@ -1,3 +1,4 @@
+using OwnDay.Application.Dialogue;
 using OwnDay.Application.Learning;
 using OwnDay.Domain.Learning;
 
@@ -9,19 +10,17 @@ public static class TelegramCurriculumPresenter
     {
         CurriculumResult.Program program => program.ResumeNotice is null ? [.. RenderProgram(program.Value)] :
             [.. RenderProgram(program.Value), program.ResumeNotice],
-        CurriculumResult.RouteView route => [.. RenderRoute(route)],
-        CurriculumResult.RouteHistory history => ["Последние версии маршрута. Для просмотра используйте /learn_route tree <версия>.",
-            .. history.Routes.Select(route => $"v{route.Version} — {route.Reason}")],
+        CurriculumResult.RouteView route => RenderRouteActions(route),
+        CurriculumResult.RouteHistory history => ["Последние версии маршрута. Текстом — /learn_route tree <версия>.",
+            .. history.Routes.Select(route => TelegramLearningReply.WithActions($"v{route.Version} — {route.Reason}",
+                [LearningAction.ForNumber(LearningActionKind.RouteVersion, route.Version)], inRussian: true))],
         CurriculumResult.RouteEditRejected => ["Изменение или версия недоступны. Проверьте активную программу, текущую версию, коды тем и порядок предпосылок. /learn_route tree · /learn_route history"],
         CurriculumResult.GoalEditRejected => ["Обновление цели недоступно. Укажите цель в рамках текущей дисциплины и наблюдаемый результат через /learn_goal_update <цель> | <критерий>. Для отдельной программы напишите «сменить цель на <цель>»."],
         CurriculumResult.GoalUpdateOffered proposal => ["Предложение для текущей программы. Действующие упражнения и оценки сохраняются. " +
             (proposal.RetainsRouteCredit ? "Зачёт по тем же темам переносится." : "У нового набора тем будет собственный зачёт."),
             .. RenderRoute(new(proposal.Route, true), preview: true)],
         CurriculumResult.Diagnostic diagnostic => [.. RenderDiagnostic(diagnostic)],
-        CurriculumResult.SubjectDiagnosticQuestion diagnostic =>
-            [(diagnostic.Notice is null ? "" : diagnostic.Notice + "\n\n") + diagnostic.Value.DiagnosticQuestion! +
-                (MarketLearningContent.InRussian(diagnostic.Value.Goal)
-                    ? "\nОтветьте или напишите «пропустить»." : "\nAnswer the question or write “skip”.")],
+        CurriculumResult.SubjectDiagnosticQuestion diagnostic => RenderSubjectDiagnostic(diagnostic),
         CurriculumResult.Progress progress => [.. TelegramProgressPresenter.Render(progress.Value)],
         CurriculumResult.NoProgress empty => [empty.Page == 1
             ? "No programs yet. /learn_program <goal> | <experience>. Free lesson skills: /learn_skills"
@@ -50,11 +49,37 @@ public static class TelegramCurriculumPresenter
             $"/learn_programs [page]; /learn_select <program id>; /learn_links; /learn_link <topic code> | <skill id> | <reason, 1–{ProgramSkillLink.MaxReasonLength} characters>. /learn_project_report [page]; /learn_project_practice <topic code> | <active project task id>. Finish diagnosis first. Only your skills are allowed; a topic's existing identity cannot be replaced."],
         CurriculumResult.ProjectNotFound => ["Project not found for this user. /projects"],
         CurriculumResult.InvalidTransition => ["Diagnosis has already ended. /learn_route · /learn_next"],
-        CurriculumResult.RouteCompleted => ["В текущем маршруте больше нет доступных тем. Прогресс и пропуски можно посмотреть командами /learn_progress и /learn_route tree."],
+        CurriculumResult.RouteCompleted => [TelegramLearningReply.WithActions(
+            "В текущем маршруте больше нет доступных тем. Текстом — /learn_progress или /learn_route tree.",
+            [new(LearningActionKind.Progress), new(LearningActionKind.RouteTree)], inRussian: true)],
         CurriculumResult.ProviderUnavailable => [inRussian ? "Пока не удалось подготовить следующий шаг. Попробуйте ещё раз чуть позже."
             : "I couldn't prepare the next step. Try again in a moment."],
         _ => throw new ArgumentOutOfRangeException(nameof(result))
     };
+
+    private static IReadOnlyList<TelegramLearningReply> RenderRouteActions(CurriculumResult.RouteView view)
+    {
+        var text = RenderRoute(view);
+        var actions = new List<LearningAction> { new(LearningActionKind.RouteHistory) };
+        if (!view.Full) actions.Insert(0, new(LearningActionKind.RouteTree));
+        if (view.OptionalCheck is { } code)
+        {
+            var index = view.Route.Topics.ToList().FindIndex(topic => topic.Code == code);
+            if (index >= 0)
+                actions.Add(LearningAction.ForNumber(LearningActionKind.FocusTopic, 0, view.Route.Version, index) with
+                    { Revision = LearningAction.TopicIdentity(view.Route.ProgramId, view.Route.Version, code) });
+            actions.Add(new(LearningActionKind.Next));
+        }
+        return [.. text.SkipLast(1), TelegramLearningReply.WithActions(text[^1], actions, inRussian: true)];
+    }
+
+    private static IReadOnlyList<TelegramLearningReply> RenderSubjectDiagnostic(CurriculumResult.SubjectDiagnosticQuestion diagnostic)
+    {
+        var russian = MarketLearningContent.InRussian(diagnostic.Value.Goal);
+        var text = (diagnostic.Notice is null ? "" : diagnostic.Notice + "\n\n") + diagnostic.Value.DiagnosticQuestion! +
+            (russian ? "\nОтветьте текстом. Чтобы пропустить, можно написать «пропустить»." : "\nReply with your answer, or write “skip”.");
+        return [TelegramLearningReply.WithActions(text, [new(LearningActionKind.SkipDiagnosis)], russian)];
+    }
 
     private static IReadOnlyList<string> RenderRoute(CurriculumResult.RouteView view, bool preview = false)
     {
@@ -78,23 +103,29 @@ public static class TelegramCurriculumPresenter
                 : "Напишите «покажи дерево тем» или «история маршрута»." }];
     }
 
-    private static IReadOnlyList<string> RenderDiagnostic(CurriculumResult.Diagnostic result)
+    private static IReadOnlyList<TelegramLearningReply> RenderDiagnostic(CurriculumResult.Diagnostic result)
     {
+        if (result.Paused)
+            return [TelegramLearningReply.WithActions(result.Notice!, [new(LearningActionKind.Continue)], inRussian: true)];
         var diagnostic = result.Value.EnglishDiagnostic!;
         var notice = result.Notice is null ? "" : result.Notice + "\n\n";
         if (diagnostic.Status == EnglishDiagnosticStatus.Offered)
-            return [notice + "Предлагаю два коротких задания: чтение и письмо. Это предварительные наблюдения, не оценка уровня. " +
-                "Напишите «начнём диагностику» или «пропустим». Уведомления не включаются."];
+            return [TelegramLearningReply.WithActions(notice + "Два коротких задания на чтение и письмо дадут предварительное представление о навыках. " +
+                "Текстом — «начнём диагностику» или «пропустим». Уведомления не включаются.",
+                LearningActionProvider.ForDialogue(DialogueReplyKind.DiagnosticOffer), inRussian: true)];
         if (diagnostic.Status != EnglishDiagnosticStatus.Started)
-            return [notice + "Диагностика завершена или пропущена. Ответы сохранены. Напишите «Продолжим»."];
+            return [TelegramLearningReply.WithActions(notice + "Диагностика завершена или пропущена. Ответы сохранены. Текстом — «Продолжим».",
+                [new(LearningActionKind.Continue)], inRussian: true)];
         var index = diagnostic.Results.Length;
-        return [notice + $"Задание {index + 1} из 2.\n" + EnglishLearningContent.Text(index) + "\n\n" + EnglishLearningContent.Question(index) +
-            "\n\nМожно написать «помощь», «пропустим» или «пауза». Ответы с помощью отмечаются отдельно."];
+        return [TelegramLearningReply.WithActions(
+            notice + $"Задание {index + 1} из 2.\n" + EnglishLearningContent.Text(index) + "\n\n" + EnglishLearningContent.Question(index) +
+            "\n\nТекстом — «помощь», «пропустим» или «пауза». Ответы с помощью отмечаются отдельно.",
+            [new(LearningActionKind.DiagnosisHelp), new(LearningActionKind.SkipDiagnosis), new(LearningActionKind.PauseDiagnosis)], inRussian: true)];
     }
 
-    private static IReadOnlyList<string> RenderProjectReport(ProjectLearningReport report)
+    private static IReadOnlyList<TelegramLearningReply> RenderProjectReport(ProjectLearningReport report)
     {
-        var messages = new List<string>
+        var messages = new List<TelegramLearningReply>
         {
             $"Project applicability: #{report.Project.Id} {report.Project.Title}\nProject status: {report.Project.Status}\n" +
             $"Learning goal: {report.Program.Goal}\nProgram: {report.Program.Id}; route v{report.Program.CurrentRoute.Version}\n" +
@@ -113,26 +144,32 @@ public static class TelegramCurriculumPresenter
             messages.Add(text);
         }
         messages.Add("Active project tasks (choose a task and an available topic; their specific relationship is a learning proposal):");
-        messages.AddRange(report.Actions.Select(a => $"Task #{a.Id}: {a.Title}"));
-        if (report.Actions.Count == 0) messages.Add("No active project tasks on this page. /tasks");
-        if (report.Page > 1) messages.Add($"Previous tasks: /learn_project_report {report.Page - 1}");
-        if (report.HasNext) messages.Add($"Next tasks: /learn_project_report {report.Page + 1}");
+        messages.AddRange(report.Actions.Select(task => TelegramLearningReply.WithActions($"Task #{task.Id}: {task.Title}",
+            ProjectPracticeActionProvider.ForTask(report, task.Id), inRussian: false)));
+        if (report.Actions.Count == 0) messages.Add("No active project tasks on this page.");
+        if (report.Page > 1) messages.Add(Page("Previous tasks", "learn_project_report", LearningActionKind.ProjectReportPage, report.Page - 1));
+        if (report.HasNext) messages.Add(Page("Next tasks", "learn_project_report", LearningActionKind.ProjectReportPage, report.Page + 1));
         return messages;
     }
 
     private static string RenderLink(ProgramSkillLink link) =>
         $"{link.TopicCode} → skill {link.SkillId}\nSource: {link.Source}\nTrust: {link.Trust} (identity only, not proof of mastery)\nConfirmed: {link.ConfirmedAt:O}\nReason: {link.Reason}";
 
-    private static IReadOnlyList<string> RenderPrograms(CurriculumResult.Programs page)
+    private static IReadOnlyList<TelegramLearningReply> RenderPrograms(CurriculumResult.Programs page)
     {
-        var messages = page.Items.Select(p => $"{DisplayGoal(p.Goal)}\nDiscipline: {p.Discipline}\nRoute v{p.CurrentRoute.Version}\n/learn_select {p.Id}").ToList();
+        var messages = page.Items.Select(program => TelegramLearningReply.WithActions(
+            $"{DisplayGoal(program.Goal)}\nDiscipline: {program.Discipline}\nRoute v{program.CurrentRoute.Version}\n/learn_select {program.Id}",
+            [new(LearningActionKind.SelectProgram, program.Id)], inRussian: false)).ToList();
         if (messages.Count == 0) messages.Add("No programs on this page. /learn_program <goal> | <experience>");
-        if (page.Page > 1) messages.Add($"Previous: /learn_programs {page.Page - 1}");
-        if (page.HasNext) messages.Add($"Next: /learn_programs {page.Page + 1}");
+        if (page.Page > 1) messages.Add(Page("Previous", "learn_programs", LearningActionKind.ProgramsPage, page.Page - 1));
+        if (page.HasNext) messages.Add(Page("Next", "learn_programs", LearningActionKind.ProgramsPage, page.Page + 1));
         return messages;
     }
 
-    private static IReadOnlyList<string> RenderProgram(LearningProgram program)
+    private static TelegramLearningReply Page(string caption, string command, LearningActionKind kind, int number) =>
+        TelegramLearningReply.WithActions($"{caption} — /{command} {number}", [LearningAction.ForNumber(kind, number)], inRussian: false);
+
+    private static IReadOnlyList<TelegramLearningReply> RenderProgram(LearningProgram program)
     {
         var route = program.CurrentRoute;
         var heading = $"Goal: {DisplayGoal(program.Goal)}\nProgram: {program.Id}\nDiscipline: {program.Discipline}\nRoute v{route.Version}: {route.Reason}" +
@@ -140,11 +177,32 @@ public static class TelegramCurriculumPresenter
             (program.ProjectId is long id ? $"\nProject: #{id}" : "");
         var topics = route.Topics.Select(t => $"{t.Code}: {t.Title}" +
             (t.Prerequisites.Count > 0 ? $" (requires: {string.Join(", ", t.Prerequisites)})" : ""));
-        return [heading, .. topics.Chunk(4).Select(chunk => string.Join('\n', chunk)), program.DiagnosticPending
-            ? $"Optional diagnostic (AI interpretation, not a knowledge score):\n{program.DiagnosticQuestion}\n/learn_diagnose <answer> or /learn_diagnose skip"
-            : "Route ready. /learn_next · /learn_adapt · /learn_focus <topic code> · /learn_route" +
-                (program.SubjectDiagnostic is { Deferred: true } ? "\nDeferred diagnosis: /learn_diagnose start" : ""),
-            .. program.ProjectId is not null ? new[] { "Project skills and task practice: /learn_project_report [page] · /learn_project_practice <topic code> | <task id>" } : Array.Empty<string>()];
+        var actions = new List<LearningAction>();
+        var next = "Route ready. /learn_next · /learn_adapt · /learn_focus <topic code> · /learn_route";
+        if (program.DiagnosticPending)
+        {
+            next = $"Optional diagnostic (AI interpretation, not a knowledge score):\n{program.DiagnosticQuestion}\n/learn_diagnose <answer> or /learn_diagnose skip";
+            actions.Add(new(LearningActionKind.SkipDiagnosis));
+        }
+        else
+        {
+            actions.Add(new(LearningActionKind.Next));
+            actions.Add(new(LearningActionKind.RouteTree));
+            if (program.SubjectDiagnostic is { Deferred: true })
+            {
+                next += "\nDeferred diagnosis: /learn_diagnose start";
+                actions.Add(new(LearningActionKind.StartDiagnosis));
+            }
+        }
+        var russian = MarketLearningContent.InRussian(program.Goal);
+        var replies = new List<TelegramLearningReply> { heading };
+        replies.AddRange(topics.Chunk(4).Select(chunk => new TelegramLearningReply(string.Join('\n', chunk))));
+        replies.Add(TelegramLearningReply.WithActions(next, actions, russian));
+        if (program.ProjectId is not null)
+            replies.Add(TelegramLearningReply.WithActions(
+                "Project skills and task practice: /learn_project_report [page] · /learn_project_practice <topic code> | <task id>",
+                [LearningAction.ForNumber(LearningActionKind.ProjectReportPage, 1)], inRussian: false));
+        return replies;
     }
 
     internal static string DisplayGoal(string text) => LearningGoalText.Display(text);

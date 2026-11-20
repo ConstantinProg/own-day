@@ -46,6 +46,63 @@ command/button matrix instead of asserting the old UI still executes actions.
 Run the entire solution without test exclusions. PostgreSQL integration tests
 require `OWNDAY_TEST_POSTGRES_CONNECTION`; the CI Test job supplies PostgreSQL 18.
 
+## Contextual actions
+
+Learning replies offer actions for the current exercise, assessment, practice,
+diagnostic, program, route or review. Project reports offer practice on an
+active task when the report identifies one available topic. This uses the
+existing project learning use case. Invitations offer start, later and skip.
+Reminder settings offer pause, resume or opt-out when available. Existing text
+phrases and slash commands still work. Free-form answers, goals, appeals and
+scheduling parameters are entered as text.
+
+A callback is bound to the bot, owner and private chat. Its format version,
+expiry and keyed signature fit within Telegram's 64-byte limit. Simple actions
+carry a compact context reference. Confirmation and clarification buttons use
+opaque IDs for the proposals and prompts already stored in PostgreSQL. A button
+can resolve only the proposal or prompt it names. The webhook commits
+deduplication and durable receipt before acknowledging a valid press. The
+Learning worker commits the use-case result and outbox intents together.
+
+An assessment, explanation, newly published question or result is a new
+message. Multiple-choice selections edit only the keyboard. Selected state is
+readable in the option labels. Completed actions remove the originating
+keyboard when a usable message ID is available. If a hint or solution cannot be
+prepared, the learner can retry with a button. An assessment button opens the
+result for the exercise that produced it. The learner can still confirm an open
+proposal after postponing or skipping an invitation. After a text fallback, an
+older keyboard can remain visible and the usual freshness checks apply. Telegram
+delivery remains at least once. If editing fails, a user can continue by text
+and recover the saved state.
+
+Set `Telegram__CallbackSigningKey` to a cryptographically random 32-byte key
+encoded in Base64. Keep the same runtime key across restarts. Rotating it makes
+old buttons unavailable. Learners can write “continue” to get current controls.
+Apply `20261120120000_AddTelegramKeyboardEdits` before starting the updated Host.
+See the [Learning queue rollout notes](../learning/request-processing.md) for
+compatibility with earlier releases.
+
+### Manual accessibility acceptance with NVDA
+
+Use Telegram Desktop with NVDA and navigate with the keyboard. Repeat the
+Learning journey with Russian and English content.
+
+1. Open Single Choice, Multiple Choice and True/False questions. Verify that
+   each option is read as a letter and a label. Toggle multiple options and
+   verify that “selected” and “not selected” are announced, Submit appears for
+   a nonempty choice, and the question text stays in place.
+2. Select two options, restart OwnDay and type “continue”. Verify that the
+   selection is still readable. Press an old button and check that the reply
+   explains how to get current actions. Answer another question using text.
+3. Request a hint and view the assessment. Verify that each is available in a
+   separate message. Open a program switch or exercise-finish preview, decline
+   it, and check the result in the message history. Open a new proposal and
+   verify that the earlier buttons cannot confirm or decline it.
+4. Open an invitation and postpone it. Check focus and error recovery on the
+   old invitation. Repeat a supported action using its text equivalent.
+
+Manual Telegram Desktop and NVDA acceptance requires a test bot.
+
 The inventory and target model below describe the historical Inbox interface.
 
 ## Audit and target model (recorded before implementation)

@@ -68,6 +68,43 @@ public sealed class TelegramOutboxDeliveryServiceTests
         Assert.Null(stored.LastError);
     }
 
+    [Theory]
+    [InlineData(null, null, OutboxMessageStatus.Sent)]
+    [InlineData(400, "Bad Request: message is not modified", OutboxMessageStatus.Sent)]
+    [InlineData(400, "Bad Request: message to edit not found", OutboxMessageStatus.Failed)]
+    public async Task DeliverBatchAsync_KeyboardIntent_EditsOriginalWithoutSendingItsText(
+        int? errorCode, string? errorText, OutboxMessageStatus expected)
+    {
+        var sender = new KeyboardSender(errorCode is { } code ? new ApiRequestException(errorText!, code) : null);
+        await using var fixture = await DeliveryFixture.CreateAsync(sender);
+        const string markup = """{"inline_keyboard":[]}""";
+        var edit = fixture.AddPendingMessage(Now.AddMinutes(-2), text: "", editMessageId: 45, markup: markup);
+        fixture.AddPendingMessage(text: "Learning result");
+        await fixture.DbContext.SaveChangesAsync();
+
+        await fixture.DeliveryService.DeliverBatchAsync(CancellationToken.None);
+
+        Assert.Equal((1L, 45, markup), Assert.Single(sender.Edits));
+        Assert.Equal("Learning result", Assert.Single(sender.Texts));
+        Assert.Equal(expected, edit.Status);
+    }
+
+    [Fact]
+    public async Task DeliverBatchAsync_FailedKeyboardCleanup_DoesNotBlockNextReply()
+    {
+        var sender = new KeyboardSender(new ApiRequestException("Try later", 429));
+        await using var fixture = await DeliveryFixture.CreateAsync(sender);
+        var edit = fixture.AddPendingMessage(Now.AddMinutes(-2), text: "", editMessageId: 45);
+        fixture.AddPendingMessage(text: "New question");
+        await fixture.DbContext.SaveChangesAsync();
+
+        await fixture.DeliveryService.DeliverBatchAsync(CancellationToken.None);
+
+        Assert.Null(Assert.Single(sender.Edits).Markup);
+        Assert.Equal("New question", Assert.Single(sender.Texts));
+        Assert.Equal(OutboxMessageStatus.Failed, edit.Status);
+    }
+
     [Fact]
     public async Task DeliverBatchAsync_SendFails_SchedulesRetry()
     {
@@ -300,13 +337,16 @@ public sealed class TelegramOutboxDeliveryServiceTests
                     clock ?? new FixedTimeProvider(Now)));
         }
 
-        public TelegramOutboxMessage AddPendingMessage(DateTime? createdAt = null, long chatId = 1, string text = "pong")
+        public TelegramOutboxMessage AddPendingMessage(DateTime? createdAt = null, long chatId = 1, string text = "pong",
+            int? editMessageId = null, string? markup = null)
         {
             var message = new TelegramOutboxMessage
             {
                 Id = Guid.NewGuid(),
                 ChatId = chatId,
                 Text = text,
+                EditMessageId = editMessageId,
+                ReplyMarkupJson = markup,
                 Status = OutboxMessageStatus.Pending,
                 NextAttemptAt = Now.AddMinutes(-1),
                 CreatedAt = createdAt ?? Now.AddMinutes(-1)
@@ -339,6 +379,24 @@ public sealed class TelegramOutboxDeliveryServiceTests
     }
 
     private sealed record SentMessage(long ChatId, string Text, CancellationToken Token);
+
+    private sealed class KeyboardSender(Exception? editError) : ITelegramMessageSender
+    {
+        public List<string> Texts { get; } = [];
+        public List<(long ChatId, int MessageId, string? Markup)> Edits { get; } = [];
+
+        public Task SendMessageAsync(long chatId, string text, string? replyMarkupJson, CancellationToken cancellationToken)
+        {
+            Texts.Add(text);
+            return Task.CompletedTask;
+        }
+
+        public Task EditKeyboardAsync(long chatId, int messageId, string? replyMarkupJson, CancellationToken cancellationToken)
+        {
+            Edits.Add((chatId, messageId, replyMarkupJson));
+            return editError is null ? Task.CompletedTask : Task.FromException(editError);
+        }
+    }
 
     private sealed class AdjustableTimeProvider : TimeProvider
     {

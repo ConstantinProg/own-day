@@ -111,6 +111,12 @@ public sealed partial class DialogueContext
         ResponseAfterSourceOrder = Math.Max(ResponseAfterSourceOrder, sourceOrder);
     }
 
+    public void ReopenQuestion(DateTimeOffset now)
+    {
+        if (ExpectedResponse != DialogueExpectedResponse.LessonAnswer) throw new InvalidOperationException("There is no lesson answer to reopen.");
+        PromptOpenedAt = now;
+    }
+
     public void OpenClarification(Guid originalRequestId, DialogueOperationKind[] allowed, string stamp, DateTimeOffset now, long sourceOrder = 0)
     {
         if (originalRequestId == Guid.Empty || allowed.Length is < 2 or > 3 || allowed.Distinct().Count() != allowed.Length ||
@@ -123,12 +129,14 @@ public sealed partial class DialogueContext
         PendingClarification = new(originalRequestId, allowed.ToImmutableArray(), stamp, PromptId, Revision, now, now.AddMinutes(10), sourceOrder);
     }
 
-    public Guid? ConsumeClarification(DialogueOperationKind choice, DateTimeOffset receivedAt, string stamp, DateTimeOffset now, long sourceOrder = 0)
+    public Guid? ConsumeClarification(DialogueOperationKind choice, DateTimeOffset receivedAt, string stamp, DateTimeOffset now,
+        long sourceOrder = 0, Guid? publishedPromptId = null)
     {
         var pending = PendingClarification;
         if (pending is null || ExpectedResponse != DialogueExpectedResponse.IntentChoice || pending.PromptId != PromptId ||
             pending.BaseRevision != Revision || receivedAt < pending.OpenedAt || now >= pending.ExpiresAt ||
-            pending.TargetStamp != stamp || !pending.Allowed.Contains(choice) || pending.SourceOrder > 0 && sourceOrder <= pending.SourceOrder) return null;
+            pending.TargetStamp != stamp || !pending.Allowed.Contains(choice) ||
+            (publishedPromptId is { } prompt ? pending.PromptId != prompt : pending.SourceOrder > 0 && sourceOrder <= pending.SourceOrder)) return null;
         ClearPending(now);
         return pending.OriginalRequestId;
     }
@@ -154,13 +162,15 @@ public sealed partial class DialogueContext
         ExpectedResponse = DialogueExpectedResponse.ChangeConfirmation;
     }
 
-    public DialogueConfirmation? ConsumeConfirmation(string code, DateTimeOffset receivedAt, string stamp, DateTimeOffset now, long sourceOrder = 0)
+    public DialogueConfirmation? ConsumeConfirmation(string code, DateTimeOffset receivedAt, string stamp, DateTimeOffset now,
+        long sourceOrder = 0, Guid? publishedProposalId = null)
     {
         var pending = PendingConfirmation;
         if (pending is null || ExpectedResponse != DialogueExpectedResponse.ChangeConfirmation || pending.PromptId != PromptId ||
             pending.BaseRevision != Revision || receivedAt < pending.OpenedAt || now >= pending.ExpiresAt || pending.TargetStamp != stamp ||
             !string.Equals(code, pending.Code, StringComparison.OrdinalIgnoreCase) ||
-            pending.ParametersHash != Hash(pending.Operation + "\n" + pending.Arguments) || pending.SourceOrder > 0 && sourceOrder <= pending.SourceOrder) return null;
+            pending.ParametersHash != Hash(pending.Operation + "\n" + pending.Arguments) ||
+            (publishedProposalId is { } proposal ? pending.ProposalId != proposal : pending.SourceOrder > 0 && sourceOrder <= pending.SourceOrder)) return null;
         ClearPending(now);
         return pending;
     }

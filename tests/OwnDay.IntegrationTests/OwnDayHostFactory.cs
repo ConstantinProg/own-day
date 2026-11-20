@@ -41,6 +41,7 @@ public sealed class OwnDayHostFactory : WebApplicationFactory<Program>
             "Telegram:BotToken",
             "123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi");
         builder.UseSetting("Telegram:BotUsername", "OwnDayBot");
+        builder.UseSetting("Telegram:CallbackSigningKey", Convert.ToBase64String(new byte[32]));
         builder.UseSetting(
             "ConnectionStrings:Default",
             "Host=localhost;Database=unused;Username=unused;Password=unused");

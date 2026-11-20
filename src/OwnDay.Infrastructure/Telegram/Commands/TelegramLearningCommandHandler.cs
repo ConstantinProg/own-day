@@ -30,7 +30,11 @@ public sealed class TelegramLearningCommandHandler(LearningService learning,
     private async Task<IReadOnlyList<TelegramLearningReply>> HandleLessonAsync(ProcessIncomingCommand command, CancellationToken token, bool inRussian)
     {
         if (command.Name == "learn_confirm") return ["Нет актуального подтверждения. Повторите исходный запрос."];
-        var result = command.Name switch
+        return TelegramLearningPresenter.Render(await ExecuteLessonAsync(command, token), inRussian);
+    }
+
+    internal async Task<LearningResult> ExecuteLessonAsync(ProcessIncomingCommand command, CancellationToken token) =>
+        command.Name switch
         {
             "learn" => await learning.StartAsync(command.UserId, command.Arguments, token),
             "answer" => await learning.AnswerAsync(command.UserId, command.Arguments, token),
@@ -42,6 +46,4 @@ public sealed class TelegramLearningCommandHandler(LearningService learning,
             "learn_finish" => await learning.FinishAsync(command.UserId, token),
             _ => throw new InvalidOperationException("Unsupported Learning command.")
         };
-        return TelegramLearningPresenter.Render(result, inRussian);
-    }
 }

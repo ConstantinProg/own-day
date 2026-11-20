@@ -601,6 +601,7 @@ public sealed class PostgresInboxAnalysisJobTests : IAsyncLifetime
         {
             builder.UseSetting("ConnectionStrings:Default", connection);
             builder.UseSetting("Telegram:BotToken", "123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi");
+            builder.UseSetting("Telegram:CallbackSigningKey", Convert.ToBase64String(new byte[32]));
             builder.UseSetting("Telegram:BotUsername", "OwnDayBot");
             builder.UseSetting("Telegram:WebhookSecret", "test-webhook-secret");
             builder.UseSetting("InboxAnalysis:OpenAI:Enabled", "true");

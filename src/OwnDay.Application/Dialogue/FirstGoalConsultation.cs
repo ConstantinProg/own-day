@@ -57,7 +57,7 @@ public static class FirstGoalConsultation
             context.RestoreConsultation(turn.Now, turn.SourceOrder);
             return Prompt(context);
         }
-        if (context.Consultation.AfterSourceOrder > 0 && turn.SourceOrder <= context.Consultation.AfterSourceOrder ||
+        if (context.Consultation.AfterSourceOrder > 0 && !turn.IsAfterSourceOrder(context.Consultation.AfterSourceOrder) ||
             turn.ReceiptPromptId != context.PromptId) return Prompt(context);
 
         if (context.Consultation is { PracticalUse: not null, Experience: not null })

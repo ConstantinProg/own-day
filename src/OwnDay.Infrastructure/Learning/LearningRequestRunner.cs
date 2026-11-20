@@ -10,6 +10,7 @@ using OwnDay.Application.Learning;
 using OwnDay.Application.Learning.Requests;
 using OwnDay.Application.StructuredItems;
 using OwnDay.Infrastructure.Persistence;
+using OwnDay.Infrastructure.Telegram.Actions;
 using OwnDay.Infrastructure.Telegram.Commands;
 using OwnDay.Application.Dialogue;
 using OwnDay.Domain.Dialogue;
@@ -17,8 +18,8 @@ using OwnDay.Domain.Learning;
 
 namespace OwnDay.Infrastructure.Learning;
 
-public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<LearningRequestProcessingOptions> options,
-    LearningProviderExecutor provider)
+public sealed partial class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<LearningRequestProcessingOptions> options,
+    LearningProviderExecutor provider, TelegramActionKeyboard keyboard)
     : ILearningRequestRunner
 {
     public async Task<bool> RunAsync(LearningRequestLease lease, int maxAttempts, CancellationToken token)
@@ -39,30 +40,8 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
                 var handler = CreateHandler(services, session, lease.RequestId);
                 return await services.GetRequiredService<EfLearningRequestStore>().ApplyAsync(lease, async (request, cancellationToken) =>
                 {
-                    if (request.AttemptCount > maxAttempts) return new("attempts_exhausted");
-                    if (request.PayloadKind == "learning_choice" && request.PayloadVersion == 1)
-                        return await ExecuteChoiceAsync(services, db, request, session, cancellationToken);
-                    if (request.PayloadKind == "learning_text" && request.PayloadVersion == 1 ||
-                        request.PayloadKind == "learning_command" && request.PayloadVersion == 3)
-                        return await ExecuteDialogueAsync(services, db, request, session, handler, options.Value, cancellationToken);
-                    if (request.PayloadKind != "learning_command" || request.PayloadVersion is not (1 or 2)) return new("unsupported_payload");
-                    LearningCommandInput? input;
-                    try { input = JsonSerializer.Deserialize<LearningCommandInput>(request.NormalizedInput, JsonSerializerOptions.Web); }
-                    catch (JsonException) { return new("unsupported_payload"); }
-                    if (input is null || input.Name is null || input.Arguments is null || !handler.Handles(input.Name))
-                        return new("unsupported_payload");
-                    if (request.PayloadVersion == 2 && input.Name is "answer" or "learn_ask" or "learn_explain")
-                    {
-                        var lesson = await services.GetRequiredService<ILessonStore>().FindActiveAsync(request.UserId, cancellationToken);
-                        if (input.LessonId is null || lesson?.Id != input.LessonId)
-                            return new("stale_target")
-                            {
-                                Replies = ["The addressed question is no longer current or was not available when the command arrived. Check the current lesson and repeat the command; no answer was assessed."]
-                            };
-                    }
-                    var replies = await handler.HandleAsync(new(input.Name, input.Arguments, request.UserId), cancellationToken);
-                    session.EnsureComplete();
-                    return new("reply_committed") { Replies = replies };
+                    var execution = await ExecuteRequestAsync(services, db, request, session, handler, maxAttempts, cancellationToken);
+                    return await PrepareCompletionAsync(services, db, request, execution, cancellationToken);
                 }, token);
             }
             catch (LearningProviderRequiredException required) { pending = required.Step; }
@@ -73,7 +52,7 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
                     async (request, cancellationToken) =>
                     {
                         await SynchronizeTerminalDialogueAsync(scope.ServiceProvider, request, cancellationToken);
-                        return new LearningRequestExecution("stale_target")
+                        return new LearningRequestCompletion("stale_target")
                         {
                             Replies = ["Learning context changed while the request was being processed. No result was applied. Check the current lesson or repeat the original command."]
                         };
@@ -94,7 +73,7 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
                     async (request, cancellationToken) =>
                     {
                         await SynchronizeTerminalDialogueAsync(scope.ServiceProvider, request, cancellationToken);
-                        return new LearningRequestExecution("provider_outcome_unknown")
+                        return new LearningRequestCompletion("provider_outcome_unknown")
                         {
                             Replies = ["The provider outcome is unknown. No result was applied or answer assessed. Check the current lesson before explicitly retrying the original command."]
                         };
@@ -110,6 +89,50 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
             }
         }
         throw new InvalidOperationException("Learning command exceeded its phase limit.");
+    }
+
+    private async Task<LearningRequestExecution> ExecuteRequestAsync(IServiceProvider services, OwnDayDbContext db,
+        LearningRequest request, LearningProviderSession session, TelegramLearningCommandHandler handler, int maxAttempts, CancellationToken token)
+    {
+        if (request.AttemptCount > maxAttempts) return new("attempts_exhausted");
+        if (request.PayloadKind == "learning_action" && request.PayloadVersion == 1)
+            return await ExecuteActionAsync(services, db, request, session, handler, options.Value, token);
+        if (request.PayloadKind == "learning_choice" && request.PayloadVersion == 1)
+            return await ExecuteChoiceAsync(services, db, request, session, token);
+        if (request.PayloadKind == "learning_text" && request.PayloadVersion == 1 ||
+            request.PayloadKind == "learning_command" && request.PayloadVersion == 3)
+            return await ExecuteDialogueAsync(services, db, request, session, handler, options.Value, token);
+        if (request.PayloadKind != "learning_command" || request.PayloadVersion is not (1 or 2)) return new("unsupported_payload");
+        LearningCommandInput? input;
+        try { input = JsonSerializer.Deserialize<LearningCommandInput>(request.NormalizedInput, JsonSerializerOptions.Web); }
+        catch (JsonException) { return new("unsupported_payload"); }
+        if (input is null || input.Name is null || input.Arguments is null || !handler.Handles(input.Name))
+            return new("unsupported_payload");
+        if (request.PayloadVersion == 2 && input.Name is "answer" or "learn_ask" or "learn_explain")
+        {
+            var lesson = await services.GetRequiredService<ILessonStore>().FindActiveAsync(request.UserId, token);
+            if (input.LessonId is null || lesson?.Id != input.LessonId)
+                return new("stale_target",
+                    ["The addressed question is no longer current or was not available when the command arrived. Check the current lesson and repeat the command; no answer was assessed."]);
+        }
+        var replies = await handler.HandleAsync(new(input.Name, input.Arguments, request.UserId), token);
+        session.EnsureComplete();
+        return new("reply_committed", replies);
+    }
+
+    private async Task<LearningRequestCompletion> PrepareCompletionAsync(IServiceProvider services, OwnDayDbContext db,
+        LearningRequest request, LearningRequestExecution execution, CancellationToken token)
+    {
+        var replies = execution.Replies;
+        if (request.ChatId == request.UserId.Value && replies?.Any(reply => reply.Actions is { Count: > 0 }) == true)
+        {
+            var dialogue = await services.GetRequiredService<IDialogueStore>().FindAsync(request.UserId, token);
+            var lesson = await services.GetRequiredService<ILessonStore>().FindActiveAsync(request.UserId, token);
+            var now = await NowAsync(db, token);
+            replies = replies.Select(reply => keyboard.Render(reply, request.UserId.Value, request.ChatId, now, dialogue, lesson)).ToArray();
+        }
+        return new(execution.Outcome, replies?.Select(reply => new TelegramOutboxIntent(reply.Text, reply.ReplyMarkupJson, reply.EditMessageId)).ToArray())
+            { DialogueOutcomeJson = execution.DialogueOutcomeJson };
     }
 
     private static TelegramLearningCommandHandler CreateHandler(IServiceProvider services, LearningProviderSession session, Guid operationId)
@@ -144,16 +167,79 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
         if (input is null || request.ChatId != request.UserId.Value || !Enum.IsDefined(input.Action))
             return new("unsupported_payload");
 
+        return await ApplyChoiceAsync(services, request, session, input, null, await NowAsync(db, token), token);
+    }
+
+    private static async Task<DateTimeOffset> NowAsync(OwnDayDbContext db, CancellationToken token) =>
+        new(await db.Database.SqlQuery<DateTime>($"SELECT clock_timestamp() AS \"Value\"").SingleAsync(token));
+
+    private static async Task<LearningRequestExecution> ExecuteActionAsync(IServiceProvider services, OwnDayDbContext db,
+        LearningRequest request, LearningProviderSession session, TelegramLearningCommandHandler handler,
+        LearningRequestProcessingOptions processing, CancellationToken token)
+    {
+        LearningActionInput? input;
+        try { input = JsonSerializer.Deserialize<LearningActionInput>(request.NormalizedInput, JsonSerializerOptions.Web); }
+        catch (JsonException) { return new("unsupported_payload"); }
+        if (input?.Action is null || request.ChatId != request.UserId.Value || request.SourceMessageId is not > 0 ||
+            !Enum.IsDefined(input.Action.Kind))
+            return new("unsupported_payload");
+        var now = await NowAsync(db, token);
+        if (now >= input.ExpiresAt) return ActionUnavailable(input.InRussian);
+        if (input.Action.ToChoiceInput() is { } choice)
+            return await ApplyChoiceAsync(services, request, session, choice, input.Action, now, token);
+
+        StudySchedule? invitationSchedule = null;
+        if (input.Action.Kind is LearningActionKind.StartInvitation or LearningActionKind.PostponeInvitation or LearningActionKind.SkipInvitation)
+        {
+            invitationSchedule = await services.GetRequiredService<IStudyScheduleStore>().FindAsync(request.UserId, token);
+            if (invitationSchedule?.IsCurrent(input.Action.TargetId, services.GetRequiredService<TimeProvider>().GetUtcNow()) != true)
+                return ActionUnavailable(input.InRussian);
+            if (input.Action.Kind == LearningActionKind.StartInvitation && invitationSchedule.LessonId is not null &&
+                !invitationSchedule.MatchesOpenExercise(await services.GetRequiredService<ILessonStore>().FindActiveAsync(request.UserId, token)))
+                return ActionUnavailable(input.InRussian);
+        }
+
+        var execution = await ExecuteDialogueAsync(services, db, request, session, handler, processing, token, input);
+        if (execution.Outcome is "stale_target" or "unsupported_payload") return execution;
+        var remove = execution.RemoveSourceKeyboard;
+        if (invitationSchedule is not null)
+            remove = invitationSchedule.InvitationId != input.Action.TargetId;
+        else if (RemovesKeyboard(input.Action.Kind))
+        {
+            var context = await services.GetRequiredService<IDialogueStore>().FindAsync(request.UserId, token);
+            remove = context?.Revision != input.Action.Revision;
+        }
+        return remove ? execution with { Replies = [.. execution.Replies ?? [], new TelegramLearningReply("", EditMessageId: request.SourceMessageId)] } : execution;
+    }
+
+    private static LearningRequestExecution ActionUnavailable(bool russian) => new("stale_target",
+        [russian ? "Это действие больше недоступно. Откройте последнее сообщение или напишите «Продолжим»."
+            : "This action is out of date. Use the latest message or write “continue”."]);
+
+    private static async Task<LearningRequestExecution> ApplyChoiceAsync(IServiceProvider services,
+        LearningRequest request, LearningProviderSession session, ChoiceInput input, LearningAction? action, DateTimeOffset now,
+        CancellationToken token)
+    {
         var lessons = services.GetRequiredService<ILessonStore>();
         var lesson = await lessons.FindActiveAsync(request.UserId, token);
         var learning = new LearningService(lessons, session, services.GetRequiredService<KnowledgeService>(), request.Id);
         var dialogue = new LearningDialogueService(services.GetRequiredService<IDialogueStore>(), session,
             sessions: services.GetRequiredService<LearningSessionService>());
-        var now = new DateTimeOffset(await db.Database.SqlQuery<DateTime>($"SELECT clock_timestamp() AS \"Value\"").SingleAsync(token));
         var turn = new DialogueTurn(request.Id, request.UserId, null, "", input.LessonId, null,
-            new DateTimeOffset(request.ReceivedAt), now, SourceOrder: request.SourceMessageId ?? request.SourceUpdateId);
+            new DateTimeOffset(request.ReceivedAt), now, SourceOrder: action is null ? request.SourceMessageId ?? request.SourceUpdateId : 0,
+            ContextualAction: action, RequestSequence: request.Sequence);
+        var isCurrent = lesson?.Id == input.LessonId && lesson.MatchesChoice(input.Version, input.Revision);
         var application = await dialogue.ApplyChoiceAsync(turn, lesson, input, learning, token);
-        var replies = TelegramLearningPresenter.Render(application.Reply);
+        var reply = action is not null && !isCurrent && application.Reply is LearningResult.ChoiceReply stale
+            ? stale with { Prompt = null } : application.Reply;
+        var replies = TelegramLearningPresenter.Render(reply);
+        if (action is not null && request.SourceMessageId is { } source)
+        {
+            if (input.Action == ChoiceAction.Toggle && application.Reply is LearningResult.ChoiceReply { Message.Length: 0, Prompt: not null })
+                replies = [replies.Single() with { Text = "", EditMessageId = source }];
+            else if (application.AttemptRecorded || application.Reply is LearningResult.Session)
+                replies = [.. replies, new TelegramLearningReply("", EditMessageId: source)];
+        }
         if (application.AttemptRecorded && lesson?.Status == LessonStatus.Completed &&
             await CreatePractice(services, session).SynchronizeAsync(request.UserId, DialogueOperationKind.Answer, token) is { } practice)
             replies = [.. replies, .. TelegramPracticePresenter.Render(practice)];
@@ -162,29 +248,47 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
     }
 
     private static async Task<LearningRequestExecution> ExecuteDialogueAsync(IServiceProvider services, OwnDayDbContext db,
-        LearningRequest request, LearningProviderSession session, TelegramLearningCommandHandler handler, LearningRequestProcessingOptions processing, CancellationToken token)
+        LearningRequest request, LearningProviderSession session, TelegramLearningCommandHandler handler,
+        LearningRequestProcessingOptions processing, CancellationToken token, LearningActionInput? actionInput = null)
     {
         LearningCommandInput? command = null;
         LearningTextInput? text = null;
-        try
+        var lesson = await services.GetRequiredService<ILessonStore>().FindActiveAsync(request.UserId, token);
+        var store = services.GetRequiredService<IDialogueStore>();
+        if (actionInput is { Action: var action })
         {
-            if (request.PayloadKind == "learning_command") command = JsonSerializer.Deserialize<LearningCommandInput>(request.NormalizedInput, JsonSerializerOptions.Web);
-            else text = JsonSerializer.Deserialize<LearningTextInput>(request.NormalizedInput, JsonSerializerOptions.Web);
+            var boundContext = await store.FindAsync(request.UserId, token);
+            if (!LearningActionProvider.MatchesDialogue(action, boundContext) || !LearningActionProvider.CanOffer(action.Kind, lesson))
+                return ActionUnavailable(actionInput.InRussian);
+            (command, text) = await BindDialogueActionAsync(services, request, actionInput, boundContext, lesson, token);
+            if (command is null && text is null) return ActionUnavailable(actionInput.InRussian);
         }
-        catch (JsonException) { return new("unsupported_payload"); }
+        else
+        {
+            try
+            {
+                if (request.PayloadKind == "learning_command") command = JsonSerializer.Deserialize<LearningCommandInput>(request.NormalizedInput, JsonSerializerOptions.Web);
+                else text = JsonSerializer.Deserialize<LearningTextInput>(request.NormalizedInput, JsonSerializerOptions.Web);
+            }
+            catch (JsonException) { return new("unsupported_payload"); }
+        }
         if (command is null && (text?.Text is null || text.Text.Length is < 1 or > 3000) ||
             command is not null && (command.Arguments is null || command.Arguments.Length > 4000 ||
                 !handler.Handles(command.Name) && command.Name != "cancel")) return new("unsupported_payload");
-        var lesson = await services.GetRequiredService<ILessonStore>().FindActiveAsync(request.UserId, token);
-        var store = services.GetRequiredService<IDialogueStore>();
+        if (command?.Name is "learn_invite_later" or "learn_invite_skip")
+        {
+            var invitationReply = await handler.HandleAsync(new(command.Name, command.Arguments, request.UserId), token);
+            session.EnsureComplete();
+            return new("reply_committed", invitationReply);
+        }
         var program = await store.ReadProgramAsync(request.UserId, token);
-        var now = new DateTimeOffset(await db.Database.SqlQuery<DateTime>($"SELECT clock_timestamp() AS \"Value\"").SingleAsync(token));
+        var now = await NowAsync(db, token);
         var pedagogicalStamp = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
             TargetStamp(db, includeDialogue: false) + JsonSerializer.Serialize(program, JsonSerializerOptions.Web))));
         var turn = new DialogueTurn(request.Id, request.UserId, command is null ? null : CommandKind(command.Name),
             command?.Arguments ?? text!.Text, command?.LessonId ?? text?.LessonId, command?.PromptId ?? text?.PromptId,
             new DateTimeOffset(request.ReceivedAt), now, lesson is null ? null : db.Entry(lesson).Property<uint>("TargetVersion").OriginalValue,
-            request.SourceMessageId ?? request.SourceUpdateId);
+            actionInput is null ? request.SourceMessageId ?? request.SourceUpdateId : 0, actionInput?.Action, request.Sequence);
         var decision = await new LearningDialogueService(store, session, processing.ConsultationEnabled || text?.ConsultationAllowed == true,
             processing.PracticeEnabled || text?.PracticeAllowed == true,
             processing.ProgramSwitchEnabled || text?.ProgramSwitchAllowed == true || command?.ProgramSwitchAllowed == true,
@@ -351,6 +455,18 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
                 value.Status is LessonStatus.AwaitingAnswer or LessonStatus.Paused);
             decision.Context.Synchronize(current, now, turn.SourceOrder);
             return new("practice_reply") { Replies = TelegramPracticePresenter.Render(result) };
+        }
+        if (actionInput?.Action is { Kind: LearningActionKind.Hint or LearningActionKind.Solution } help)
+        {
+            var result = await handler.ExecuteLessonAsync(new(CommandName(operation), decision.Arguments, request.UserId), token);
+            session.EnsureComplete();
+            var consumed = result is LearningResult.Explanation or LearningResult.ChoiceReply { Prompt: not null };
+            if (consumed) decision.Context.Synchronize(lesson, now, turn.SourceOrder);
+            var russian = MarketLearningContent.InRussian(lesson?.Theory ?? program?.Goal ?? turn.Text);
+            var helpReplies = TelegramLearningPresenter.Render(result, russian);
+            if (result is LearningResult.ProviderUnavailable && decision.Context.Revision != help.Revision)
+                helpReplies = [helpReplies.Single() with { Actions = [new(help.Kind)], InRussian = russian }];
+            return new("reply_committed", Introduce(introduce, helpReplies)) { RemoveSourceKeyboard = consumed };
         }
         IReadOnlyList<TelegramLearningReply> replies;
         if (operation == DialogueOperationKind.PracticeLastSkill)

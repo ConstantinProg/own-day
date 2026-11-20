@@ -95,17 +95,30 @@ public sealed class TelegramStudyCommandHandler(StudyService service)
             : [Expired];
     }
 
-    public static string Invitation(StudyInvitation invitation) =>
-        (invitation.IsOpenExercise ? $"Есть открытое упражнение по теме «{invitation.Topic}»." : $"Time to study: {invitation.Topic}" + (invitation.IsReview ? " (review)" : "")) +
-        $"\nStart: /learn_invite_start {invitation.Id:N}\nLater: /learn_invite_later {invitation.Id:N}\nSkip: /learn_invite_skip {invitation.Id:N}" +
-        "\nOptional invitation. /learn_notify_pause · /learn_notify_off";
+    public static TelegramLearningReply Invitation(StudyInvitation invitation)
+    {
+        var russian = MarketLearningContent.InRussian(invitation.Topic);
+        var heading = (russian, invitation.IsOpenExercise, invitation.IsReview) switch
+        {
+            (true, true, _) => $"Есть открытое упражнение по теме «{invitation.Topic}».",
+            (true, false, true) => $"Пора повторить «{invitation.Topic}».",
+            (true, false, false) => $"Пора вернуться к теме «{invitation.Topic}».",
+            (false, true, _) => $"Your exercise on {invitation.Topic} is still open.",
+            _ => $"Time to study: {invitation.Topic}" + (invitation.IsReview ? " (review)" : "")
+        };
+        var text = russian
+            ? heading + $"\nТекстом — «начать приглашение», «отложить приглашение» или «пропустить приглашение» и код {invitation.Id:N}."
+            : heading + $"\nBy text — /learn_invite_start {invitation.Id:N} · /learn_invite_later {invitation.Id:N} · /learn_invite_skip {invitation.Id:N}";
+        return TelegramLearningReply.WithActions(text, StudyActionProvider.ForInvitation(invitation), russian);
+    }
 
     private static IReadOnlyList<TelegramLearningReply> Show(StudySchedule? schedule) => schedule is null || schedule.EffectiveReminderTypes == StudyReminderType.None
         ? ["Notifications are off.", Usage] :
-        [$"Study schedule: {schedule.TimeZoneId}; every {schedule.EveryDays} day(s).\n" +
+        [TelegramLearningReply.WithActions($"Study schedule: {schedule.TimeZoneId}; every {schedule.EveryDays} day(s).\n" +
          string.Join(", ", schedule.Windows.Select(w => $"{w.Start:HH:mm}-{w.End:HH:mm}")) +
          $"\nNotifications: {(schedule.Paused ? "paused" : "enabled")}. Types: {schedule.EffectiveReminderTypes}. Next eligible time: {schedule.NextAt:O} (UTC).\n" +
-         "/learn_notify_pause · /learn_notify_resume\n" + Usage];
+         "/learn_notify_pause · /learn_notify_resume · /learn_notify_off",
+         StudyActionProvider.ForSchedule(schedule), inRussian: false)];
 
     private static StudyReminderType? ParseTypes(string text)
     {

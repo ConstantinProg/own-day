@@ -2,11 +2,12 @@ using Microsoft.EntityFrameworkCore;
 using OwnDay.Application.Learning;
 using OwnDay.Domain.Learning;
 using OwnDay.Infrastructure.Persistence;
+using OwnDay.Infrastructure.Telegram.Actions;
 using OwnDay.Infrastructure.Telegram.Commands;
 
 namespace OwnDay.Infrastructure.Telegram.Delivery;
 
-public sealed class StudyInvitationDispatcher(OwnDayDbContext db, StudyService service, TimeProvider clock)
+public sealed class StudyInvitationDispatcher(OwnDayDbContext db, StudyService service, TimeProvider clock, TelegramActionKeyboard keyboard)
 {
     public async Task<BatchProcessingResult> DispatchBatchAsync(CancellationToken token)
     {
@@ -24,9 +25,10 @@ public sealed class StudyInvitationDispatcher(OwnDayDbContext db, StudyService s
             if (invitation is not null)
             {
                 var at = clock.GetUtcNow().UtcDateTime;
+                var reply = keyboard.Render(TelegramStudyCommandHandler.Invitation(invitation), user.Value, user.Value, new(at), null);
                 db.TelegramOutboxMessages.Add(new TelegramOutboxMessage
                 {
-                    Id = Guid.NewGuid(), ChatId = user.Value, Text = TelegramStudyCommandHandler.Invitation(invitation),
+                    Id = Guid.NewGuid(), ChatId = user.Value, Text = reply.Text, ReplyMarkupJson = reply.ReplyMarkupJson,
                     StudyInvitationId = invitation.Id, Status = OutboxMessageStatus.Pending, CreatedAt = at, NextAttemptAt = at
                 });
             }

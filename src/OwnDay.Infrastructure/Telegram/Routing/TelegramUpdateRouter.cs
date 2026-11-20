@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Options;
-using System.Text.Json;
 using OwnDay.Application.Interactions;
 using OwnDay.Domain;
+using OwnDay.Infrastructure.Telegram.Actions;
 using OwnDay.Infrastructure.Telegram.Commands;
 using OwnDay.Infrastructure.Telegram.Configuration;
 using Telegram.Bot.Types;
@@ -13,27 +13,35 @@ public sealed class TelegramUpdateRouter
 {
     private readonly TelegramCommandParser _commandParser;
     private readonly string _botUsername;
+    private readonly TelegramActionCodec? _actions;
 
     public TelegramUpdateRouter(
         TelegramCommandParser commandParser,
-        IOptions<TelegramOptions> options)
+        IOptions<TelegramOptions> options,
+        TelegramActionCodec? actions = null)
     {
         ArgumentNullException.ThrowIfNull(commandParser);
         ArgumentNullException.ThrowIfNull(options);
 
         _commandParser = commandParser;
         _botUsername = options.Value.BotUsername!;
+        _actions = actions;
     }
 
     public TelegramUpdateRouteResult Route(Update update)
     {
         ArgumentNullException.ThrowIfNull(update);
 
-        if (update.CallbackQuery is { From.IsBot: false, Message.Chat.Type: ChatType.Private, Data: { } choiceData } choice &&
-            choice.Message.Chat.Id == choice.From.Id && TelegramChoicePresenter.Parse(choiceData) is { } input)
+        if (update.CallbackQuery is { From.IsBot: false, Data: { } actionData } callbackAction &&
+            (actionData.StartsWith("a", StringComparison.Ordinal) || actionData.StartsWith("lc:", StringComparison.Ordinal)))
         {
-            return new TelegramUpdateRouteResult.Dispatch(new ProcessIncomingCommand("learning_choice",
-                JsonSerializer.Serialize(input, JsonSerializerOptions.Web), new UserId(choice.From.Id)), choice.Message.Chat.Id);
+            if (callbackAction.Message is { Chat.Type: ChatType.Private, Id: > 0 } source &&
+                _actions is not null &&
+                _actions.TryDecode(actionData, callbackAction.From.Id, source.Chat.Id, out var action, out var expiresAt))
+            {
+                return new TelegramUpdateRouteResult.Action(new UserId(callbackAction.From.Id), source.Chat.Id, action!, expiresAt);
+            }
+            return new TelegramUpdateRouteResult.UnavailableAction(IsRussian(callbackAction.From.LanguageCode));
         }
 
         if (update.CallbackQuery is { From.IsBot: false, Message.Chat.Type: ChatType.Private, Data: { } navigation } nav &&
@@ -114,4 +122,6 @@ public sealed class TelegramUpdateRouter
             }, command.Arguments, new UserId(message.From.Id)),
             message.Chat.Id);
     }
+
+    private static bool IsRussian(string? language) => language?.StartsWith("ru", StringComparison.OrdinalIgnoreCase) == true;
 }

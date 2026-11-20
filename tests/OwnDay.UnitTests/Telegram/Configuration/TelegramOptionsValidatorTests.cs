@@ -14,12 +14,32 @@ public sealed class TelegramOptionsValidatorTests
         {
             BotToken = "bot-token",
             BotUsername = "OwnDayBot",
-            WebhookSecret = "webhook-secret"
+            WebhookSecret = "webhook-secret",
+            CallbackSigningKey = Convert.ToBase64String(new byte[32])
         };
 
         var result = _validator.Validate(null, options);
 
         Assert.True(result.Succeeded);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("invalid")]
+    [InlineData("AAAA")]
+    public void Validate_InvalidCallbackSigningKey_Fails(string? signingKey)
+    {
+        var options = new TelegramOptions
+        {
+            BotToken = "bot-token",
+            BotUsername = "OwnDayBot",
+            WebhookSecret = "webhook-secret",
+            CallbackSigningKey = signingKey
+        };
+
+        var result = _validator.Validate(null, options);
+
+        Assert.Contains("Telegram:CallbackSigningKey must be a 32-byte key encoded in Base64.", result.Failures!);
     }
 
     [Theory]

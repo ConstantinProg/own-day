@@ -6,28 +6,40 @@ namespace OwnDay.Infrastructure.Telegram.Commands;
 
 public static class TelegramKnowledgePresenter
 {
-    public static string ReviewAfterResume(ReviewSuggestion suggestion) =>
-        $"После перерыва можно повторить «{suggestion.Skill.Title}». Текущий вопрос сохранён. Продолжите ответом или напишите «что повторить».";
+    public static TelegramLearningReply ReviewAfterResume(ReviewSuggestion suggestion) =>
+        TelegramLearningReply.WithActions($"После перерыва можно повторить «{suggestion.Skill.Title}». Текущий вопрос сохранён. Текстом — «что повторить».",
+            [new(LearningActionKind.ReviewSuggestions)], inRussian: true);
 
-    public static IReadOnlyList<string> Suggestions(IReadOnlyList<ReviewSuggestion> suggestions)
+    public static IReadOnlyList<TelegramLearningReply> Suggestions(IReadOnlyList<ReviewSuggestion> suggestions)
     {
-        if (suggestions.Count == 0) return ["Сейчас подходящих повторений нет. Чтобы открыть следующую тему, напишите «дальше»."];
-        return ["Что можно повторить перед следующим занятием. Для продолжения маршрута напишите «дальше».",
+        var heading = suggestions.Count == 0 ? "Сейчас подходящих повторений нет." : "Что можно повторить перед следующим занятием.";
+        return [TelegramLearningReply.WithActions(heading + " Текстом — «дальше» для перехода к следующей теме.",
+            [new(LearningActionKind.Next)], inRussian: true),
             .. suggestions.Select(item => item.DueAt is { } dueAt
-                ? $"{item.Skill.Title}\nСрок повторения наступил {dueAt:yyyy-MM-dd HH:mm} UTC.\n/learn_review {item.Skill.Id}\nПозже /learn_review_later {item.Skill.Id} · Пропустить /learn_review_skip {item.Skill.Id}"
-                : $"{item.Skill.Title}\n" + (item.SupportsTopic is { } topic ? $"Пригодится в теме «{topic}»." :
-                    $"От навыка зависят следующие темы ({item.DependentTopics}).") + $"\nДополнительная практика /learn_practice {item.Skill.Id}")];
+                ? TelegramLearningReply.WithActions($"{item.Skill.Title}\nСрок повторения наступил {dueAt:yyyy-MM-dd HH:mm} UTC.\n" +
+                    $"/learn_review {item.Skill.Id} · /learn_review_later {item.Skill.Id} · /learn_review_skip {item.Skill.Id}",
+                    LearningActionProvider.ForReview(item.Skill.Id, due: true), inRussian: true)
+                : TelegramLearningReply.WithActions($"{item.Skill.Title}\n" + (item.SupportsTopic is { } topic ? $"Пригодится в теме «{topic}»." :
+                    $"От навыка зависят следующие темы ({item.DependentTopics}).") + $"\n/learn_practice {item.Skill.Id}",
+                    LearningActionProvider.ForReview(item.Skill.Id, due: false), inRussian: true))];
     }
 
-    public static IReadOnlyList<string> Reviews(ReviewPage page)
+    public static IReadOnlyList<TelegramLearningReply> Reviews(ReviewPage page)
     {
         if (page.Items.Count == 0) return ["No reviews due on this page. /learn_reviews or /learn_skills"];
-        var entries = page.Items.Select(r => $"{r.Skill.Title}\nDue (UTC): {r.Schedule.DueAt:O}\n" +
-            $"/learn_review {r.Skill.Id}\n/learn_review_later {r.Skill.Id} (1 day)\n/learn_review_skip {r.Skill.Id} (7 days)").ToList();
-        if (page.Number > 1) entries.Add($"Previous: /learn_reviews {page.Number - 1}");
-        if (page.HasNext) entries.Add($"Next: /learn_reviews {page.Number + 1}");
-        return TelegramTextLists.Split(entries, $"Reviews due: page {page.Number}");
+        var entries = page.Items.Select(item => TelegramLearningReply.WithActions($"{item.Skill.Title}\nDue (UTC): {item.Schedule.DueAt:O}\n" +
+            $"/learn_review {item.Skill.Id}\n/learn_review_later {item.Skill.Id} (1 day)\n/learn_review_skip {item.Skill.Id} (7 days)",
+            LearningActionProvider.ForReview(item.Skill.Id, due: true), inRussian: false));
+        var replies = new List<TelegramLearningReply> { $"Reviews due: page {page.Number}" };
+        replies.AddRange(entries);
+        if (page.Number > 1) replies.Add(ReviewPageLink(page.Number - 1, "Previous"));
+        if (page.HasNext) replies.Add(ReviewPageLink(page.Number + 1, "Next"));
+        return replies;
     }
+
+    private static TelegramLearningReply ReviewPageLink(int number, string label) =>
+        TelegramLearningReply.WithActions($"{label} — /learn_reviews {number}",
+            [LearningAction.ForNumber(LearningActionKind.ReviewsPage, number)], inRussian: false);
 
     public static IReadOnlyList<string> List(SkillPage page)
     {

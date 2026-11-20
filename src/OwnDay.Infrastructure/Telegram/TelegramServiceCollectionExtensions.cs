@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
+using OwnDay.Infrastructure.Telegram.Actions;
 using OwnDay.Infrastructure.Telegram.Cleanup;
 using OwnDay.Infrastructure.Telegram.Commands;
 using OwnDay.Infrastructure.Telegram.Configuration;
@@ -78,6 +79,8 @@ public static class TelegramServiceCollectionExtensions
         services.AddSingleton<ITelegramCallbackResponder, TelegramCallbackResponder>();
 
         services.AddSingleton<TelegramCommandParser>();
+        services.AddSingleton<TelegramActionCodec>();
+        services.AddSingleton<TelegramActionKeyboard>();
         services.AddScoped<TelegramActionCommandHandler>();
         services.AddScoped<TelegramStructuredCommandHandler>();
         services.AddScoped<TelegramLanguageFlow>();

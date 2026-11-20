@@ -9,6 +9,7 @@ public sealed class TelegramOutboxMessage
 
     public string Text { get; init; } = string.Empty;
     public string? ReplyMarkupJson { get; init; }
+    public int? EditMessageId { get; init; }
     public Guid? StudyInvitationId { get; init; }
     public Guid? LearningRequestId { get; init; }
     public int? ReplyOrdinal { get; init; }

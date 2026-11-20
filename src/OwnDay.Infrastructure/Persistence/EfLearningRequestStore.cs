@@ -71,7 +71,7 @@ public sealed class EfLearningRequestStore(OwnDayDbContext db) : ILearningReques
 
     // Persist the prepared operation, marker, replies and completion atomically.
     public async Task<bool> ApplyAsync(LearningRequestLease lease,
-        Func<LearningRequest, CancellationToken, Task<LearningRequestExecution>> execute, CancellationToken token)
+        Func<LearningRequest, CancellationToken, Task<LearningRequestCompletion>> execute, CancellationToken token)
     {
         await using var transaction = await db.Database.BeginTransactionAsync(token);
         // Always user -> request -> targets, including competing command writers.
@@ -101,7 +101,7 @@ public sealed class EfLearningRequestStore(OwnDayDbContext db) : ILearningReques
             db.TelegramOutboxMessages.Add(new TelegramOutboxMessage
             {
                 Id = Guid.NewGuid(), ChatId = request.ChatId, LearningRequestId = request.Id, ReplyOrdinal = ordinal,
-                Text = reply.Text, ReplyMarkupJson = reply.ReplyMarkupJson,
+                Text = reply.Text, ReplyMarkupJson = reply.ReplyMarkupJson, EditMessageId = reply.EditMessageId,
                 Status = OutboxMessageStatus.Pending, NextAttemptAt = now,
                 CreatedAt = now.AddTicks(ordinal * 10L)
             });

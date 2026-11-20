@@ -39,21 +39,22 @@ public sealed partial class PostgresLearningProviderTests
             buttons = initial.Buttons;
             Assert.Equal(3, buttons.Length);
             Assert.All(buttons, button => Assert.Contains("не выбрано", button.Text));
-            Assert.Contains("Выбрано — ничего", initial.Text);
             Assert.DoesNotContain("Обоснование", initial.Text);
-            Assert.All(buttons, button => Assert.Matches("^lc:[a-f0-9]{32}:1:1:t:[1-6]$", button.CallbackData!));
+            Assert.All(buttons, button => Assert.Matches("^a1\\.[A-Za-z0-9_-]{56}$", button.CallbackData!));
 
-            var emptySubmit = buttons[0].CallbackData!.Replace(":t:1", ":s:0", StringComparison.Ordinal);
-            await PostChoiceCallbackAsync(client, 2, emptySubmit);
-            await DrainChoiceRequestsAsync(host.Services, 1);
-            Assert.Contains("Выбрано — ничего", (await ChoiceKeyboardAsync()).Text);
+            var signed = buttons[0].CallbackData!;
+            var tampered = signed[..^1] + (signed[^1] == 'A' ? 'B' : 'A');
+            await PostChoiceCallbackAsync(client, 2, tampered);
+            await DrainChoiceRequestsAsync(host.Services, 0);
+            Assert.Equal(3, (await ChoiceKeyboardAsync()).Buttons.Length);
 
             await PostChoiceCallbackAsync(client, 3, buttons[0].CallbackData!);
             await PostChoiceCallbackAsync(client, 3, buttons[0].CallbackData!);
             await DrainChoiceRequestsAsync(host.Services, 1);
 
             var afterToggle = await ChoiceKeyboardAsync();
-            Assert.Contains("Выбрано — А", afterToggle.Text);
+            Assert.Empty(afterToggle.Text);
+            Assert.Equal(1, afterToggle.EditMessageId);
             Assert.Equal("А. Первый вариант — выбрано", afterToggle.Buttons[0].Text);
             Assert.Equal("Ответить", afterToggle.Buttons[^1].Text);
 
@@ -77,7 +78,8 @@ public sealed partial class PostgresLearningProviderTests
             await SendChoiceTextAsync(client, 7, "Продолжим");
             await DrainChoiceRequestsAsync(restarted.Services, 1);
             var restored = await ChoiceKeyboardAsync();
-            Assert.Contains(firstOption == 2 ? "Выбрано — А, Б" : "Выбрано — А, В", restored.Text);
+            Assert.EndsWith(" — выбрано", restored.Buttons[0].Text);
+            Assert.EndsWith(" — выбрано", restored.Buttons[firstOption - 1].Text);
             Assert.Equal(4, restored.Buttons.Length);
             if (firstOption == 3)
             {
@@ -105,6 +107,9 @@ public sealed partial class PostgresLearningProviderTests
         var evidence = Assert.Single(await saved.Set<LearningEvidence>().ToListAsync());
         Assert.Equal(lesson.Id, evidence.LessonId);
         Assert.Equal(ChoiceOutcome.Correct, evidence.ChoiceEvidence!.FinalOutcome);
+        var skillState = LearnerSkillState.Evaluate([evidence]);
+        Assert.Equal(SkillMastery.Unknown, skillState.Mastery);
+        Assert.Equal(0, skillState.PositiveAssessments);
         Assert.Equal(1, probe.Calls);
         Assert.Equal(2, acknowledgements.Ids.Count(id => id == "choice-3"));
         Assert.Equal(await saved.Set<LearningRequest>().CountAsync(), await saved.Set<LearningAppliedOperation>().CountAsync());
@@ -127,11 +132,11 @@ public sealed partial class PostgresLearningProviderTests
         Assert.All(initial.Buttons, button =>
         {
             Assert.InRange(Encoding.UTF8.GetByteCount(button.CallbackData!), 1, 64);
-            Assert.Matches("^lc:[a-f0-9]{32}:1:1:a:[1-6]$", button.CallbackData!);
+            Assert.Matches("^a1\\.[A-Za-z0-9_-]{56}$", button.CallbackData!);
         });
 
         await PostChoiceCallbackAsync(client, 2, right, owner: 202);
-        await DrainChoiceRequestsAsync(host.Services, 1);
+        await DrainChoiceRequestsAsync(host.Services, 0);
         await using (var before = Open()) Assert.Empty(await before.Set<LearningEvidence>().ToListAsync());
         await PostChoiceCallbackAsync(client, 3, right);
         await PostChoiceCallbackAsync(client, 3, right);
@@ -461,14 +466,16 @@ public sealed partial class PostgresLearningProviderTests
         };
     }
 
-    private async Task<(string Text, InlineKeyboardButton[] Buttons)> ChoiceKeyboardAsync()
+    private async Task<(string Text, InlineKeyboardButton[] Buttons, int? EditMessageId)> ChoiceKeyboardAsync()
     {
         await using var db = Open();
         var reply = await db.TelegramOutboxMessages.Where(message => message.ChatId == _user.Value && message.ReplyMarkupJson != null)
             .OrderByDescending(message => message.DeliveryOrder).FirstAsync();
         var markup = JsonSerializer.Deserialize<InlineKeyboardMarkup>(reply.ReplyMarkupJson!);
         Assert.NotNull(markup);
-        return (reply.Text, markup.InlineKeyboard.Select(Assert.Single).ToArray());
+        var buttons = markup.InlineKeyboard.Select(Assert.Single)
+            .Where(button => button.Text is "Ответить" or "Submit" || button.Text.Length > 2 && button.Text[1] == '.').ToArray();
+        return (reply.Text, buttons, reply.EditMessageId);
     }
 
     private static async Task DrainChoiceRequestsAsync(IServiceProvider services, int count)

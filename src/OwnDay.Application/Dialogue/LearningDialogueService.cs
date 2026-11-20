@@ -45,6 +45,8 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
         lesson.RefreshChoicePrompt();
         context.Synchronize(lesson, turn.Now, turn.SourceOrder);
         context.AdvanceResponseBoundary(turn.SourceOrder);
+        if (turn.ContextualAction is not null && lesson.Status == LessonStatus.AwaitingAnswer)
+            context.ReopenQuestion(turn.Now);
     }
 
     public async Task<DialogueDecision> DecideAsync(DialogueTurn turn, Lesson? lesson, DialogueProgramSnapshot? program,
@@ -61,7 +63,7 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
             return Reply(context, DialogueReplyKind.Unavailable);
         if (context.Consultation is { Version: not 1 }) return Reply(context, DialogueReplyKind.Unavailable);
         if (context.InterruptedAt is { } interrupted && turn.ReceivedAt < interrupted ||
-            context.InterruptedSourceOrder > 0 && turn.SourceOrder <= context.InterruptedSourceOrder)
+            context.InterruptedSourceOrder > 0 && !turn.IsAfterSourceOrder(context.InterruptedSourceOrder))
             return Reply(context, DialogueReplyKind.Interrupted);
         if (!context.MatchesQuestion(lesson) || context.PendingClarification is null && context.PendingConfirmation is null &&
             (lesson?.Status == LessonStatus.Paused && context.ExpectedResponse == DialogueExpectedResponse.LessonAnswer ||
@@ -75,6 +77,15 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
         if (pendingConfirmation is not null && (turn.Now >= pendingConfirmation.ExpiresAt || currentConfirmationStamp != pendingConfirmation.TargetStamp) ||
             context.PendingClarification is { } pendingChoice && (turn.Now >= pendingChoice.ExpiresAt || pendingChoice.TargetStamp != stamp))
             context.Synchronize(lesson, turn.Now, turn.SourceOrder);
+
+        var contextual = turn.ContextualAction;
+        var rejecting = contextual?.Kind == LearningActionKind.Reject;
+        if (contextual?.Kind is LearningActionKind.Confirm or LearningActionKind.Reject &&
+            context.PendingConfirmation?.ProposalId != contextual.TargetId)
+            return Reply(context, DialogueReplyKind.ConfirmationRejected);
+        if (contextual?.Kind is >= LearningActionKind.ClarifyAnswer and <= LearningActionKind.ClarifyContinue &&
+            context.PendingClarification?.PromptId != contextual.TargetId)
+            return Reply(context, DialogueReplyKind.ChoiceExpired);
 
         var normalized = Normalize(turn.Text);
         var command = turn.Command;
@@ -124,7 +135,7 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
             return new(context, DialogueOperationKind.ProposeGoalUpdate, goalUpdate);
         }
         var returning = false;
-        if (sessions is not null && turn.SourceOrder > 0)
+        if (sessions is not null && turn.SessionSourceOrder > 0)
         {
             if ((command ?? naturalAction) == DialogueOperationKind.EndSession)
                 return await EndSessionAsync(context, turn, lesson, program, english, token);
@@ -158,13 +169,20 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
         if (code is not null)
         {
             var expected = context.PendingConfirmation;
-            var confirmedProposal = context.ConsumeConfirmation(code, turn.ReceivedAt, currentConfirmationStamp, turn.Now, turn.SourceOrder);
+            var confirmedProposal = context.ConsumeConfirmation(code, turn.ReceivedAt, currentConfirmationStamp, turn.Now,
+                turn.SourceOrder, contextual?.TargetId);
             if (confirmedProposal is null)
             {
                 if (expected is not null && (turn.Now >= expected.ExpiresAt || currentConfirmationStamp != expected.TargetStamp))
                     context.Synchronize(lesson, turn.Now, turn.SourceOrder);
                 return Reply(context, DialogueReplyKind.ConfirmationRejected)
                     with { Audit = new("confirmation_rejected", Confirmation: expected ?? pendingConfirmation) };
+            }
+            if (rejecting)
+            {
+                context.Synchronize(lesson, turn.Now, turn.SourceOrder);
+                return Reply(context, DialogueReplyKind.Cancelled)
+                    with { Audit = new("confirmation_declined", Confirmation: confirmedProposal) };
             }
             var resolved = await DecideActionAsync(context, turn with { RequestId = confirmedProposal.OriginalRequestId }, confirmedProposal.Operation,
                 confirmedProposal.Arguments, lesson, program, stamp, confirmed: true, bound: true, token);
@@ -188,7 +206,8 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
                 return Reply(context, DialogueReplyKind.ChoiceUnbound);
             var choice = Choice(normalized);
             if (choice is null || !clarification.Allowed.Contains(choice.Value)) return ChoiceReply(context, clarification.Allowed);
-            var originalId = context.ConsumeClarification(choice.Value, turn.ReceivedAt, stamp, turn.Now, turn.SourceOrder);
+            var originalId = context.ConsumeClarification(choice.Value, turn.ReceivedAt, stamp, turn.Now, turn.SourceOrder,
+                contextual?.TargetId);
             if (originalId is null)
             {
                 if (turn.Now >= clarification.ExpiresAt || clarification.TargetStamp != stamp) context.Synchronize(lesson, turn.Now, turn.SourceOrder);
@@ -240,8 +259,7 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
                         .OrderBy(item => item.Goal, StringComparer.OrdinalIgnoreCase).Take(6).ToArray();
                     if (candidates.Length != 1)
                         return candidates.Length == 0 ? Reply(context, DialogueReplyKind.ProgramUnavailable) : new(context, null, "",
-                            new(DialogueReplyKind.ChooseMatchingProgram, candidates.Take(5).Select(item =>
-                                $"{item.Goal} ({item.Discipline})\n/learn_select {item.Id}").ToArray()));
+                            new(DialogueReplyKind.ChooseMatchingProgram, ProgramChoices: candidates.Take(5).ToArray()));
                     id = candidates[0].Id;
                 }
                 return await DecideActionAsync(context, turn, DialogueOperationKind.SelectProgram, id.Value.ToString(),
@@ -299,7 +317,11 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
 
         var bound = lesson is not null && turn.ReceiptLessonId == lesson.Id &&
             (turn.ReceiptPromptId == context.PromptId || legacy && turn.ReceiptPromptId is null) &&
-            (context.ResponseAfterSourceOrder == 0 || turn.SourceOrder > context.ResponseAfterSourceOrder);
+            (context.PromptOpenedAt is null || turn.ReceivedAt >= context.PromptOpenedAt) &&
+            (context.ResponseAfterSourceOrder == 0 || turn.IsAfterSourceOrder(context.ResponseAfterSourceOrder));
+        if (bound && contextual?.Kind == LearningActionKind.Criteria)
+            return new(context, null, "", new(DialogueReplyKind.ExerciseCriteria,
+                [lesson!.AssessmentContent?.StructuredRubric?.QuestionText() ?? lesson.ResponseQuestion], english));
         if (command is { } explicitAction)
             return await DecideActionAsync(context, turn, explicitAction, turn.Text, lesson, program, stamp, false, bound, token);
         if (normalized is "помощь" or "help" or "что дальше" or "как продолжить")
@@ -404,7 +426,7 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
         var offer = context.Phase == DialoguePhase.DiagnosticOffer && context.Consultation?.CreatedProgramId == program.Id;
         var english = FirstGoalConsultation.InEnglish(program.Goal);
         var boundary = offer ? context.Consultation!.AfterSourceOrder : context.ResponseAfterSourceOrder;
-        var bound = turn.ReceiptPromptId == context.PromptId && turn.SourceOrder > boundary &&
+        var bound = turn.ReceiptPromptId == context.PromptId && turn.IsAfterSourceOrder(boundary) &&
             turn.ReceivedAt >= context.PromptOpenedAt;
         var skip = normalized is "пропустить" or "пропустим" or "позже" or "потом" or "skip" or "later" ||
             action == DialogueOperationKind.Next;
@@ -428,7 +450,7 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
 
     private static bool IsDiagnosticAnswerBound(DialogueContext context, DialogueTurn turn, Guid programId, string question) =>
         context.MatchesDiagnosticQuestion(programId, question) && turn.ReceiptPromptId == context.PromptId &&
-        turn.SourceOrder > context.ResponseAfterSourceOrder && turn.ReceivedAt >= context.PromptOpenedAt;
+        turn.IsAfterSourceOrder(context.ResponseAfterSourceOrder) && turn.ReceivedAt >= context.PromptOpenedAt;
 
     private async Task<DialogueDecision> DecideActionAsync(DialogueContext context, DialogueTurn turn, DialogueOperationKind action,
         string arguments, Lesson? lesson, DialogueProgramSnapshot? program, string stamp, bool confirmed, bool bound, CancellationToken token)
@@ -462,7 +484,7 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
         if (action is DialogueOperationKind.SwitchProgram or DialogueOperationKind.SwitchGoal or DialogueOperationKind.SwitchGoalWithCriterion or
             DialogueOperationKind.SwitchCreateProgram or DialogueOperationKind.SwitchCreateProjectProgram)
         {
-            if (!confirmed && turn.SourceOrder <= context.ResponseAfterSourceOrder) return Reply(context, DialogueReplyKind.NeedBinding);
+            if (!confirmed && !turn.IsAfterSourceOrder(context.ResponseAfterSourceOrder)) return Reply(context, DialogueReplyKind.NeedBinding);
         }
         if (action is DialogueOperationKind.CreateProgram or DialogueOperationKind.CreateProjectProgram or DialogueOperationKind.SelectProgram or DialogueOperationKind.SwitchProgram)
         {
@@ -478,7 +500,7 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
         if (action == DialogueOperationKind.EditRoute)
         {
             if (program is null) return Reply(context, DialogueReplyKind.ProgramUnavailable);
-            if (!confirmed && turn.SourceOrder <= context.ResponseAfterSourceOrder) return Reply(context, DialogueReplyKind.NeedBinding);
+            if (!confirmed && !turn.IsAfterSourceOrder(context.ResponseAfterSourceOrder)) return Reply(context, DialogueReplyKind.NeedBinding);
             routeEditLabel = RouteDialogue.DescribeEdit(arguments);
             if (routeEditLabel is null) return Reply(context, DialogueReplyKind.RouteEditHelp);
         }
@@ -538,7 +560,7 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
     private static DialogueDecision Reply(DialogueContext context, DialogueReplyKind kind) => new(context, null, "", new(kind));
     private static DialogueDecision PracticeAction(DialogueContext context, DialogueTurn turn, DialogueOperationKind operation, string arguments = "")
     {
-        if (turn.SourceOrder <= context.ResponseAfterSourceOrder) return Reply(context, DialogueReplyKind.NeedBinding);
+        if (!turn.IsAfterSourceOrder(context.ResponseAfterSourceOrder)) return Reply(context, DialogueReplyKind.NeedBinding);
         context.AdvanceResponseBoundary(turn.SourceOrder);
         return new(context, operation, arguments);
     }
