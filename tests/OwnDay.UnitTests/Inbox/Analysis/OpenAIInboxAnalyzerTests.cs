@@ -132,7 +132,7 @@ public sealed class OpenAIInboxAnalyzerTests
         {
             ["InboxAnalysis:OpenAI:ReasoningEffort"] = effort
         }).Build());
-        services.AddInboxAnalysis();
+        services.AddOpenAIProvider();
         using var provider = services.BuildServiceProvider();
         var options = provider.GetRequiredService<IOptions<OpenAIInboxAnalysisOptions>>();
         if (valid)
@@ -249,7 +249,7 @@ public sealed class OpenAIInboxAnalyzerTests
             ["InboxAnalysis:OpenAI:MaxOutputTokens"] = tokens.ToString(),
             ["InboxAnalysis:OpenAI:TimeoutSeconds"] = timeout.ToString()
         }).Build());
-        services.AddInboxAnalysis();
+        services.AddOpenAIProvider();
         using var provider = services.BuildServiceProvider();
         var options = provider.GetRequiredService<IOptions<OpenAIInboxAnalysisOptions>>();
         if (valid)

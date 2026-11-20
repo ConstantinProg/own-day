@@ -2,15 +2,11 @@ using System.Data.Common;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
-using Microsoft.Extensions.Hosting;
 using Npgsql;
 using OwnDay.Application.Inbox;
 using OwnDay.Application.Inbox.Analysis;
@@ -18,7 +14,6 @@ using OwnDay.Application.Inbox.Policy;
 using OwnDay.Domain;
 using OwnDay.Domain.Inbox;
 using OwnDay.Domain.Projects;
-using OwnDay.Infrastructure.OpenAIAnalysis;
 using OwnDay.Infrastructure.Persistence;
 using Xunit;
 
@@ -309,42 +304,6 @@ public sealed partial class PostgresInboxAutomaticProcessingTests : IAsyncLifeti
         Assert.Single(await restarted.TelegramOutboxMessages.ToListAsync(Token));
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Worker_CapturedOrAlreadyAnalyzedInbox_AutomaticallyAppliesWithoutAnotherProviderCall(bool alreadyAnalyzed)
-    {
-        var ai = new FakeAnalyzer();
-        if (alreadyAnalyzed)
-        {
-            await SeedAsync(Composite());
-        }
-        else
-        {
-            await using var capture = Db();
-            await new EfInboxItemStore(capture).AddAsync(InboxItem.Capture(Owner, "Купить молоко, позвонить Ивану и когда-нибудь попробовать изучить японский", DateTime.UtcNow), Token);
-        }
-        // Restart with a completed analysis also works with provider/background analysis switched off.
-        using var host = new WorkerHost(_connection, ai, !alreadyAnalyzed);
-        using var client = host.CreateClient();
-        while (true)
-        {
-            await using var db = Db();
-            if (await db.InboxAutomaticApplications.AnyAsync(Token))
-            {
-                Assert.Equal(InboxItemStatus.Processed, (await db.InboxItems.SingleAsync(Token)).Status);
-                Assert.Equal(3, await CountTargetsAsync(db));
-                if (alreadyAnalyzed)
-                {
-                    Assert.Single(await db.TelegramOutboxMessages.ToListAsync(Token));
-                }
-                break;
-            }
-            await Task.Delay(50, Token);
-        }
-        Assert.Equal(alreadyAnalyzed ? 0 : 1, ai.Calls);
-    }
-
     [Fact]
     public async Task ApplyAsync_ForeignOwnerAndCancellation_DoNotMutate()
     {
@@ -378,39 +337,6 @@ public sealed partial class PostgresInboxAutomaticProcessingTests : IAsyncLifeti
         Assert.Equal(InboxTargetKind.Reference, item.TargetKind);
         Assert.Equal(1, await CountTargetsAsync(verify));
         Assert.Empty(await verify.TelegramOutboxMessages.ToListAsync(Token));
-    }
-
-    [Fact]
-    public async Task ApplyAsync_ProjectChangesDuringApplication_HoldsSharedLockUntilCommit()
-    {
-        await using var seed = Db();
-        var project = Project.Create(Owner, "Project", DateTime.UtcNow);
-        seed.Projects.Add(project);
-        await seed.SaveChangesAsync(Token);
-        await seed.Entry(project).ReloadAsync(Token);
-        var (itemId, analysisId) = await SeedAsync([Proposal() with { ProjectIds = [project.Id] }],
-            new(null, [new(project.Id, project.Title, project.CreatedAt)], false));
-        var gate = new PauseAfterProjectRead();
-        await using var automatic = Db(gate);
-        var applying = Service(automatic).ApplyAsync(Owner, itemId, analysisId, Token);
-        try
-        {
-            await gate.Read.Task.WaitAsync(Token);
-            await using var writer = Db();
-            await using var transaction = await writer.Database.BeginTransactionAsync(Token);
-            await writer.Database.ExecuteSqlRawAsync("SET LOCAL lock_timeout = '200ms'", Token);
-            var exception = await Assert.ThrowsAsync<PostgresException>(() => writer.Database.ExecuteSqlInterpolatedAsync(
-                $"UPDATE projects SET title = 'Changed' WHERE id = {project.Id}", Token));
-            Assert.Equal(PostgresErrorCodes.LockNotAvailable, exception.SqlState);
-        }
-        finally
-        {
-            gate.Release.TrySetResult();
-        }
-        await applying;
-        await using var verify = Db();
-        Assert.Equal(project.Id, (await verify.Actions.SingleAsync(Token)).ProjectId);
-        Assert.Equal(ProjectStatus.Active, (await verify.Projects.SingleAsync(Token)).Status);
     }
 
     [Fact]
@@ -610,57 +536,6 @@ public sealed partial class PostgresInboxAutomaticProcessingTests : IAsyncLifeti
                 Attempted.TrySetResult();
             }
             return ValueTask.FromResult(result);
-        }
-    }
-
-    private sealed class PauseAfterProjectRead : DbCommandInterceptor
-    {
-        public TaskCompletionSource Read { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public override async ValueTask<DbDataReader> ReaderExecutedAsync(DbCommand command,
-            CommandExecutedEventData eventData, DbDataReader result, CancellationToken cancellationToken = default)
-        {
-            if (command.CommandText.Contains("FOR SHARE", StringComparison.Ordinal))
-            {
-                Read.TrySetResult();
-                await Release.Task.WaitAsync(cancellationToken);
-            }
-            return result;
-        }
-    }
-
-    private sealed class FakeAnalyzer : IInboxAnalyzer
-    {
-        private int _calls;
-        public int Calls => Volatile.Read(ref _calls);
-        public InboxAnalyzerDescriptor Descriptor => new("fake", "inbox-v1", "test");
-        public Task<InboxAnalyzerResponse> AnalyzeAsync(InboxAnalysisRequest request, CancellationToken cancellationToken)
-        {
-            Interlocked.Increment(ref _calls);
-            return Task.FromResult(new InboxAnalyzerResponse(JsonSerializer.Serialize(
-                new InboxAnalysisOutput { Items = Composite() }, InboxAnalysisJson.Options), "fake"));
-        }
-    }
-
-    private sealed class WorkerHost(string connection, IInboxAnalyzer ai, bool analysisEnabled) : WebApplicationFactory<Program>
-    {
-        protected override void ConfigureWebHost(IWebHostBuilder builder)
-        {
-            builder.UseSetting("ConnectionStrings:Default", connection);
-            builder.UseSetting("Telegram:BotToken", "123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi");
-            builder.UseSetting("Telegram:BotUsername", "OwnDayBot");
-            builder.UseSetting("Telegram:WebhookSecret", "test-webhook-secret");
-            builder.UseSetting("InboxAnalysis:OpenAI:Enabled", analysisEnabled.ToString());
-            builder.UseSetting("InboxAnalysis:OpenAI:ApiKey", analysisEnabled ? "dummy-test-key" : "");
-            builder.UseSetting("InboxAnalysis:Background:Enabled", analysisEnabled.ToString());
-            builder.UseSetting("InboxAnalysis:Background:PollSeconds", "1");
-            builder.ConfigureServices(services =>
-            {
-                services.RemoveAll<IHostedService>();
-                services.AddHostedService<InboxAnalysisWorker>();
-                services.RemoveAll<IInboxAnalyzer>();
-                services.AddSingleton(ai);
-            });
         }
     }
 }

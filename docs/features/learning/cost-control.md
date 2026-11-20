@@ -1,9 +1,9 @@
 # Shared provider budget
 
-OwnDay's shared `openai_request_attempts` ledger meters Inbox classification and
-each physical Learning planner, generator, assessor and explainer invocation.
-Learning rows reference the technical attempt (and thereby its request/step),
-while historical Inbox rows retain their analysis FK. A database check permits
+OwnDay's `openai_request_attempts` ledger meters each physical Learning planner,
+generator, assessor and explainer invocation. Learning rows reference the
+technical attempt and its request/step. The ledger retains historical Inbox
+classification charges and their analysis FK. A database check permits
 exactly one source. Admission derives Learning ownership from the persisted
 attempt; a unique FK prevents admitting that invocation twice. No separate
 Learning financial ledger or billing data store is introduced.
@@ -11,7 +11,8 @@ Learning financial ledger or billing data store is introduced.
 ## Approved policy and configuration
 
 The approved service budget is **USD 10 per UTC calendar month**. Existing
-`InboxAnalysis:CostControl` settings are retained and now apply to both sources.
+`InboxAnalysis:CostControl` settings configure Learning admission against the
+shared ledger, including historical Inbox usage in the same period.
 
 | Setting | Runtime default | Meaning |
 |---|---:|---|

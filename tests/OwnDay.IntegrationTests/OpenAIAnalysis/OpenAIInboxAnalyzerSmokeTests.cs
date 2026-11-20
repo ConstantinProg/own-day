@@ -20,6 +20,7 @@ public sealed class OpenAIInboxAnalyzerSmokeTests
             ["InboxAnalysis:OpenAI:Enabled"] = "true",
             ["InboxAnalysis:OpenAI:ApiKey"] = key
         }).Build());
+        services.AddOpenAIProvider();
         services.AddInboxAnalysis();
         await using var provider = services.BuildServiceProvider();
         var analyzer = provider.GetRequiredService<IInboxAnalyzer>();

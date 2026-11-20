@@ -17,7 +17,8 @@ public sealed class InboxStatisticsPersistenceTests
     [Fact]
     public async Task ReadAsync_RepeatedApplyUndoAndManualCorrection_CountsDistinctFactsAfterRestart()
     {
-        using var factory = new OwnDayHostFactory();
+        using var host = new OwnDayHostFactory();
+        using var factory = host.WithOfflineInboxServices();
         using var client = factory.CreateClient();
         var user = new UserId(101);
         var start = DateTime.UtcNow.AddMinutes(-1);

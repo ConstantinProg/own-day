@@ -1,5 +1,8 @@
 # Durable Inbox background processing
 
+This guide records the historical Inbox worker. The current host retains saved
+jobs and analyses and runs the [Learning dialogue](../telegram/ux.md).
+
 This document describes analysis scheduling and recovery. The existing worker now also applies saved results
 using [automatic processing](automatic-processing.md). Statements below about no target
 creation describe the analysis job/use case, which remains separate from application.

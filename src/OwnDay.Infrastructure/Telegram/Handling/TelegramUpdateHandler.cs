@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Npgsql;
+using OwnDay.Application.Inbox;
 using OwnDay.Application.Interactions;
 using OwnDay.Application.Learning.Requests;
 using OwnDay.Application.Learning;
@@ -24,7 +25,7 @@ namespace OwnDay.Infrastructure.Telegram.Handling;
 public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
 {
     private readonly TelegramLearningCommandHandler _learningCommands;
-    private readonly TelegramInboxFlow _inboxFlow;
+    private readonly IInboxDraftStore _inboxDrafts;
     private readonly TelegramLanguageFlow _languageFlow;
     private readonly OwnDayDbContext _dbContext;
     private readonly TelegramUpdateRouter _router;
@@ -36,7 +37,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
 
     public TelegramUpdateHandler(
         TelegramUpdateRouter router,
-        TelegramInboxFlow inboxFlow,
+        IInboxDraftStore inboxDrafts,
         TelegramLanguageFlow languageFlow,
         OwnDayDbContext dbContext,
         TimeProvider timeProvider,
@@ -59,7 +60,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         ArgumentNullException.ThrowIfNull(learning);
         _learningCommands = new(learning, curriculum, knowledge, study);
         _router = router;
-        _inboxFlow = inboxFlow;
+        _inboxDrafts = inboxDrafts;
         _languageFlow = languageFlow;
         _dbContext = dbContext;
         _timeProvider = timeProvider;
@@ -168,7 +169,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         {
             chatId = ordinary.ChatId;
             // Retire legacy editors before accepting text into the sole dialogue lane.
-            await _inboxFlow.CloseAsync(user, cancellationToken);
+            await CloseLegacyInboxDraftAsync(user, cancellationToken);
             await _languageFlow.CloseAsync(user, cancellationToken);
             var databaseNow = await EnsureLearningAcceptanceAsync(cancellationToken);
             var lessonId = await CurrentLessonIdAsync(user, cancellationToken);
@@ -193,7 +194,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
             var dispatch = (TelegramUpdateRouteResult.Dispatch)route;
             chatId = dispatch.ChatId;
             var command = dispatch.Command;
-            await _inboxFlow.CloseAsync(user, cancellationToken);
+            await CloseLegacyInboxDraftAsync(user, cancellationToken);
             await _languageFlow.CloseAsync(user, cancellationToken);
             if (command.Name == "learning_choice" && update.CallbackQuery is not null)
             {
@@ -268,6 +269,12 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
                     message.Id, chatId, exception.GetType().Name);
             }
         }
+    }
+
+    private async Task CloseLegacyInboxDraftAsync(UserId user, CancellationToken token)
+    {
+        if (await _inboxDrafts.FindAsync(user, token) is { } draft)
+            _inboxDrafts.Remove(draft);
     }
 
     private async Task<DateTime> EnsureLearningAcceptanceAsync(CancellationToken token)

@@ -5,7 +5,6 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using OwnDay.Application.Actions;
 using OwnDay.Application.Inbox;
-using OwnDay.Application.Inbox.Observability;
 using OwnDay.Application.Learning.Requests;
 using OwnDay.Application.StructuredItems;
 using OwnDay.Domain.Dialogue;
@@ -346,20 +345,7 @@ public sealed class TelegramUpdateHandlerTests
                 new StructuredItemService(new EfStructuredItemStore(dbContext), timeProvider), knowledge, teacher, new EfActionStore(dbContext));
             var handler = new TelegramUpdateHandler(
                 router,
-                new TelegramInboxFlow(
-                    new InboxDraftService(new EfInboxDraftStore(dbContext),
-                        new InboxCaptureService(new EfInboxItemStore(dbContext), timeProvider),
-                        new InboxProcessingService(new EfInboxProcessingStore(dbContext),
-                            new EfActionStore(dbContext), new EfStructuredItemStore(dbContext), timeProvider),
-                        new StructuredItemService(new EfStructuredItemStore(dbContext), timeProvider),
-                        timeProvider),
-                    new InboxCaptureService(new EfInboxItemStore(dbContext), timeProvider),
-                    new TelegramInboxPresenter(new StructuredItemService(new EfStructuredItemStore(dbContext), timeProvider)),
-                    dbContext,
-                    new InboxAutomaticProcessingService(new EfInboxProcessingStore(dbContext),
-                        new EfInboxAutomaticProcessingStore(dbContext), new(),
-                        new InboxProcessingService(new EfInboxProcessingStore(dbContext), new EfActionStore(dbContext),
-                            new EfStructuredItemStore(dbContext), timeProvider), timeProvider)),
+                new EfInboxDraftStore(dbContext),
                 new TelegramLanguageFlow(dbContext, timeProvider),
                 dbContext,
                 timeProvider,

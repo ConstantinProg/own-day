@@ -6,8 +6,8 @@ The producer is controlled by `Learning:Processing:DurableIngressEnabled` (defau
 `false`). It requires `Enabled=true`; worker startup verifies PostgreSQL and all
 installed migrations before serving traffic. The schema is unchanged by this
 cutover. All Learning commands, including preference/schedule/selection writers
-and read-only commands, share the owner's sequence. Productivity and explicit
-Inbox commands keep their existing paths. Invitation start is an existing command
+and read-only commands, share the owner's sequence. Former productivity and Inbox
+commands show learning dialogue help. Invitation start is an existing command
 and uses this sequence. [Choice exercise callbacks](adaptive-choice.md) use the
 same sequence with the `learning_choice` version 1 payload.
 

@@ -20,7 +20,8 @@ public sealed class InboxDraftProcessingTests
     [InlineData(InboxTargetKind.WaitingFor)]
     public async Task ProcessDirectAsync_WithoutReplacementText_CreatesUnlinkedRecordFromOriginal(InboxTargetKind kind)
     {
-        using var factory = new OwnDayHostFactory();
+        using var host = new OwnDayHostFactory();
+        using var factory = host.WithOfflineInboxServices();
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
         var capture = scope.ServiceProvider.GetRequiredService<InboxCaptureService>();
@@ -57,7 +58,8 @@ public sealed class InboxDraftProcessingTests
     [Fact]
     public async Task ProcessDirectAsync_TextTooLong_PreservesOriginalAndAllowsCorrectionInEditor()
     {
-        using var factory = new OwnDayHostFactory();
+        using var host = new OwnDayHostFactory();
+        using var factory = host.WithOfflineInboxServices();
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
         var capture = scope.ServiceProvider.GetRequiredService<InboxCaptureService>();
@@ -87,7 +89,8 @@ public sealed class InboxDraftProcessingTests
     [InlineData(true)]
     public async Task ProcessDirectAsync_ForeignOrMissingItem_DoesNotCreateDraftOrTarget(bool missing)
     {
-        using var factory = new OwnDayHostFactory();
+        using var host = new OwnDayHostFactory();
+        using var factory = host.WithOfflineInboxServices();
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
         var capture = scope.ServiceProvider.GetRequiredService<InboxCaptureService>();

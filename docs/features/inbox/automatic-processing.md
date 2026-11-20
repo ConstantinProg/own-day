@@ -1,5 +1,8 @@
 # Automatic Inbox processing
 
+This guide records the historical Inbox application path. The current
+[Learning-only host](../telegram/ux.md) leaves saved Inbox analyses in storage.
+
 Undo is now implemented in [Undo and correction](undo.md).
 The future-Undo discussion below describes the original application audit; new applications also retain a
 creation-state fingerprint for each target. Undo preserves this audit and prevents later AutoApply for that entry.

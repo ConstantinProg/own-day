@@ -8,9 +8,9 @@ never falls back to Inbox. Old Inbox and language editors are closed before
 acceptance. Old productivity commands and callback buttons show dialogue help
 without executing their former actions. Start/help have no Inbox keyboard.
 Existing Inbox records are retained.
-Background Inbox analysis is disabled in Host defaults and production Compose;
-existing Inbox jobs remain stored. Previously committed outbox messages still
-drain through the shared deliverer.
+The host has retired Inbox analysis, automatic application and the operator
+command. Existing Inbox jobs and analyses remain stored. Previously committed
+outbox messages still drain through the shared deliverer.
 
 Learning processing, durable ingress, dialogue and first-goal consultation are
 enabled by default. The production Compose application explicitly enables these

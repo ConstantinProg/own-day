@@ -15,7 +15,7 @@ namespace OwnDay.Infrastructure.OpenAIAnalysis;
 
 public static class InboxAnalysisServiceCollectionExtensions
 {
-    public static IServiceCollection AddInboxAnalysis(this IServiceCollection services)
+    public static IServiceCollection AddOpenAIProvider(this IServiceCollection services)
     {
         services.AddOptions<OpenAIInboxAnalysisOptions>()
             .BindConfiguration(OpenAIInboxAnalysisOptions.SectionName)
@@ -29,16 +29,6 @@ public static class InboxAnalysisServiceCollectionExtensions
                 "InboxAnalysis:OpenAI:TimeoutSeconds must be between 1 and 300.")
             .Validate(options => options.MaxInputUtf8Bytes is >= 1024 and <= 256_000,
                 "OpenAI input must have a finite UTF-8 byte limit between 1024 and 256000.")
-            .ValidateOnStart();
-
-        services.AddOptions<InboxAnalysisProcessingOptions>()
-            .BindConfiguration(InboxAnalysisProcessingOptions.SectionName)
-            .Validate(options => options.Parallelism is >= 1 and <= 8 && options.PollSeconds is >= 1 and <= 300 &&
-                options.TimeoutSeconds is >= 1 and <= 300 && options.LeaseSeconds >= options.TimeoutSeconds + 30 &&
-                options.LeaseSeconds <= 3600 && options.MaxAttempts is >= 1 and <= 10 &&
-                options.InitialBackoffSeconds is >= 1 and <= 3600 &&
-                options.MaxBackoffSeconds >= options.InitialBackoffSeconds && options.MaxBackoffSeconds <= 86400,
-                "Invalid InboxAnalysis:Background limits; lease must exceed timeout by at least 30 seconds.")
             .ValidateOnStart();
 
         services.TryAddSingleton<TimeProvider>(TimeProvider.System);
@@ -56,25 +46,13 @@ public static class InboxAnalysisServiceCollectionExtensions
                 p.Value.InputUsdPerMillion is null or >= 0 && p.Value.CachedInputUsdPerMillion is null or >= 0 &&
                 p.Value.OutputUsdPerMillion is null or >= 0), "Model prices must be nonnegative USD per million tokens.")
             .ValidateOnStart();
-        services.AddScoped<IInboxTelemetry, EfInboxTelemetry>();
-        services.AddScoped<IInboxStatisticsStore, EfInboxStatisticsStore>();
-        services.AddScoped<InboxStatisticsService>();
         services.AddSingleton<IOpenAIRequestLedger, EfOpenAIRequestLedger>();
-        services.AddSingleton<InboxBackgroundDiagnostics>();
-        services.AddScoped<InboxAnalysisService>();
-        services.AddSingleton<InboxAnalysisValidator>();
-        services.AddScoped<IInboxAnalysisStore, EfInboxAnalysisStore>();
-        services.AddScoped<IInboxAnalysisJobStore, EfInboxAnalysisJobStore>();
-        services.TryAddSingleton<InboxPolicyEngine>();
-        services.AddScoped<InboxAutomaticProcessingService>();
-        services.AddScoped<IInboxAutomaticProcessingStore, EfInboxAutomaticProcessingStore>();
-        services.AddHostedService<InboxAnalysisWorker>();
         services.AddSingleton<ChatClient>(provider =>
         {
             var options = provider.GetRequiredService<IOptions<OpenAIInboxAnalysisOptions>>().Value;
             if (!options.Enabled || string.IsNullOrWhiteSpace(options.ApiKey))
             {
-                throw new InvalidOperationException("OpenAI Inbox analysis is disabled. Enable it in configuration before invoking analysis.");
+                throw new InvalidOperationException("OpenAI is disabled or its API key is missing.");
             }
 
             return new ChatClient(options.Model, new ApiKeyCredential(options.ApiKey!), new OpenAIClientOptions
@@ -84,6 +62,21 @@ public static class InboxAnalysisServiceCollectionExtensions
             });
         });
         services.AddSingleton<Func<ChatClient>>(provider => () => provider.GetRequiredService<ChatClient>());
+        return services;
+    }
+
+    public static IServiceCollection AddInboxAnalysis(this IServiceCollection services)
+    {
+        services.AddScoped<IInboxTelemetry, EfInboxTelemetry>();
+        services.AddScoped<IInboxStatisticsStore, EfInboxStatisticsStore>();
+        services.AddScoped<InboxStatisticsService>();
+        services.AddScoped<InboxAnalysisService>();
+        services.AddSingleton<InboxAnalysisValidator>();
+        services.AddScoped<IInboxAnalysisStore, EfInboxAnalysisStore>();
+        services.AddScoped<IInboxAnalysisJobStore, EfInboxAnalysisJobStore>();
+        services.TryAddSingleton<InboxPolicyEngine>();
+        services.AddScoped<InboxAutomaticProcessingService>();
+        services.AddScoped<IInboxAutomaticProcessingStore, EfInboxAutomaticProcessingStore>();
         services.AddSingleton<OpenAIInboxAnalyzer>();
         services.AddScoped<IInboxAnalyzer>(provider => new CostControlledInboxAnalyzer(
             provider.GetRequiredService<OpenAIInboxAnalyzer>(), provider.GetRequiredService<IOpenAIRequestLedger>()));

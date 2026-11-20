@@ -13,6 +13,18 @@ public sealed class AppEndpointTests : IClassFixture<OwnDayHostFactory>
         _factory = factory;
     }
 
+    [Theory]
+    [InlineData("analyze-inbox-user")]
+    [InlineData("analyze-inbox-item")]
+    public void Startup_RetiredInboxOperatorArgument_RejectsInvocation(string argument)
+    {
+        using var host = _factory.WithWebHostBuilder(builder => builder.UseSetting(argument, "101"));
+
+        var error = Assert.Throws<InvalidOperationException>(() => host.CreateClient());
+
+        Assert.Equal("The Inbox analysis operator command has been retired.", error.Message);
+    }
+
     [Fact]
     public async Task Health_SqliteWithLearningEnabled_ReturnsServiceUnavailable()
     {

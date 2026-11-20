@@ -78,11 +78,8 @@ public static class TelegramServiceCollectionExtensions
         services.AddSingleton<ITelegramCallbackResponder, TelegramCallbackResponder>();
 
         services.AddSingleton<TelegramCommandParser>();
-        services.AddScoped<TelegramStatisticsCommandHandler>();
         services.AddScoped<TelegramActionCommandHandler>();
         services.AddScoped<TelegramStructuredCommandHandler>();
-        services.AddScoped<TelegramInboxFlow>();
-        services.AddScoped<TelegramInboxPresenter>();
         services.AddScoped<TelegramLanguageFlow>();
         services.AddSingleton<TelegramUpdateRouter>();
 

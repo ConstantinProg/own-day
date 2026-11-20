@@ -1,9 +1,7 @@
 # Inbox AI analysis foundation
 
-This document describes the original foundation. Automatic scheduling, retry/recovery, updated missing-key behavior
-and the current worker are documented in [durable background processing](background-processing.md).
-Completed analyses are now consumed by [automatic processing](automatic-processing.md);
-the analysis use case itself still only saves proposals.
+This guide records the historical Inbox analysis use case and proposal contract.
+The current [Learning-only host](../telegram/ux.md) retains Inbox history.
 
 Implemented against the existing Inbox/Action/Project/WaitingFor/Reference/SomedayMaybe model.
 The older MVP documents describe a proposed execution model; they do not replace these implemented entities.
@@ -29,7 +27,7 @@ domain state. Domain entities and project assembly dependencies are unchanged.
 
 No HTTP analysis endpoint, Telegram hook, AI worker, queue or automatic application is added.
 
-## OpenAI configuration and operator command
+## OpenAI configuration
 
 The official `OpenAI` .NET SDK 2.8.0 is confined to Infrastructure. The adapter uses Chat Completions
 with strict JSON Schema, following [official OpenAI documentation](https://developers.openai.com/api/docs/guides/structured-outputs).
@@ -41,7 +39,7 @@ Configure:
 | Configuration key / environment variable | Default |
 | --- | --- |
 | `InboxAnalysis__OpenAI__Enabled` | `false` |
-| `InboxAnalysis__OpenAI__ApiKey` | unset; missing key pauses background analysis |
+| `InboxAnalysis__OpenAI__ApiKey` | unset |
 | `InboxAnalysis__OpenAI__Model` | `gpt-6-luna` |
 | `InboxAnalysis__OpenAI__ReasoningEffort` | `low` (none, low, medium, high, xhigh, max; sent only for gpt-6-luna) |
 | `InboxAnalysis__OpenAI__MaxOutputTokens` | `8192` (256–16384; reasoning plus visible output) |
@@ -57,16 +55,7 @@ Apply migrations using the repository's normal EF tooling, for example with `dot
 dotnet ef database update --project src/OwnDay.Infrastructure --startup-project src/OwnDay.Infrastructure
 ```
 
-Set `ConnectionStrings__Default` and the OpenAI settings in the process environment, then run:
-
-```powershell
-dotnet run --project src/OwnDay.Host --configuration Release --no-launch-profile -- --analyze-inbox-user=123 --analyze-inbox-item=456
-```
-
-This trusted local operator command resolves the Application use case and prints its status and structured proposals.
-It does not start HTTP or hosted workers, and does not require Telegram credentials. It accepts Ctrl+C cancellation.
-`null` fields in the output indicate an unavailable Inbox item. Normal application hosts can also resolve the
-service from a DI scope and call `GetAsync` for history. Output includes user proposals: treat it as private data.
+The former `--analyze-inbox-user` and `--analyze-inbox-item` host arguments are retired.
 
 ## Contract, context and validation
 

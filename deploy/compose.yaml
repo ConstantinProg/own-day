@@ -9,7 +9,6 @@ services:
       - .env
 
     environment:
-      InboxAnalysis__Background__Enabled: "false"
       Learning__Processing__Enabled: "true"
       Learning__Processing__DurableIngressEnabled: "true"
       Learning__Processing__DialogueEnabled: "true"

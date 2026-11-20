@@ -7,15 +7,6 @@ they do not establish that every capability already exists.
 ## Implemented features
 
 - [Telegram UX and command reference](features/telegram/ux.md): navigation, language, dialogs and compatibility aliases.
-- [Inbox analysis](features/inbox/analysis.md): proposal contract, validation and the manual operator command.
-- [Background processing](features/inbox/background-processing.md): durable jobs, recovery and worker configuration.
-- [Model configuration](features/inbox/model-configuration.md): provider settings, rollout and the opt-in API smoke test.
-- [Classification and canonicalization](features/inbox/classification-and-canonicalization.md): prompts, datasets and evaluation commands.
-- [Automatic processing](features/inbox/automatic-processing.md): the active v2 policy and atomic application of results.
-- [Telegram feedback](features/inbox/telegram-feedback.md): durable result notifications and confirmation compatibility.
-- [Undo and correction](features/inbox/undo.md): whole-result undo and conflict rules.
-- [Observability and cost control](features/inbox/observability-and-cost-control.md): statistics, usage and admission budgets.
-- [Historical v1 policy](features/inbox/policy-v1.md): explicit evaluation and compatibility rules.
 - [Learning commands](phase-5/learning-commands.md): programs, lessons, knowledge, reviews, scheduling and progress.
 - [Durable Learning requests](features/learning/request-processing.md): receipt, worker recovery and safe command cutover.
 - [Shared provider budget](features/learning/cost-control.md): monthly USD 10 admission, Learning usage and Inbox compatibility.
@@ -26,8 +17,20 @@ they do not establish that every capability already exists.
 - [Bounded skill practice](features/learning/bounded-practice.md): explicit 1–3 exercise volume, next/pause/stop and atomic recovery.
 - [Learning acceptance and operational review](phase-5/acceptance.md): scenario coverage, configuration, migrations and limitations.
 
-Earlier guides retain historical implementation context. Follow their links to automatic processing and the
-Telegram UX guide for behavior that supersedes the original manual flows.
+## Historical Inbox features
+
+The Learning-only host retains Inbox records, analyses and jobs. These guides
+describe the former Inbox interface and processing paths.
+
+- [Inbox analysis](features/inbox/analysis.md): proposal contract and validation.
+- [Background processing](features/inbox/background-processing.md): durable jobs, recovery and worker configuration.
+- [Model configuration](features/inbox/model-configuration.md): provider settings, rollout and the opt-in API smoke test.
+- [Classification and canonicalization](features/inbox/classification-and-canonicalization.md): prompts, datasets and evaluation commands.
+- [Automatic processing](features/inbox/automatic-processing.md): the v2 policy and atomic application of results.
+- [Telegram feedback](features/inbox/telegram-feedback.md): durable result notifications and confirmation compatibility.
+- [Undo and correction](features/inbox/undo.md): whole-result undo and conflict rules.
+- [Observability and cost control](features/inbox/observability-and-cost-control.md): statistics, usage and admission budgets.
+- [Historical v1 policy](features/inbox/policy-v1.md): explicit evaluation and compatibility rules.
 
 ## Product direction and design
 

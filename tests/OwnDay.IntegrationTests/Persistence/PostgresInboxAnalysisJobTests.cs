@@ -12,7 +12,6 @@ using OwnDay.Application.Inbox;
 using OwnDay.Application.Inbox.Analysis;
 using OwnDay.Domain;
 using OwnDay.Domain.Inbox;
-using OwnDay.Infrastructure.OpenAIAnalysis;
 using OwnDay.Infrastructure.Persistence;
 using OwnDay.Infrastructure.Telegram.Cleanup;
 using Xunit;
@@ -82,67 +81,35 @@ public sealed class PostgresInboxAnalysisJobTests : IAsyncLifetime
         Assert.Empty(await reader.InboxAnalysisJobs.ToListAsync(Token));
     }
 
-    [Theory]
-    [InlineData(false, false, true)]
-    [InlineData(true, false, true)]
-    [InlineData(false, true, true)]
-    [InlineData(true, true, false)]
-    public async Task Post_OrdinaryText_QueuesLearningWithoutSchedulingInboxAnalyzer(bool enabled, bool key, bool background)
+    [Fact]
+    public async Task Post_LegacyInboxBackgroundEnabled_PreservesSavedWorkAndQueuesLearning()
     {
-        var ai = new FakeAnalyzer((_, _) => throw new InvalidOperationException("No provider calls allowed"));
-        using var host = new HostFactory(_connection, ai, enabled, key, background);
+        var item = await CaptureAsync();
+        var analysis = InboxAnalysis.Start(Owner, item.Id, 1, new("fake", "v1", "v1"), "{}", "context", "input", item.CapturedAt);
+        analysis.Finish(InboxAnalysisStatus.Failed, item.CapturedAt, "{}");
+        await using (var seed = Db())
+        {
+            seed.InboxAnalyses.Add(analysis);
+            await seed.SaveChangesAsync(Token);
+        }
+        using var host = new HostFactory(_connection);
         using var client = host.CreateClient();
+        using var scope = host.Services.CreateScope();
+        Assert.Null(scope.ServiceProvider.GetService<InboxAnalysisService>());
+        Assert.Null(scope.ServiceProvider.GetService<InboxAutomaticProcessingService>());
+        Assert.Null(scope.ServiceProvider.GetService<IInboxAnalysisJobStore>());
         await PostAsync(client);
         await PostAsync(client);
         await using var db = Db();
-        Assert.Empty(await db.InboxItems.ToListAsync(Token));
-        Assert.Empty(await db.InboxAnalysisJobs.ToListAsync(Token));
-        Assert.Equal(0, ai.Calls);
+        var saved = await db.InboxItems.SingleAsync(Token);
+        Assert.Equal(item.Id, saved.Id);
+        Assert.Equal(InboxItemStatus.Active, saved.Status);
+        Assert.Equal(InboxAnalysisJobStatus.Ready, (await db.InboxAnalysisJobs.SingleAsync(Token)).Status);
+        Assert.Equal(analysis.Id, (await db.InboxAnalyses.SingleAsync(Token)).Id);
+        Assert.Empty(await db.InboxAutomaticApplications.ToListAsync(Token));
         Assert.Single(await db.ProcessedTelegramUpdates.ToListAsync(Token));
         Assert.Single(await db.Set<OwnDay.Application.Learning.Requests.LearningRequest>().ToListAsync(Token));
         Assert.Empty(await db.TelegramOutboxMessages.ToListAsync(Token));
-    }
-
-    [Fact]
-    public async Task Process_ExistingInboxJobAcrossHostRestart_RecoversSameVersion()
-    {
-        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var ai = new FakeAnalyzer(async (_, token) =>
-        {
-            started.TrySetResult();
-            await Task.Delay(Timeout.InfiniteTimeSpan, token);
-            throw new InvalidOperationException();
-        });
-        using (var host = new HostFactory(_connection, ai))
-        using (var client = host.CreateClient())
-        {
-            await CaptureAsync(); // Existing Inbox work remains recoverable independently of Telegram ingress.
-            await started.Task.WaitAsync(Token);
-        }
-
-        Guid id;
-        await using (var db = Db())
-        {
-            id = (await db.InboxAnalyses.SingleAsync(Token)).Id;
-            Assert.Equal(InboxAnalysisStatus.Pending, (await db.InboxAnalyses.SingleAsync(Token)).Status);
-        }
-
-        await MakeReadyAsync();
-        var success = new FakeAnalyzer((_, _) => Task.FromResult(Response()));
-        using (var host = new HostFactory(_connection, success))
-        using (host.CreateClient())
-        {
-            await WaitForAsync(async () =>
-            {
-                await using var db = Db();
-                return await db.InboxAnalysisJobs.AnyAsync(row => row.Status == InboxAnalysisJobStatus.Completed, Token);
-            });
-        }
-
-        await using var verify = Db();
-        Assert.Equal(id, Assert.Single(await verify.InboxAnalyses.ToListAsync(Token)).Id);
-        Assert.Single(await verify.Set<InboxAnalysisProposal>().ToListAsync(Token));
-        Assert.Equal(1, success.Calls);
     }
 
     [Fact]
@@ -491,32 +458,6 @@ public sealed class PostgresInboxAnalysisJobTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task ProcessJobAsync_PostgresConnectionLostAfterProviderResponse_LeaseRecoversSameVersion()
-    {
-        await CaptureAsync();
-        await using (var db = Db())
-        {
-            var ai = new FakeAnalyzer(async (_, token) =>
-            {
-                Assert.Null(db.Database.CurrentTransaction);
-                await db.Database.OpenConnectionAsync(token);
-                var processId = ((NpgsqlConnection)db.Database.GetDbConnection()).ProcessID;
-                await using var killer = Db();
-                await killer.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_terminate_backend({processId})", token);
-                return Response();
-            });
-            var lease = (await Jobs(db).ClaimAsync(TimeSpan.FromMinutes(2), Token))!;
-            await Assert.ThrowsAnyAsync<Exception>(() => Service(db, ai).ProcessJobAsync(lease, Jobs(db), new(), Token));
-        }
-
-        await MakeReadyAsync();
-        await RunAsync(new FakeAnalyzer((_, _) => Task.FromResult(Response())));
-        await using var verify = Db();
-        Assert.Equal(InboxAnalysisStatus.Completed, Assert.Single(await verify.InboxAnalyses.ToListAsync(Token)).Status);
-        Assert.Single(await verify.Set<InboxAnalysisProposal>().ToListAsync(Token));
-    }
-
-    [Fact]
     public async Task ProcessJobAsync_OperatorRunsDuringAutomaticAnalysis_KeepsIndependentRevisionHistory()
     {
         var item = await CaptureAsync();
@@ -585,42 +526,6 @@ public sealed class PostgresInboxAnalysisJobTests : IAsyncLifetime
         Assert.Null(await Jobs(db).ClaimAsync(TimeSpan.FromMinutes(2), Token));
     }
 
-    [Fact]
-    public async Task Worker_MultipleReadyJobs_RespectsParallelismLimit()
-    {
-        for (var index = 0; index < 3; index++) { await CaptureAsync(); }
-        var twoRunning = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var active = 0;
-        var maximum = 0;
-        var ai = new FakeAnalyzer(async (_, token) =>
-        {
-            var count = Interlocked.Increment(ref active);
-            Interlocked.Exchange(ref maximum, Math.Max(count, Volatile.Read(ref maximum)));
-            if (count == 2) { twoRunning.TrySetResult(); }
-            await release.Task.WaitAsync(token);
-            Interlocked.Decrement(ref active);
-            return Response();
-        });
-        using var host = new HostFactory(_connection, ai, parallelism: 2);
-        using var client = host.CreateClient();
-        await twoRunning.Task.WaitAsync(Token);
-        await using (var db = Db())
-        {
-            Assert.Equal(2, await db.InboxAnalysisJobs.CountAsync(row => row.Status == InboxAnalysisJobStatus.Running, Token));
-            Assert.Equal(1, await db.InboxAnalysisJobs.CountAsync(row => row.Status == InboxAnalysisJobStatus.Ready, Token));
-        }
-
-        release.SetResult();
-        await WaitForAsync(async () =>
-        {
-            await using var db = Db();
-            return await db.InboxAnalysisJobs.CountAsync(row => row.Status == InboxAnalysisJobStatus.Completed, Token) == 3;
-        });
-        Assert.Equal(2, maximum);
-        Assert.Equal(3, ai.Calls);
-    }
-
     private OwnDayDbContext Db() => new(_options);
     private static EfInboxAnalysisJobStore Jobs(OwnDayDbContext db) => new(db, new EfInboxProcessingStore(db));
     private static InboxAnalysisService Service(OwnDayDbContext db, IInboxAnalyzer ai) => new(new EfInboxItemStore(db),
@@ -646,11 +551,6 @@ public sealed class PostgresInboxAnalysisJobTests : IAsyncLifetime
             UPDATE inbox_analysis_jobs SET available_at = clock_timestamp() - interval '1 second',
                 lease_until = CASE WHEN status = 1 THEN clock_timestamp() - interval '1 second' ELSE NULL END
             """, Token);
-    }
-
-    private async Task WaitForAsync(Func<Task<bool>> predicate)
-    {
-        while (!await predicate()) { await Task.Delay(50, Token); }
     }
 
     private async Task PostAsync(HttpClient client)
@@ -684,9 +584,7 @@ public sealed class PostgresInboxAnalysisJobTests : IAsyncLifetime
         }
     }
 
-    private sealed class HostFactory(string connection, IInboxAnalyzer ai, bool enabled = true, bool key = true,
-        bool background = true, int parallelism = 1)
-        : WebApplicationFactory<Program>
+    private sealed class HostFactory(string connection) : WebApplicationFactory<Program>
     {
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
@@ -694,17 +592,14 @@ public sealed class PostgresInboxAnalysisJobTests : IAsyncLifetime
             builder.UseSetting("Telegram:BotToken", "123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi");
             builder.UseSetting("Telegram:BotUsername", "OwnDayBot");
             builder.UseSetting("Telegram:WebhookSecret", "test-webhook-secret");
-            builder.UseSetting("InboxAnalysis:OpenAI:Enabled", enabled.ToString());
-            builder.UseSetting("InboxAnalysis:OpenAI:ApiKey", key ? "dummy-test-key" : "");
-            builder.UseSetting("InboxAnalysis:Background:PollSeconds", "1");
-            builder.UseSetting("InboxAnalysis:Background:Enabled", background.ToString());
-            builder.UseSetting("InboxAnalysis:Background:Parallelism", parallelism.ToString());
+            builder.UseSetting("InboxAnalysis:OpenAI:Enabled", "true");
+            builder.UseSetting("InboxAnalysis:OpenAI:ApiKey", "dummy-test-key");
+            builder.UseSetting("InboxAnalysis:Background:Enabled", "true");
             builder.ConfigureServices(services =>
             {
+                Assert.DoesNotContain(services, descriptor => descriptor.ServiceType == typeof(IHostedService) &&
+                    descriptor.ImplementationType?.Name.Contains("Inbox", StringComparison.Ordinal) == true);
                 services.RemoveAll<IHostedService>();
-                services.AddHostedService<InboxAnalysisWorker>();
-                services.RemoveAll<IInboxAnalyzer>();
-                services.AddSingleton(ai);
                 services.RemoveAll<ITelegramMessageCleaner>();
                 services.AddSingleton<ITelegramMessageCleaner, NoOpCleaner>();
             });

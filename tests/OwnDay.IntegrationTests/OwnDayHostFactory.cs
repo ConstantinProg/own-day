@@ -6,6 +6,8 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using OwnDay.Application.Inbox;
+using OwnDay.Infrastructure.OpenAIAnalysis;
 using OwnDay.Infrastructure.Persistence;
 using OwnDay.Infrastructure.Telegram.Cleanup;
 using OwnDay.Infrastructure.Telegram.Delivery;
@@ -20,6 +22,17 @@ public sealed class OwnDayHostFactory : WebApplicationFactory<Program>
     {
         _connection.Open();
     }
+
+    internal WebApplicationFactory<Program> WithOfflineInboxServices() => WithWebHostBuilder(builder =>
+        builder.ConfigureServices(services =>
+        {
+            services.AddScoped<InboxCaptureService>();
+            services.AddScoped<IInboxItemStore, EfInboxItemStore>();
+            services.AddScoped<InboxProcessingService>();
+            services.AddScoped<InboxDraftService>();
+            services.AddScoped<IInboxProcessingStore, EfInboxProcessingStore>();
+            services.AddInboxAnalysis();
+        }));
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
