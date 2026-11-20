@@ -41,7 +41,7 @@ public sealed class TelegramUpdateRouter
                 if (_actions.TryDecode(actionData, owner.Value, source.Chat.Id, out var action, out var expiresAt))
                     return new TelegramUpdateRouteResult.Action(owner, source.Chat.Id, action!, expiresAt);
                 if (_actions.TryDecodeTester(actionData, owner.Value, source.Chat.Id, out var confirmation))
-                    return new TelegramUpdateRouteResult.TesterAction(owner, source.Chat.Id, confirmation!);
+                    return new TelegramUpdateRouteResult.TesterAction(owner, confirmation!);
             }
             return new TelegramUpdateRouteResult.UnavailableAction(IsRussian(callbackAction.From.LanguageCode));
         }

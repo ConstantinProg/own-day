@@ -51,8 +51,9 @@ public sealed class TelegramActionCodec
     public bool TryDecode(string data, long owner, long chat, out LearningAction? action, out DateTimeOffset expiresAt)
     {
         action = null;
+        expiresAt = default;
         Span<byte> bytes = stackalloc byte[PayloadSize + TagSize];
-        if (!TryReadSigned(data, owner, chat, bytes, out expiresAt)) return false;
+        if (!TryReadSigned(data, owner, chat, bytes, out var expiration)) return false;
 
         var kind = (LearningActionKind)bytes[0];
         var decoded = kind switch
@@ -68,6 +69,7 @@ public sealed class TelegramActionCodec
             _ => new LearningAction(kind, new Guid(bytes[1..17]), BinaryPrimitives.ReadInt64BigEndian(bytes[17..25]), bytes[25])
         };
         if (!IsValid(decoded)) return false;
+        expiresAt = expiration;
         action = decoded;
         return true;
     }

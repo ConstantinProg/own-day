@@ -17,7 +17,7 @@ public abstract record TelegramUpdateRouteResult
 
     public sealed record Action(UserId UserId, long ChatId, LearningAction Value, DateTimeOffset ExpiresAt) : TelegramUpdateRouteResult;
 
-    public sealed record TesterAction(UserId UserId, long ChatId, TesterModeConfirmation Confirmation) : TelegramUpdateRouteResult;
+    public sealed record TesterAction(UserId UserId, TesterModeConfirmation Confirmation) : TelegramUpdateRouteResult;
 
     public sealed record UnavailableAction(bool InRussian) : TelegramUpdateRouteResult;
 }

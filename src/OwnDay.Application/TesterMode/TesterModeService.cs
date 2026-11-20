@@ -28,6 +28,8 @@ public sealed class TesterModeService(ITesterModeStore store, TesterModeOptions 
             return await HandleCommandAsync(user, state, command!, hasArguments, updateId, now, cancellationToken);
         if (command == "cancel" && state?.PromptExpiresAt > now && !containsSecret)
         {
+            if (updateId <= state.PromptUpdateId)
+                return TesterModeResult.Expired;
             state.ClosePrompt();
             return TesterModeResult.Cancelled;
         }

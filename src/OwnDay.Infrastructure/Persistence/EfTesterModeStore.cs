@@ -47,6 +47,8 @@ public sealed class EfTesterModeStore(OwnDayDbContext db, ICurriculumStore curri
 
     public async Task ClearUserDataAsync(UserId userId, TesterModeOperation operation, CancellationToken cancellationToken)
     {
+        if (!Enum.IsDefined(operation))
+            throw new ArgumentOutOfRangeException(nameof(operation));
         if (db.Database.CurrentTransaction is null)
             throw new InvalidOperationException("Tester Mode data removal requires the Telegram owner transaction.");
 

@@ -87,16 +87,17 @@ public sealed class PostgresTesterModeTests : IAsyncLifetime
             Assert.DoesNotContain("Other user's goal", status.Text);
         }
 
-        await PostAsync(resumed, 6, "/tester_reset");
+        await PostAsync(resumed, 7, "/tester_reset");
         var buttons = await ReadButtonsAsync();
-        await CallbackAsync(resumed, 7, buttons[0], user: Other);
+        await PostAsync(resumed, 6, "/cancel");
+        await CallbackAsync(resumed, 8, buttons[0], user: Other);
         await using (var before = Open())
             Assert.Equal(3, await before.Actions.CountAsync());
-        await CallbackAsync(resumed, 8, buttons[0]);
-        await CallbackAsync(resumed, 8, buttons[0]);
         await CallbackAsync(resumed, 9, buttons[0]);
+        await CallbackAsync(resumed, 9, buttons[0]);
+        await CallbackAsync(resumed, 10, buttons[0]);
         await PostAsync(resumed, 4, "Start a queued lesson");
-        await PostAsync(resumed, 10, "/start");
+        await PostAsync(resumed, 11, "/start");
 
         await using var saved = Open();
         Assert.True((await saved.Set<TesterModeState>().SingleAsync()).Authorized);

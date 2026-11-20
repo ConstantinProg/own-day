@@ -25,6 +25,13 @@ public sealed class AddTesterReset : Migration
 
     protected override void Down(MigrationBuilder migrationBuilder)
     {
+        migrationBuilder.Sql("""
+            DO $$ BEGIN
+                IF EXISTS (SELECT 1 FROM openai_budget_carryover) THEN
+                    RAISE EXCEPTION 'Cannot remove Tester Mode budget carryover with retained charges';
+                END IF;
+            END $$;
+            """);
         migrationBuilder.DropColumn("confirmation_id", "tester_mode_users");
         migrationBuilder.DropColumn("pending_operation", "tester_mode_users");
         migrationBuilder.DropTable("openai_budget_carryover");

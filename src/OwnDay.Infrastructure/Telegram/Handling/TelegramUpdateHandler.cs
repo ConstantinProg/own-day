@@ -89,7 +89,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         cancellationToken.ThrowIfCancellationRequested();
 
         var route = _router.Route(update);
-        if (route is TelegramUpdateRouteResult.Ignore)
+        if (route is TelegramUpdateRouteResult.Ignore || route is TelegramUpdateRouteResult.TesterAction && _testerMode is null)
         {
             return;
         }
@@ -119,8 +119,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
     private async Task HandleRoutedAsync(Update update, TelegramUpdateRouteResult route, CancellationToken cancellationToken)
     {
         var now = _timeProvider.GetUtcNow().UtcDateTime;
-        var command = (route as TelegramUpdateRouteResult.Dispatch)?.Command;
-        var commandName = command?.Name;
+        var commandName = (route as TelegramUpdateRouteResult.Dispatch)?.Command.Name;
         var containsSecret = TesterModeService.ContainsSecretPrefix(update.Message?.Text);
         if ((containsSecret || TesterModeService.IsTesterCommand(commandName)) &&
             !(update.Message is { From.Id: > 0 } input && input.Chat.Id == input.From.Id))
@@ -168,31 +167,8 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
                 $"SELECT pg_advisory_xact_lock({user.Value})", cancellationToken);
         }
 
-        if (route is TelegramUpdateRouteResult.TesterAction testerAction && _testerMode is not null)
-        {
-            var testerNow = await DatabaseNowAsync(cancellationToken);
-            var result = await _testerMode.ConfirmAsync(user, testerAction.Confirmation, update.Id, new(testerNow), cancellationToken);
-            var russian = update.CallbackQuery?.From.LanguageCode?.StartsWith("ru", StringComparison.OrdinalIgnoreCase) == true;
-            await CommitRepliesAsync(update, testerAction.ChatId, [RenderTesterReply(result, russian, user.Value, testerAction.ChatId)],
-                testerNow, transaction, cancellationToken);
+        if (await TryHandleTesterModeAsync(update, route, user, transaction, cancellationToken))
             return;
-        }
-        if (_testerMode is not null && update.Message is { From: { } from } messageForTester &&
-            messageForTester.Chat.Id == user.Value &&
-            (containsSecret || TesterModeService.IsTesterCommand(commandName) ||
-             _testerMode.Enabled && (route is TelegramUpdateRouteResult.Text || commandName == "cancel")))
-        {
-            var testerNow = await DatabaseNowAsync(cancellationToken);
-            var result = await _testerMode.HandleAsync(user, update.Id, commandName, messageForTester.Text,
-                !string.IsNullOrEmpty(command?.Arguments), new DateTimeOffset(testerNow), cancellationToken);
-            if (result is { } handled)
-            {
-                var russian = from.LanguageCode?.StartsWith("ru", StringComparison.OrdinalIgnoreCase) == true;
-                await CommitRepliesAsync(update, messageForTester.Chat.Id, [RenderTesterReply(handled, russian, user.Value, messageForTester.Chat.Id)],
-                    testerNow, transaction, cancellationToken);
-                return;
-            }
-        }
 
         var dialogue = await _dbContext.Set<DialogueContext>().SingleOrDefaultAsync(context => context.UserId == user, cancellationToken);
         if (dialogue is not null && (dialogue.SchemaVersion != DialogueContext.CurrentSchemaVersion || dialogue.Consultation is { Version: not 1 }))
@@ -260,7 +236,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         {
             var dispatch = (TelegramUpdateRouteResult.Dispatch)route;
             chatId = dispatch.ChatId;
-            command = dispatch.Command;
+            var command = dispatch.Command;
             await CloseLegacyInboxDraftAsync(user, cancellationToken);
             await _languageFlow.CloseAsync(user, cancellationToken);
             if (_learningCommands.Handles(command.Name) || command.Name == "cancel")
@@ -297,13 +273,48 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         await CommitRepliesAsync(update, chatId, replies, now, transaction, cancellationToken);
     }
 
-    private TelegramLearningReply RenderTesterReply(TesterModeResponse response, bool russian, long userId, long chatId)
+    private async Task<bool> TryHandleTesterModeAsync(Update update, TelegramUpdateRouteResult route, UserId user,
+        IDbContextTransaction transaction, CancellationToken token)
+    {
+        if (_testerMode is null) return false;
+
+        var command = (route as TelegramUpdateRouteResult.Dispatch)?.Command;
+        TesterModeResponse? result;
+        DateTime now;
+        string? language;
+        if (route is TelegramUpdateRouteResult.TesterAction action)
+        {
+            now = await DatabaseNowAsync(token);
+            result = await _testerMode.ConfirmAsync(user, action.Confirmation, update.Id, new(now), token);
+            language = update.CallbackQuery?.From.LanguageCode;
+        }
+        else if (update.Message is { From: { } from } message && message.Chat.Id == user.Value &&
+            (TesterModeService.ContainsSecretPrefix(message.Text) || TesterModeService.IsTesterCommand(command?.Name) ||
+             _testerMode.Enabled && (route is TelegramUpdateRouteResult.Text || command?.Name == "cancel")))
+        {
+            now = await DatabaseNowAsync(token);
+            result = await _testerMode.HandleAsync(user, update.Id, command?.Name, message.Text,
+                !string.IsNullOrEmpty(command?.Arguments), new(now), token);
+            language = from.LanguageCode;
+        }
+        else
+        {
+            return false;
+        }
+
+        if (result is null) return false;
+        var russian = language?.StartsWith("ru", StringComparison.OrdinalIgnoreCase) == true;
+        await CommitRepliesAsync(update, user.Value, [RenderTesterReply(result, russian, user.Value)], now, transaction, token);
+        return true;
+    }
+
+    private TelegramLearningReply RenderTesterReply(TesterModeResponse response, bool russian, long userId)
     {
         if (response.Status is { } status)
             return TelegramTesterModeText.RenderStatus(status, russian);
         var text = TelegramTesterModeText.Render(response.Result, russian);
         return response.Confirmation is { } confirmation && _keyboard is not null
-            ? _keyboard.RenderConfirmation(text, russian ? "Сбросить мои данные" : "Reset my data", confirmation, userId, chatId)
+            ? _keyboard.RenderConfirmation(text, russian ? "Сбросить мои данные" : "Reset my data", confirmation, userId, userId)
             : new(text);
     }
 
