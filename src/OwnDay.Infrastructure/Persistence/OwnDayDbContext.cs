@@ -68,6 +68,7 @@ public sealed class OwnDayDbContext(DbContextOptions<OwnDayDbContext> options)
         StudyModel.Configure(modelBuilder);
         LearningRequestModel.Configure(modelBuilder);
         DialogueModel.Configure(modelBuilder);
+        TesterModeModel.Configure(modelBuilder);
         modelBuilder.Entity<OwnDay.Domain.Learning.Lesson>(entity =>
         {
             entity.ToTable("learning_lessons");

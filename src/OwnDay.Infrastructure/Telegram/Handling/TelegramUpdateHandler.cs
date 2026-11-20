@@ -8,6 +8,7 @@ using OwnDay.Application.Inbox;
 using OwnDay.Application.Interactions;
 using OwnDay.Application.Learning.Requests;
 using OwnDay.Application.Learning;
+using OwnDay.Application.TesterMode;
 using OwnDay.Domain.Learning;
 using OwnDay.Infrastructure.Learning;
 using OwnDay.Application.Dialogue;
@@ -37,6 +38,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
     private readonly ITelegramCallbackResponder? _callbackResponder;
     private readonly LearningRequestProcessingOptions _processing;
     private readonly TelegramActionKeyboard? _keyboard;
+    private readonly TesterModeService? _testerMode;
 
     public TelegramUpdateHandler(
         TelegramUpdateRouter router,
@@ -53,7 +55,8 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         ApplicationVersion applicationVersion,
         ITelegramCallbackResponder? callbackResponder = null,
         IOptions<LearningRequestProcessingOptions>? processing = null,
-        TelegramActionKeyboard? keyboard = null)
+        TelegramActionKeyboard? keyboard = null,
+        TesterModeService? testerMode = null)
     {
         ArgumentNullException.ThrowIfNull(router);
         ArgumentNullException.ThrowIfNull(languageFlow);
@@ -75,6 +78,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         _callbackResponder = callbackResponder;
         _processing = processing?.Value ?? new();
         _keyboard = keyboard;
+        _testerMode = testerMode;
     }
 
     public async Task HandleAsync(
@@ -115,6 +119,11 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
     private async Task HandleRoutedAsync(Update update, TelegramUpdateRouteResult route, CancellationToken cancellationToken)
     {
         var now = _timeProvider.GetUtcNow().UtcDateTime;
+        var commandName = (route as TelegramUpdateRouteResult.Dispatch)?.Command.Name;
+        var containsSecret = TesterModeService.ContainsSecretPrefix(update.Message?.Text);
+        if ((containsSecret || TesterModeService.IsTesterCommand(commandName)) &&
+            !(update.Message is { From.Id: > 0 } input && input.Chat.Id == input.From.Id))
+            return;
 
         await using var transaction = _dbContext.Database.IsNpgsql()
             ? await _dbContext.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken)
@@ -131,11 +140,13 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         if (inserted is 0)
         {
             await transaction.RollbackAsync(cancellationToken);
+            if (containsSecret && update.Message is { } message)
+                await DeleteProcessedMessageAsync(message, cancellationToken);
             await AcknowledgeAsync(update, cancellationToken);
             return;
         }
 
-        if (route is TelegramUpdateRouteResult.Dispatch { Command.Name: "version" } version)
+        if (!containsSecret && route is TelegramUpdateRouteResult.Dispatch { Command.Name: "version" } version)
         {
             await CommitRepliesAsync(update, version.ChatId, [$"OwnDay {_applicationVersion.Version}"],
                 now, transaction, cancellationToken);
@@ -153,6 +164,23 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         {
             await _dbContext.Database.ExecuteSqlInterpolatedAsync(
                 $"SELECT pg_advisory_xact_lock({user.Value})", cancellationToken);
+        }
+
+        if (_testerMode is not null && update.Message is { From: { } from } messageForTester &&
+            messageForTester.Chat.Id == user.Value &&
+            (containsSecret || TesterModeService.IsTesterCommand(commandName) ||
+             _testerMode.Enabled && (route is TelegramUpdateRouteResult.Text || commandName == "cancel")))
+        {
+            var testerNow = await DatabaseNowAsync(cancellationToken);
+            var result = await _testerMode.HandleAsync(user, update.Id, commandName, messageForTester.Text,
+                new DateTimeOffset(testerNow), cancellationToken);
+            if (result is { } handled)
+            {
+                var russian = from.LanguageCode?.StartsWith("ru", StringComparison.OrdinalIgnoreCase) == true;
+                await CommitRepliesAsync(update, messageForTester.Chat.Id, [TelegramTesterModeText.Render(handled, russian)],
+                    testerNow, transaction, cancellationToken);
+                return;
+            }
         }
 
         var dialogue = await _dbContext.Set<DialogueContext>().SingleOrDefaultAsync(context => context.UserId == user, cancellationToken);
@@ -291,17 +319,22 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         }
         else if (update.Message is { } message)
         {
-            // Delete commands only after their result and reply are durable. Preserve free-text input.
-            try
-            {
-                await _messageCleaner.DeleteMessageAsync(chatId, message.Id, cancellationToken);
-            }
-            catch (Exception exception) when (exception is not OperationCanceledException && !cancellationToken.IsCancellationRequested)
-            {
-                _logger.LogWarning(
-                    "Could not delete processed Telegram command {MessageId} from chat {ChatId} ({ErrorType}).",
-                    message.Id, chatId, exception.GetType().Name);
-            }
+            // Delete commands and Tester Mode input after committing their reply.
+            await DeleteProcessedMessageAsync(message, cancellationToken);
+        }
+    }
+
+    private async Task DeleteProcessedMessageAsync(Message message, CancellationToken token)
+    {
+        try
+        {
+            await _messageCleaner.DeleteMessageAsync(message.Chat.Id, message.Id, token);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException && !token.IsCancellationRequested)
+        {
+            _logger.LogWarning(
+                "Could not delete processed Telegram message {MessageId} from chat {ChatId} ({ErrorType}).",
+                message.Id, message.Chat.Id, exception.GetType().Name);
         }
     }
 

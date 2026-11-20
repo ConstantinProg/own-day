@@ -1,6 +1,8 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
+using OwnDay.Application.TesterMode;
+using OwnDay.Infrastructure.Persistence;
 using OwnDay.Infrastructure.Telegram.Actions;
 using OwnDay.Infrastructure.Telegram.Cleanup;
 using OwnDay.Infrastructure.Telegram.Commands;
@@ -19,6 +21,16 @@ public static class TelegramServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
 
         services.TryAddSingleton<TimeProvider>(TimeProvider.System);
+        services.AddOptions<TesterModeOptions>()
+            .BindConfiguration(TesterModeOptions.SectionName)
+            .Validate(settings => !settings.Enabled || settings.HasValidSecretHash(),
+                "Enabled Tester Mode requires a SHA-256 secret hash encoded as 64 hexadecimal digits.")
+            .Validate(settings => settings.ConfirmationTimeoutSeconds is >= 10 and <= 600,
+                "Tester Mode confirmation timeout must be between 10 and 600 seconds.")
+            .ValidateOnStart();
+        services.AddSingleton(provider => provider.GetRequiredService<IOptions<TesterModeOptions>>().Value);
+        services.AddScoped<ITesterModeStore, EfTesterModeStore>();
+        services.AddScoped<TesterModeService>();
         services.AddOptions<OwnDay.Infrastructure.Learning.LearningRequestProcessingOptions>()
             .BindConfiguration("Learning:Processing")
             .Validate(settings => settings.DialogueEnabled && settings.ConsultationEnabled,
