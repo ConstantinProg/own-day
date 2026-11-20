@@ -71,8 +71,7 @@ public sealed class TesterModeService(ITesterModeStore store, TesterModeOptions 
         }
         if (updateId <= state.PromptUpdateId)
             return TesterModeResult.AuthorizationRequired;
-        if (_secretHash is not null && text is not null &&
-            CryptographicOperations.FixedTimeEquals(SHA256.HashData(Encoding.UTF8.GetBytes(text.Trim())), _secretHash))
+        if (MatchesSecret(text))
         {
             state.Authorize();
             return TesterModeResult.Active;
@@ -80,5 +79,14 @@ public sealed class TesterModeService(ITesterModeStore store, TesterModeOptions 
 
         state.RejectSecret(now);
         return state.IsBlocked(now) ? TesterModeResult.Locked : TesterModeResult.InvalidSecret;
+    }
+
+    private bool MatchesSecret(string? text)
+    {
+        var code = text?.Trim();
+        return _secretHash is not null && code is not null &&
+            code.Length == SecretPrefix.Length + 64 && code.StartsWith(SecretPrefix, StringComparison.Ordinal) &&
+            code[SecretPrefix.Length..].All(Uri.IsHexDigit) &&
+            CryptographicOperations.FixedTimeEquals(SHA256.HashData(Encoding.UTF8.GetBytes(code)), _secretHash);
     }
 }

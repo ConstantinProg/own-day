@@ -15,7 +15,7 @@ namespace OwnDay.IntegrationTests.Telegram;
 
 public sealed class TesterModeAuthorizationTests
 {
-    internal const string Secret = "ownday-tester-authorization-fixture";
+    internal const string Secret = "ownday-tester-0000000000000000000000000000000000000000000000000000000000000000";
     internal static string SecretHash => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Secret)));
 
     [Fact]
