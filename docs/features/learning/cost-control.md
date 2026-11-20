@@ -75,6 +75,11 @@ Inbox source. Shared admission includes both sources. Financial rows retain
 prompt/schema/output descriptors and price snapshots; logs contain technical
 identifiers and usage counts without user input or response content.
 
+[Tester Mode](../telegram/tester-mode.md) moves metering totals into
+`openai_budget_carryover` before deleting individual owner attempts. Admission
+includes these totals in the global and owner limits. Charges for calls in
+flight retain the reservation recorded at deletion.
+
 The configured `gpt-6-luna` Standard short-context rates were verified on
 2026-11-12: input USD 0.10, cached input USD 0.01, output USD 0.50 per million
 tokens. [Official model pricing](https://developers.openai.com/api/docs/models/gpt-6-luna).

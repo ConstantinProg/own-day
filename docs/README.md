@@ -7,6 +7,7 @@ they do not establish that every capability already exists.
 ## Implemented features
 
 - [Telegram UX and command reference](features/telegram/ux.md): navigation, language, dialogs and compatibility aliases.
+- [Tester Mode](features/telegram/tester-mode.md) covers private authorization, owner diagnostics, reset and deletion.
 - [Learning commands](phase-5/learning-commands.md): programs, lessons, knowledge, reviews, scheduling and progress.
 - [Durable Learning requests](features/learning/request-processing.md): receipt, worker recovery and safe command cutover.
 - [Shared provider budget](features/learning/cost-control.md): monthly USD 10 admission, Learning usage and Inbox compatibility.
