@@ -5,12 +5,13 @@ namespace OwnDay.Application.TesterMode;
 public enum TesterModeResult
 {
     Disabled, AuthorizationRequired, PromptForSecret, InvalidSecret, Locked, Active, Revoked, Cancelled, Expired,
-    Status, Confirm, Reset, InvalidCommand
+    Status, ConfirmReset, Reset, ConfirmDelete, PromptForDeletePhrase, InvalidDeletePhrase, Deleted, InvalidCommand
 }
 
 public enum TesterModeOperation
 {
-    Reset = 1
+    Reset = 1,
+    DeleteAll = 2
 }
 
 public sealed record TesterModeConfirmation(Guid Id, TesterModeOperation Operation, DateTimeOffset ExpiresAt);

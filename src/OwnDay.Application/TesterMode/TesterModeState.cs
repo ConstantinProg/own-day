@@ -18,6 +18,7 @@ public sealed class TesterModeState(UserId userId)
 
     internal bool IsBlocked(DateTimeOffset now) => FailedAttempts >= MaximumFailures && AttemptWindowEndsAt > now;
     internal bool HasSecretPrompt => PromptExpiresAt is not null && PendingOperation is null;
+    internal bool AwaitsDeletePhrase => Authorized && PendingOperation == TesterModeOperation.DeleteAll && ConfirmationId is null;
 
     internal void RequestSecret(int updateId, DateTimeOffset expiresAt)
     {
@@ -72,4 +73,10 @@ public sealed class TesterModeState(UserId userId)
     internal bool MatchesConfirmation(TesterModeConfirmation confirmation, int updateId, DateTimeOffset now) =>
         confirmation.Id == ConfirmationId && confirmation.Operation == PendingOperation &&
         updateId > PromptUpdateId && PromptExpiresAt > now && confirmation.ExpiresAt > now;
+
+    internal void RequestDeletePhrase(int updateId)
+    {
+        ConfirmationId = null;
+        PromptUpdateId = updateId;
+    }
 }

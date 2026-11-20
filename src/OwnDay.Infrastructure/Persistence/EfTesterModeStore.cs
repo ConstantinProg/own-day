@@ -56,6 +56,8 @@ public sealed class EfTesterModeStore(OwnDayDbContext db, ICurriculumStore curri
         await ClearRequestsAndRepliesAsync(userId, cancellationToken);
         await ClearLearningAsync(userId, cancellationToken);
         await ClearInboxAndTasksAsync(userId, cancellationToken);
+        if (operation == TesterModeOperation.DeleteAll)
+            await db.InboxOperationEvents.Where(item => item.UserId == userId.Value).ExecuteDeleteAsync(cancellationToken);
     }
 
     private async Task ClearRequestsAndRepliesAsync(UserId userId, CancellationToken token)

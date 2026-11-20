@@ -23,7 +23,7 @@ using TaskItem = OwnDay.Domain.Actions.Action;
 namespace OwnDay.IntegrationTests.Telegram;
 
 [Trait("Requires", "PostgreSQL via OWNDAY_TEST_POSTGRES_CONNECTION")]
-public sealed class PostgresTesterModeTests : IAsyncLifetime
+public sealed partial class PostgresTesterModeTests : IAsyncLifetime
 {
     private static readonly UserId Tester = new(101);
     private static readonly UserId Other = new(202);
@@ -182,6 +182,7 @@ public sealed class PostgresTesterModeTests : IAsyncLifetime
             builder.UseSetting("Telegram:CallbackSigningKey", Convert.ToBase64String(new byte[32]));
             builder.UseSetting("TesterMode:Enabled", "true");
             builder.UseSetting("TesterMode:SecretHash", TesterModeAuthorizationTests.SecretHash);
+            builder.UseSetting("InboxAnalysis:CostControl:MonthlyUserCallLimit", "1");
             builder.ConfigureServices(services =>
             {
                 services.RemoveAll<IHostedService>();

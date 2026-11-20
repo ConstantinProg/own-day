@@ -17,21 +17,38 @@ internal static class TelegramTesterModeText
         (TesterModeResult.InvalidSecret, false) => "Incorrect code. Try again or use /cancel.",
         (TesterModeResult.Locked, true) => "Слишком много попыток. Повторите /tester позже.",
         (TesterModeResult.Locked, false) => "Too many attempts. Try /tester again later.",
-        (TesterModeResult.Active, true) => "Режим тестировщика активен.\n/tester_status — моё состояние.\n/tester_reset — сбросить мои данные.\n/tester_off — отключить доступ.",
-        (TesterModeResult.Active, false) => "Tester Mode is active.\n/tester_status — view my state.\n/tester_reset — reset my data.\n/tester_off — turn off access.",
+        (TesterModeResult.Active, true) => "Режим тестировщика активен.\n/tester_status — моё состояние.\n/tester_reset — сбросить мои данные.\n/tester_delete_all — удалить все мои данные.\n/tester_off — отключить доступ.",
+        (TesterModeResult.Active, false) => "Tester Mode is active.\n/tester_status — view my state.\n/tester_reset — reset my data.\n/tester_delete_all — delete all my data.\n/tester_off — turn off access.",
         (TesterModeResult.Revoked, true) => "Доступ к режиму тестировщика отключён.",
         (TesterModeResult.Revoked, false) => "Tester Mode access is off.",
         (TesterModeResult.Cancelled, true) => "Действие в режиме тестировщика отменено.",
         (TesterModeResult.Cancelled, false) => "Tester Mode action cancelled.",
         (TesterModeResult.Expired, true) => "Время ожидания истекло. Если хотите продолжить, запустите команду заново.",
         (TesterModeResult.Expired, false) => "The request expired. Run the command again to continue.",
-        (TesterModeResult.Confirm, true) => "Сброс удалит ваши задачи, обучение, настройки и диалоги. Доступ тестировщика сохранится. Подтвердите сброс кнопкой или введите /cancel.",
-        (TesterModeResult.Confirm, false) => "Reset clears your tasks, learning, settings, and dialogue. Tester Mode access stays active. Confirm with the button or use /cancel.",
+        (TesterModeResult.ConfirmReset, true) => "Сброс удалит ваши задачи, обучение, настройки и диалоги. Доступ тестировщика сохранится. Подтвердите сброс кнопкой или введите /cancel.",
+        (TesterModeResult.ConfirmReset, false) => "Reset clears your tasks, learning, settings, and dialogue. Tester Mode access stays active. Confirm with the button or use /cancel.",
         (TesterModeResult.Reset, true) => "Ваше состояние сброшено. Отправьте /start, чтобы начать заново.",
         (TesterModeResult.Reset, false) => "Your state was reset. Send /start to begin again.",
+        (TesterModeResult.ConfirmDelete, true) => "Ваши пользовательские данные и история будут удалены из рабочей базы OwnDay. Доступ тестировщика сохранится. Нажмите «Продолжить удаление моих данных» или введите /cancel.",
+        (TesterModeResult.ConfirmDelete, false) => "Your user data and history will be deleted from OwnDay's working database. Tester Mode access stays active. Choose Continue deleting my data or use /cancel.",
+        (TesterModeResult.PromptForDeletePhrase, true) => "Для удаления отправьте DELETE заглавными латинскими буквами отдельным сообщением. Для отмены введите /cancel.",
+        (TesterModeResult.PromptForDeletePhrase, false) => "To delete your data, send DELETE in uppercase as a separate message. Use /cancel to stop.",
+        (TesterModeResult.InvalidDeletePhrase, true) => "Контрольная фраза не совпала. Удаление отменено. Начните заново с /tester_delete_all.",
+        (TesterModeResult.InvalidDeletePhrase, false) => "The phrase did not match. Deletion was cancelled. Run /tester_delete_all to start again.",
+        (TesterModeResult.Deleted, true) => "Ваши пользовательские данные удалены из рабочей базы OwnDay. Отправьте /start, чтобы начать заново.",
+        (TesterModeResult.Deleted, false) => "Your user data was deleted from OwnDay's working database. Send /start to begin again.",
         (TesterModeResult.InvalidCommand, true) => "Введите /tester для списка команд. Команды не принимают аргументы.",
         (TesterModeResult.InvalidCommand, false) => "Use /tester for the list of commands. Send commands without arguments.",
         _ => throw new ArgumentOutOfRangeException(nameof(result))
+    };
+
+    public static string ConfirmationLabel(TesterModeOperation operation, bool russian) => (operation, russian) switch
+    {
+        (TesterModeOperation.Reset, true) => "Сбросить мои данные",
+        (TesterModeOperation.Reset, false) => "Reset my data",
+        (TesterModeOperation.DeleteAll, true) => "Продолжить удаление моих данных",
+        (TesterModeOperation.DeleteAll, false) => "Continue deleting my data",
+        _ => throw new ArgumentOutOfRangeException(nameof(operation))
     };
 
     public static string RenderStatus(TesterModeStatus status, bool russian)

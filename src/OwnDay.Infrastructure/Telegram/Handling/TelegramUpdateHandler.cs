@@ -314,7 +314,8 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
             return TelegramTesterModeText.RenderStatus(status, russian);
         var text = TelegramTesterModeText.Render(response.Result, russian);
         return response.Confirmation is { } confirmation && _keyboard is not null
-            ? _keyboard.RenderConfirmation(text, russian ? "Сбросить мои данные" : "Reset my data", confirmation, userId, userId)
+            ? _keyboard.RenderConfirmation(text, TelegramTesterModeText.ConfirmationLabel(confirmation.Operation, russian),
+                confirmation, userId, userId)
             : new(text);
     }
 

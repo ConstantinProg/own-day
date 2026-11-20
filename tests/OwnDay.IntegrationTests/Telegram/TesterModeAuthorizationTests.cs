@@ -108,7 +108,8 @@ public sealed class TesterModeAuthorizationTests
         Assert.Empty(await saved.Set<LearningRequest>().ToListAsync());
     }
 
-    internal static async Task PostAsync(HttpClient client, int updateId, string text, long userId = 101, string chatType = "private")
+    internal static async Task PostAsync(HttpClient client, int updateId, string text, long userId = 101, string chatType = "private",
+        HttpStatusCode status = HttpStatusCode.OK)
     {
         using var content = JsonContent.Create(new
         {
@@ -122,7 +123,7 @@ public sealed class TesterModeAuthorizationTests
                 text
             }
         });
-        await PostUpdateAsync(client, content);
+        await PostUpdateAsync(client, content, status);
     }
 
     internal static async Task PostUpdateAsync(HttpClient client, HttpContent content, HttpStatusCode status = HttpStatusCode.OK)

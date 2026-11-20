@@ -33,6 +33,8 @@ public sealed class TesterModeService(ITesterModeStore store, TesterModeOptions 
             state.ClosePrompt();
             return TesterModeResult.Cancelled;
         }
+        if (!containsSecret && command is null && state?.AwaitsDeletePhrase == true)
+            return await DeleteWithPhraseAsync(state, text, updateId, now, cancellationToken);
         if (!containsSecret && (command is not null || state?.HasSecretPrompt != true))
             return null;
         return HandleSecret(state, command, text, updateId, now);
@@ -68,14 +70,15 @@ public sealed class TesterModeService(ITesterModeStore store, TesterModeOptions 
             return TesterModeResult.AuthorizationRequired;
         if (command == "tester_status")
             return new(TesterModeResult.Status, Status: await store.ReadStatusAsync(user, cancellationToken));
-        if (command == "tester_reset")
+        if (updateId <= state.PromptUpdateId)
+            return TesterModeResult.Expired;
+        var (operation, result) = command switch
         {
-            if (updateId <= state.PromptUpdateId)
-                return TesterModeResult.Expired;
-            return new(TesterModeResult.Confirm, state.RequestConfirmation(TesterModeOperation.Reset, updateId,
-                now.AddSeconds(options.ConfirmationTimeoutSeconds)));
-        }
-        return TesterModeResult.InvalidCommand;
+            "tester_reset" => (TesterModeOperation.Reset, TesterModeResult.ConfirmReset),
+            "tester_delete_all" => (TesterModeOperation.DeleteAll, TesterModeResult.ConfirmDelete),
+            _ => throw new ArgumentOutOfRangeException(nameof(command))
+        };
+        return new(result, state.RequestConfirmation(operation, updateId, now.AddSeconds(options.ConfirmationTimeoutSeconds)));
     }
 
     public async Task<TesterModeResponse> ConfirmAsync(UserId user, TesterModeConfirmation confirmation, int updateId,
@@ -89,9 +92,36 @@ public sealed class TesterModeService(ITesterModeStore store, TesterModeOptions 
         if (!state.MatchesConfirmation(confirmation, updateId, now))
             return TesterModeResult.Expired;
 
-        await store.ClearUserDataAsync(user, confirmation.Operation, cancellationToken);
+        if (confirmation.Operation == TesterModeOperation.DeleteAll)
+        {
+            state.RequestDeletePhrase(updateId);
+            return TesterModeResult.PromptForDeletePhrase;
+        }
+
+        await store.ClearUserDataAsync(user, TesterModeOperation.Reset, cancellationToken);
         state.ClosePrompt();
         return TesterModeResult.Reset;
+    }
+
+    private async Task<TesterModeResponse> DeleteWithPhraseAsync(TesterModeState state, string? text, int updateId,
+        DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        if (updateId <= state.PromptUpdateId)
+            return TesterModeResult.Expired;
+        if (state.PromptExpiresAt is not { } expiresAt || expiresAt <= now)
+        {
+            state.ClosePrompt();
+            return TesterModeResult.Expired;
+        }
+        if (!string.Equals(text, "DELETE", StringComparison.Ordinal))
+        {
+            state.ClosePrompt();
+            return TesterModeResult.InvalidDeletePhrase;
+        }
+
+        await store.ClearUserDataAsync(state.UserId, TesterModeOperation.DeleteAll, cancellationToken);
+        state.ClosePrompt();
+        return TesterModeResult.Deleted;
     }
 
     private TesterModeResponse HandleSecret(TesterModeState? state, string? command, string? text, int updateId, DateTimeOffset now)
