@@ -25,6 +25,14 @@ public sealed class EfLessonStore(OwnDayDbContext db) : ILessonStore
          orderby evidence.ObservedAt descending, lesson.Id descending
          select lesson).FirstOrDefaultAsync(token);
 
+    public Task<string?> FindPreviousChoiceQuestionAsync(UserId user, Guid? programId, string topic, CancellationToken token) =>
+        (from evidence in db.Set<LearningEvidence>()
+         join lesson in db.Set<Lesson>() on new { evidence.LessonId, evidence.UserId } equals new { LessonId = lesson.Id, lesson.UserId }
+         where evidence.UserId == user && lesson.Status == LessonStatus.Completed && lesson.ProgramId == null &&
+               lesson.PracticeProgramId == programId && lesson.Topic == topic
+         orderby evidence.ObservedAt descending, lesson.Id descending
+         select lesson.Choice == null ? null : lesson.Question).FirstOrDefaultAsync(token);
+
     public Task<string[]> RecentQuestionsAsync(UserId user, Guid skillId, CancellationToken token) =>
         (from evidence in db.Set<LearningEvidence>()
          join lesson in db.Set<Lesson>() on new { evidence.LessonId, evidence.UserId } equals new { LessonId = lesson.Id, lesson.UserId }
@@ -33,4 +41,14 @@ public sealed class EfLessonStore(OwnDayDbContext db) : ILessonStore
          select lesson.Question).Take(3).ToArrayAsync(token);
 
     public void Add(Lesson lesson) => db.Set<Lesson>().Add(lesson);
+
+    public async Task<bool> ChoiceQuestionSeenAsync(UserId user, string question, CancellationToken token)
+    {
+        var fingerprint = RubricEvidence.FingerprintQuestion(question);
+        var questions = db.Set<Lesson>().Where(lesson => lesson.UserId == user && lesson.Choice != null)
+            .Select(lesson => lesson.Question).AsAsyncEnumerable();
+        await foreach (var previous in questions.WithCancellation(token))
+            if (RubricEvidence.FingerprintQuestion(previous) == fingerprint) return true;
+        return false;
+    }
 }

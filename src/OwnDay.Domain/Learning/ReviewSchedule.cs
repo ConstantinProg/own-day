@@ -58,7 +58,7 @@ public sealed class ReviewSchedule
             SuccessfulReviews = 0;
             DueAt = evidence.ObservedAt.AddHours(1);
         }
-        else if (evidence.IsReview && evidence.Content?.StructuredRubric?.Kind is not ExerciseEvidenceKind.Recognition &&
+        else if (evidence.IsReview && evidence.ChoiceEvidence is null && evidence.Content?.StructuredRubric?.Kind is not ExerciseEvidenceKind.Recognition &&
             LastLessonId != Guid.Empty && IsDue(evidence.ObservedAt))
         {
             SuccessfulReviews = Math.Min(SuccessfulReviews + 1, _successfulReviewDays.Length);

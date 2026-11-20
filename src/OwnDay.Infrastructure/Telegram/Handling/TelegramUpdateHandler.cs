@@ -6,6 +6,7 @@ using Microsoft.Extensions.Options;
 using Npgsql;
 using OwnDay.Application.Interactions;
 using OwnDay.Application.Learning.Requests;
+using OwnDay.Application.Learning;
 using OwnDay.Domain.Learning;
 using OwnDay.Infrastructure.Learning;
 using OwnDay.Application.Dialogue;
@@ -194,6 +195,14 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
             var command = dispatch.Command;
             await _inboxFlow.CloseAsync(user, cancellationToken);
             await _languageFlow.CloseAsync(user, cancellationToken);
+            if (command.Name == "learning_choice" && update.CallbackQuery is not null)
+            {
+                var databaseNow = await EnsureLearningAcceptanceAsync(cancellationToken);
+                var input = JsonSerializer.Deserialize<ChoiceInput>(command.Arguments, JsonSerializerOptions.Web)!;
+                await AddReceiptAsync(update, user, chatId, input, "learning_choice", 1, databaseNow, ready: true, cancellationToken);
+                await CommitReceiptAsync(databaseNow);
+                return;
+            }
             if (_learningCommands.Handles(command.Name) || command.Name == "cancel")
             {
                 var databaseNow = await EnsureLearningAcceptanceAsync(cancellationToken);

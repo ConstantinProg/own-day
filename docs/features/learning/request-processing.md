@@ -7,8 +7,9 @@ The producer is controlled by `Learning:Processing:DurableIngressEnabled` (defau
 installed migrations before serving traffic. The schema is unchanged by this
 cutover. All Learning commands, including preference/schedule/selection writers
 and read-only commands, share the owner's sequence. Productivity and explicit
-Inbox commands keep their existing paths. There are no Learning callback routes in
-the current router; invitation start is an existing command and uses this sequence.
+Inbox commands keep their existing paths. Invitation start is an existing command
+and uses this sequence. [Choice exercise callbacks](adaptive-choice.md) use the
+same sequence with the `learning_choice` version 1 payload.
 
 Receipt atomically commits update deduplication, immutable versioned input and
 destination before HTTP 200. `ProcessedAt` means receipt completion for queued

@@ -425,7 +425,9 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
                 if (!AdaptiveTeaching.TryValidate(proposal, topic, route.Topics, satisfied, state, out var action))
                     return new CurriculumResult.ProviderUnavailable();
                 var rationaleLabel = useSimplerExample ? "Rationale" : "AI rationale";
-                var reason = $"{proposal.Action}: {topic.Code} -> {proposal.TopicCode}. Evidence: {state.PositiveAssessments} positive, {state.NegativeAssessments} negative AI assessments. {rationaleLabel}: {proposal.Reason}";
+                var assessmentLabel = status?.Evidence.Any(evidence => evidence.ChoiceEvidence is not null) == true
+                    ? "assessments" : "AI assessments";
+                var reason = $"{proposal.Action}: {topic.Code} -> {proposal.TopicCode}. Evidence: {state.PositiveAssessments} positive, {state.NegativeAssessments} negative {assessmentLabel}. {rationaleLabel}: {proposal.Reason}";
                 revision = program.ProposeAdaptation(proposal.TopicCode, reason);
                 topic = program.CurrentRoute.Topics.Single(t => t.Code == proposal.TopicCode);
                 teaching = new(action, reason, state, feedback);
@@ -440,17 +442,28 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
                 topic.Code == EnglishLearningContent.FirstTopicCode;
             var scaffold = authored && program.EnglishDiagnostic!.Results.Any(result =>
                 !result.AssessedCorrect || result.Assistance != AnswerAssistance.Independent);
-            var material = authored ? new LessonMaterial(EnglishLearningContent.LessonTheory, EnglishLearningContent.LessonQuestion)
-                : await teacher.GenerateAsync(new LessonRequest(topic.Title,
+            var previouslySelected = status?.Evidence.LastOrDefault()?.ChoiceEvidence is not null;
+            var recent = previouslySelected && status is not null ? await lessons.RecentQuestionsAsync(user, status.Skill.Id, token) : [];
+            var request = new LessonRequest(topic.Title,
                 new LessonProgramContext(program.Discipline, program.Goal, program.Experience,
                     diagnosticApplies ? program.DiagnosticQuestion : null, diagnosticApplies ? program.DiagnosticAnswer : null), teaching, SharedSkill: shared,
                 Personalization: personalization.ForGeneration())
+            {
+                RouteDepth = depth == CurriculumDepth.Standard ? null : depth,
+                PreviousQuestions = recent.Length == 0 ? null : recent,
+                PracticeEvidenceKind = previouslySelected ? ExerciseEvidenceKind.Understanding : null
+            };
+            var material = authored ? new LessonMaterial(EnglishLearningContent.LessonTheory, EnglishLearningContent.LessonQuestion)
+                : await teacher.GenerateAsync(request with
                 {
-                    RouteDepth = depth == CurriculumDepth.Standard ? null : depth
+                    PreferredChoice = ChoiceTeaching.Prefer(request, status?.Evidence)
                 }, token);
+            if (previouslySelected && !ChoiceTeaching.IsFreshOpenQuestion(material, recent))
+                return new CurriculumResult.ProviderUnavailable();
             if (scaffold) material = material with { Theory = material.Theory + "\n\n" + EnglishLearningContent.LessonScaffold };
             token.ThrowIfCancellationRequested();
-            var lesson = material.CreateLesson(user, topic.Title);
+            var reused = material.Choice is not null && await lessons.ChoiceQuestionSeenAsync(user, material.Question, token);
+            var lesson = material.CreateLesson(user, topic.Title, reused);
             if (authored) lesson.SetContent(EnglishLearningContent.FirstLesson);
             if (scaffold) lesson.AddExplanation(LessonInteractionKind.Clarification, "Опора после диагностики", EnglishLearningContent.LessonScaffold);
             lesson.SetTeaching(new(teaching is null ? PedagogicalStrategy.Standard : AdaptiveTeaching.StrategyFor(teaching.Action),

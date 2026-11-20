@@ -24,6 +24,7 @@ public sealed partial class LearningEvidence
     public AnswerAssistance Assistance { get; private set; }
     public LearningContent? Content { get; private set; }
     public RubricEvidence? RubricEvidence { get; private set; }
+    public ChoiceEvidence? ChoiceEvidence { get; private set; }
 
     public static LearningEvidence FromAnswer(Lesson lesson, DateTimeOffset observedAt, string source)
     {
@@ -37,12 +38,16 @@ public sealed partial class LearningEvidence
             LessonId = lesson.Id, SkillId = lesson.SkillId.Value, UserId = lesson.UserId, ObservedAt = observedAt,
             Answer = lesson.Answer!, AssessmentFeedback = lesson.Feedback!, AssessedCorrect = lesson.IsCorrect!.Value,
             AssessmentSource = source, IsReview = lesson.IsReview, Assistance = lesson.Assistance, Content = lesson.AssessmentContent,
-            AiAssessedCorrect = lesson.AssessmentStatus == AnswerAssessmentStatus.Inconclusive ? null : lesson.AiIsCorrect ?? lesson.IsCorrect,
+            AiAssessedCorrect = lesson.AssessmentStatus is AnswerAssessmentStatus.Inconclusive or AnswerAssessmentStatus.Deterministic
+                ? null : lesson.AiIsCorrect ?? lesson.IsCorrect,
             DeterministicIsCorrect = lesson.DeterministicIsCorrect, AssessmentStatus = lesson.AssessmentStatus,
             RubricEvidence = lesson.RubricEvaluation is { Final: true } rubric
                 ? new(rubric, RubricEvidence.FingerprintQuestion(lesson.Question))
                 : null,
-            Method = lesson.UsesReferenceCheck ? $"AI + {NormalizedTextAnswerCheck.MethodName} (AI reference)"
+            ChoiceEvidence = lesson.Choice is { } choice ? new(choice.Exercise.Version, choice.Exercise.Format,
+                RubricEvidence.FingerprintQuestion(lesson.Question), choice.Attempts[0].Outcome, choice.Attempts[^1].Outcome,
+                choice.Attempts.Length, choice.Reused, choice.Attempts[0].Assistance) : null,
+            Method = lesson.Choice is not null ? "Published choice key" : lesson.UsesReferenceCheck ? $"AI + {NormalizedTextAnswerCheck.MethodName} (AI reference)"
                 : lesson.RubricEvaluation is not null ? "AI criterion assessment" : "AI answer assessment"
         };
     }
@@ -76,10 +81,11 @@ public sealed record LearnerSkillState(SkillMastery Mastery, int Answers, int Po
         var observations = evidence.DistinctBy(e => e.LessonId).ToArray();
         if (observations.Select(e => (e.UserId, e.SkillId)).Distinct().Count() > 1)
             throw new ArgumentException("Evidence must belong to one learner and skill.", nameof(evidence));
-        var positive = observations.Count(e => e.EffectiveCorrect && e.Assistance == AnswerAssistance.Independent &&
+        var positive = observations.Count(e => e.ChoiceEvidence is null && e.EffectiveCorrect && e.Assistance == AnswerAssistance.Independent &&
             e.EffectiveAssessmentStatus != AnswerAssessmentStatus.Conflict);
-        var negative = observations.Count(e => !e.EffectiveCorrect && e.EffectiveAssessmentStatus is not
-            (AnswerAssessmentStatus.Conflict or AnswerAssessmentStatus.Inconclusive));
+        var negative = observations.Count(e => (e.ChoiceEvidence is { Reused: false, FirstAssistance: AnswerAssistance.Independent } choice
+                ? choice.FirstOutcome != ChoiceOutcome.Correct : e.ChoiceEvidence is null && !e.EffectiveCorrect) &&
+            e.EffectiveAssessmentStatus is not (AnswerAssessmentStatus.Conflict or AnswerAssessmentStatus.Inconclusive));
         var summary = observations.Any(e => e.RubricEvidence is not null) ? SummarizeRubricEvidence(observations) : null;
         var demonstrated = summary is null ? positive >= 3 : summary is { Understanding: true, Application: true, Retention: true };
         var mastery = observations.Length == 0 ? SkillMastery.Unknown

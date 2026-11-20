@@ -17,7 +17,7 @@ using Xunit;
 
 namespace OwnDay.UnitTests.Learning;
 
-public sealed class OpenAILessonTeacherTests
+public sealed partial class OpenAILessonTeacherTests
 {
     [Theory]
     [InlineData("{\"Intent\":\"Answer\"}", true)]

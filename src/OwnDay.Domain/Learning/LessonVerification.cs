@@ -75,7 +75,8 @@ public enum AnswerAssessmentStatus
     AiOnly,
     Agreement,
     Conflict,
-    Inconclusive
+    Inconclusive,
+    Deterministic
 }
 
 public interface IAnswerCheck

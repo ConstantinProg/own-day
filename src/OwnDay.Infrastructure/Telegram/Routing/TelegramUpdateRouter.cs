@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Options;
+using System.Text.Json;
 using OwnDay.Application.Interactions;
 using OwnDay.Domain;
 using OwnDay.Infrastructure.Telegram.Commands;
@@ -27,6 +28,13 @@ public sealed class TelegramUpdateRouter
     public TelegramUpdateRouteResult Route(Update update)
     {
         ArgumentNullException.ThrowIfNull(update);
+
+        if (update.CallbackQuery is { From.IsBot: false, Message.Chat.Type: ChatType.Private, Data: { } choiceData } choice &&
+            choice.Message.Chat.Id == choice.From.Id && TelegramChoicePresenter.Parse(choiceData) is { } input)
+        {
+            return new TelegramUpdateRouteResult.Dispatch(new ProcessIncomingCommand("learning_choice",
+                JsonSerializer.Serialize(input, JsonSerializerOptions.Web), new UserId(choice.From.Id)), choice.Message.Chat.Id);
+        }
 
         if (update.CallbackQuery is { From.IsBot: false, Message.Chat.Type: ChatType.Private, Data: { } navigation } nav &&
             nav.Message.Chat.Id == nav.From.Id && navigation.StartsWith("nav:", StringComparison.Ordinal) &&

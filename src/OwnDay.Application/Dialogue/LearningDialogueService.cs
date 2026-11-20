@@ -268,7 +268,8 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
         if (normalized is "другая тема" or "другая цель" or "another topic" or "another goal")
             return OpenChoice(context, turn, stamp, [DialogueOperationKind.Clarify, DialogueOperationKind.ChangeGoal]);
         var awaiting = lesson?.Status == LessonStatus.AwaitingAnswer;
-        if (naturalAction is { } action && (!awaiting || action is not (DialogueOperationKind.Clarify or DialogueOperationKind.RevealSolution)))
+        if (naturalAction is { } action && (!awaiting || lesson?.Choice is not null ||
+            action is not (DialogueOperationKind.Clarify or DialogueOperationKind.RevealSolution)))
             return await DecideActionAsync(context, turn, action, turn.Text, lesson, program, stamp, false, bound, token);
         if (!awaiting && program is null)
             return new(context, null, "", new(lesson is null ? DialogueReplyKind.NoActiveLesson : DialogueReplyKind.Paused, InEnglish: english));
@@ -278,6 +279,8 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
             return Recap(context, lesson!);
         if (normalized is "ответ" or "вопрос" or "answer" or "question")
             return Reply(context, DialogueReplyKind.NeedActualInput);
+        if (awaiting && LearningService.IsChoiceText(lesson!, turn.Text))
+            return await DecideActionAsync(context, turn, DialogueOperationKind.Answer, turn.Text, lesson, program, stamp, false, bound, token);
         if (awaiting && normalized is "yes" or "no" && (lesson!.ResponseQuestion.Contains("yes or no", StringComparison.OrdinalIgnoreCase) ||
             lesson.ResponseQuestion.Contains("yes/no", StringComparison.OrdinalIgnoreCase)))
             return await DecideActionAsync(context, turn, DialogueOperationKind.Answer, turn.Text, lesson, program, stamp, false, bound, token);
@@ -531,7 +534,7 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
         if (text is "завершить упражнение" or "закончу занятие" or "finish") return DialogueOperationKind.Finish;
         if (text is "покажи решение" or "покажи полное решение" or "дай полный ответ" or "show the solution")
             return DialogueOperationKind.RevealSolution;
-        if (text is "дай подсказку" or "подскажи" or "hint") return DialogueOperationKind.Clarify;
+        if (text is "дай подсказку" or "подскажи" or "подсказка" or "hint") return DialogueOperationKind.Clarify;
         if (text.StartsWith("хочу другую цель", StringComparison.Ordinal) || text.StartsWith("сменить цель", StringComparison.Ordinal)) return DialogueOperationKind.ChangeGoal;
         return null;
     }

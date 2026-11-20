@@ -40,6 +40,8 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
                 return await services.GetRequiredService<ILearningRequestStore>().ApplyAsync(lease, async (request, cancellationToken) =>
                 {
                     if (request.AttemptCount > maxAttempts) return new(null, "attempts_exhausted");
+                    if (request.PayloadKind == "learning_choice" && request.PayloadVersion == 1)
+                        return await ExecuteChoiceAsync(services, db, request, session, cancellationToken);
                     if (request.PayloadKind == "learning_text" && request.PayloadVersion == 1 ||
                         request.PayloadKind == "learning_command" && request.PayloadVersion == 3)
                         return await ExecuteDialogueAsync(services, db, request, session, handler, options.Value, cancellationToken);
@@ -132,6 +134,37 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
             new(services.GetRequiredService<ILessonStore>(), session, services.GetRequiredService<KnowledgeService>(),
                 curriculum: services.GetRequiredService<ICurriculumStore>()),
             CreateCurriculum(services, session));
+
+    private static async Task<LearningRequestExecution> ExecuteChoiceAsync(IServiceProvider services, OwnDayDbContext db,
+        LearningRequest request, LearningProviderSession session, CancellationToken token)
+    {
+        ChoiceInput? input;
+        try { input = JsonSerializer.Deserialize<ChoiceInput>(request.NormalizedInput, JsonSerializerOptions.Web); }
+        catch (JsonException) { return new(null, "unsupported_payload"); }
+        if (input is null || request.ChatId != request.UserId.Value || !Enum.IsDefined(input.Action))
+            return new(null, "unsupported_payload");
+
+        var lessons = services.GetRequiredService<ILessonStore>();
+        var lesson = await lessons.FindActiveAsync(request.UserId, token);
+        var attempts = lesson?.Choice?.Attempts.Length;
+        var learning = new LearningService(lessons, session, services.GetRequiredService<KnowledgeService>(), request.Id);
+        var result = await learning.ApplyChoiceAsync(request.UserId, input, token);
+        session.EnsureComplete();
+        if (lesson is null || lesson.Choice?.Attempts.Length == attempts)
+            return new(result, "choice_reply");
+
+        var active = lesson.Status == LessonStatus.AwaitingAnswer ? lesson : null;
+        var dialogue = services.GetRequiredService<IDialogueStore>();
+        var context = await dialogue.FindAsync(request.UserId, token);
+        var now = new DateTimeOffset(await db.Database.SqlQuery<DateTime>($"SELECT clock_timestamp() AS \"Value\"").SingleAsync(token));
+        if (context is null) dialogue.Add(DialogueContext.Create(request.UserId, active, now));
+        else context.Synchronize(active, now, request.SourceMessageId ?? request.SourceUpdateId);
+        if (lesson.Status == LessonStatus.Completed &&
+            await CreatePractice(services, session).SynchronizeAsync(request.UserId, DialogueOperationKind.Answer, token) is { } practice)
+            return new(null, "choice_reply")
+                { Replies = [.. TelegramLearningPresenter.Render(result), .. TelegramPracticePresenter.Render(practice)] };
+        return new(result, "choice_reply");
+    }
 
     private static async Task<LearningRequestExecution> ExecuteDialogueAsync(IServiceProvider services, OwnDayDbContext db,
         LearningRequest request, LearningProviderSession session, TelegramLearningCommandHandler handler, LearningRequestProcessingOptions processing, CancellationToken token)
@@ -415,7 +448,8 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
                 entry.OriginalValues.Properties
                     // A legacy program has the same checkpoint stamp on either side of the additive migration.
                     .Where(property => property.Name is not (nameof(LearningProgram.GoalCriterion) or nameof(LearningProgram.SubjectDiagnostic) or
-                        nameof(Lesson.RubricEvaluation) or nameof(LearningEvidence.RubricEvidence) or
+                        nameof(Lesson.RubricEvaluation) or nameof(Lesson.Choice) or
+                        nameof(LearningEvidence.RubricEvidence) or nameof(LearningEvidence.ChoiceEvidence) or
                         nameof(LearningEvidence.ReviewHistory) or nameof(LearningEvidence.ReassessmentCredit) or nameof(CurriculumRoute.Path) or
                         nameof(LearningPreference.ResetThrough) or nameof(LessonInteraction.ExplanationPreferences)) || entry.OriginalValues[property] is not null)
                     .Where(property => property.Name != nameof(LearningPreference.Scope) || entry.OriginalValues[property] is not "")

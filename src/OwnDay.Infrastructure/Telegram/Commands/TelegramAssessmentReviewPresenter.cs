@@ -20,6 +20,24 @@ public static class TelegramAssessmentReviewPresenter
     private static IReadOnlyList<string> RenderDetail(AssessmentReviewResult.Detail detail, bool english)
     {
         var evidence = detail.Attempt.Evidence;
+        if (detail.Attempt.Lesson.Choice is { } choice)
+        {
+            return [detail.Attempt.Lesson.Question, .. choice.Attempts.Select((attempt, index) =>
+            {
+                var options = string.Join(", ", choice.Exercise.Options.Where(option => attempt.Selected.Contains(option.Id))
+                    .Select(option => LearningService.ChoiceLabel(option, choice.Exercise.Format, !english)));
+                var result = (english, attempt.Outcome) switch
+                {
+                    (true, ChoiceOutcome.Correct) => "correct",
+                    (true, ChoiceOutcome.Partial) => "partially correct",
+                    (true, _) => "incorrect",
+                    (false, ChoiceOutcome.Correct) => "верно",
+                    (false, ChoiceOutcome.Partial) => "частично верно",
+                    _ => "неверно"
+                };
+                return (english ? "Attempt " : "Попытка ") + (index + 1) + " — " + result + "\n" + options;
+            }), evidence.AssessmentFeedback];
+        }
         var messages = new List<string>
         {
             $"{detail.Attempt.Lesson.Topic}\n{detail.Attempt.Lesson.Question}\n\n" +

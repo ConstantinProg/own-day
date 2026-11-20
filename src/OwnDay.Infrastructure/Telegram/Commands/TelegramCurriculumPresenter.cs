@@ -41,6 +41,8 @@ public static class TelegramCurriculumPresenter
             [.. links.Items.Select(RenderLink), "/learn_transfer <current topic code> | <other program id from /learn_programs> | <other topic code>. Requires different disciplines and the same confirmed skill."],
         CurriculumResult.Lesson lesson => lesson.Introduction is null ? TelegramLearningPresenter.Render(lesson.Value)
             : [lesson.Introduction, .. TelegramLearningPresenter.Render(lesson.Value)],
+        CurriculumResult.Adapted { Value: LearningResult.Material { Choice: not null } } choice =>
+            TelegramLearningPresenter.Render(choice.Value),
         CurriculumResult.Adapted adapted => ["Teaching adjustment:\n" + adapted.Reason + "\n/learn_route",
             .. TelegramLearningPresenter.Render(adapted.Value)],
         CurriculumResult.NoProgram => ["Create a program: /learn_program <goal> | <experience>"],

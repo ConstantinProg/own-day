@@ -1,6 +1,6 @@
 namespace OwnDay.Domain.Learning;
 
-public sealed class Lesson
+public sealed partial class Lesson
 {
     public const int MaxHelpSteps = 2;
     private static readonly IAnswerCheck _answerCheck = new NormalizedTextAnswerCheck();
@@ -80,6 +80,7 @@ public sealed class Lesson
     public void SetContent(LearningContent content)
     {
         RequireAwaitingAnswer();
+        if (Choice is not null) throw new InvalidOperationException("The published choice is immutable.");
         content.Validate();
         content.StructuredRubric?.ValidateQuestion(Question);
         if (Content is not null) throw new InvalidOperationException("Lesson content is already set.");
@@ -92,7 +93,7 @@ public sealed class Lesson
 
     public void Complete(string answer, string feedback, bool correct)
     {
-        if (Content?.StructuredRubric is not null)
+        if (Content?.StructuredRubric is not null || Choice is not null)
             throw new InvalidOperationException("A rubric assessment is required.");
         CommitAssessment(answer, feedback, correct);
     }
@@ -209,6 +210,7 @@ public sealed class Lesson
     public void Pause()
     {
         RequireAwaitingAnswer();
+        InvalidateChoiceButtons();
         Status = LessonStatus.Paused;
     }
 
@@ -251,6 +253,7 @@ public sealed class Lesson
             throw new InvalidOperationException("Only the current owned question can be suspended.");
         SuspendedFrom = Status;
         SuspendedForProgramId = current.Id;
+        InvalidateChoiceButtons();
         Status = LessonStatus.Suspended;
     }
 

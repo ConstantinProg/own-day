@@ -90,8 +90,15 @@ public sealed class LearningProviderSession(IReadOnlyList<LearningProviderStep> 
     public Task<LearningIntentProposal> ResolveAsync(LearningIntentInput input, CancellationToken token) =>
         ConsumeAsync<LearningIntentProposal>("intent", input, token);
 
-    public Task<LessonMaterial> GenerateAsync(LessonRequest request, CancellationToken token) =>
-        ConsumeAsync<LessonMaterial>("generate", request, token);
+    public Task<LessonMaterial> GenerateAsync(LessonRequest request, CancellationToken token)
+    {
+        if (request.PreferredChoice is not null && _ordinal < steps.Count && steps[_ordinal] is { Kind: "generate" } saved)
+        {
+            var legacy = request with { PreferredChoice = null };
+            if (saved.Input == JsonSerializer.Serialize(legacy, JsonSerializerOptions.Web)) request = legacy;
+        }
+        return ConsumeAsync<LessonMaterial>("generate", request, token);
+    }
 
     public Task<LessonAssessment> AssessAsync(Lesson lesson, string answer, CancellationToken token) =>
         AssessAsync(LessonSnapshot.ForAssessment(lesson), answer, token);

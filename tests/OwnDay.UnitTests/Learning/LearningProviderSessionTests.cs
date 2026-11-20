@@ -41,6 +41,22 @@ public sealed class LearningProviderSessionTests
     }
 
     [Fact]
+    public async Task Generate_SavedOpenResultBeforeChoiceSupport_ReplaysWithoutChangingExercise()
+    {
+        var original = new LearningProviderSession([], () => "target");
+        var request = new LessonRequest("Algebra");
+        var pending = await Assert.ThrowsAsync<LearningProviderRequiredException>(() => original.GenerateAsync(request, default));
+        var openQuestion = new LessonMaterial("Theory", "Explain linear equations.");
+        var saved = pending.Step.WithResult(openQuestion);
+        var replay = new LearningProviderSession([saved], () => "target");
+
+        var material = await replay.GenerateAsync(request with { PreferredChoice = ChoiceFormat.SingleChoice }, default);
+
+        Assert.Equal(openQuestion, material);
+        replay.EnsureComplete();
+    }
+
+    [Fact]
     public async Task Resolve_PreparedIntentAcrossRestart_PreservesBudgetAndRejectsChangedPolicy()
     {
         var input = new LearningIntentInput("Can we keep going?", "", "Learn algebra", "Math", [],

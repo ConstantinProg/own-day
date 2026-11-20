@@ -7,7 +7,10 @@ public interface ILessonStore
 {
     Task<Lesson?> FindActiveAsync(UserId user, CancellationToken token);
     Task<Lesson?> FindLatestAssessedAsync(UserId user, Guid? programId, CancellationToken token);
+    Task<string?> FindPreviousChoiceQuestionAsync(UserId user, Guid? programId, string topic, CancellationToken token) =>
+        Task.FromResult<string?>(null);
     Task<string[]> RecentQuestionsAsync(UserId user, Guid skillId, CancellationToken token) => Task.FromResult(Array.Empty<string>());
+    Task<bool> ChoiceQuestionSeenAsync(UserId user, string question, CancellationToken token) => Task.FromResult(false);
     void Add(Lesson lesson);
 }
 
@@ -23,6 +26,8 @@ public sealed record LessonRequest(string Topic, LessonProgramContext? Program =
     public ExerciseEvidenceKind? PracticeEvidenceKind { get; init; }
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public string[]? PreviousQuestions { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public ChoiceFormat? PreferredChoice { get; init; }
 }
 public sealed record TransferPracticeContext(string SourceTopic, InterdisciplinaryPractice Relation);
 public sealed record ProjectPracticeContext(long ProjectId, string ProjectTitle, long ActionId, string ActionTitle);
@@ -42,9 +47,17 @@ public sealed record LessonMaterial(string Theory, string Question)
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
     public AnswerReferenceKind ReferenceKind { get; init; }
     public LearningContent? Content { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public ChoiceExercise? Choice { get; init; }
 
-    internal Lesson CreateLesson(UserId user, string topic) =>
-        Lesson.Start(user, topic, Theory, Question, Provenance, ExpectedAnswer, Content, ReferenceKind);
+    internal Lesson CreateLesson(UserId user, string topic, bool reused = false)
+    {
+        if (Choice is not null && (Content is not null || ExpectedAnswer is not null || Choice.Question != Question))
+            throw new ArgumentException("Choice material must use its published choice key and original question.");
+        var lesson = Lesson.Start(user, topic, Theory, Question, Provenance, ExpectedAnswer, Content, ReferenceKind);
+        if (Choice is { } choice) lesson.PublishChoice(choice, reused);
+        return lesson;
+    }
 }
 public sealed record LessonAssessment(string Feedback, bool IsCorrect)
 {
@@ -97,6 +110,7 @@ public abstract record LearningResult
         public bool HasReferenceCheck { get; init; }
         public long? ProjectActionId { get; init; }
         public InterdisciplinaryPractice? Transfer { get; init; }
+        public ChoicePrompt? Choice { get; init; }
     }
     public sealed record Assessment(string Feedback) : LearningResult
     {
@@ -124,6 +138,7 @@ public abstract record LearningResult
         public long? ProjectActionId { get; init; }
         public InterdisciplinaryPractice? Transfer { get; init; }
         public bool IsClarifyingAnswer { get; init; }
+        public ChoicePrompt? Choice { get; init; }
     }
     public sealed record Explanation(string Text, string Topic, string Question, LessonProvenance? Provenance = null) : LearningResult
     {
@@ -139,9 +154,10 @@ public abstract record LearningResult
     public sealed record SkillNotFound : LearningResult;
     public sealed record ReviewNotDue : LearningResult;
     public sealed record ReviewDeferred(DateTimeOffset DueAt) : LearningResult;
+    public sealed record ChoiceReply(string Message, ChoicePrompt? Prompt = null) : LearningResult;
 }
 
-public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, KnowledgeService knowledge, Guid? operationId = null,
+public sealed partial class LearningService(ILessonStore store, ILessonTeacher teacher, KnowledgeService knowledge, Guid? operationId = null,
     ICurriculumStore? curriculum = null)
 {
     public async Task<LearningResult> StartAsync(UserId user, string topic, CancellationToken token)
@@ -163,9 +179,17 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
         {
             var program = curriculum is null ? null : await curriculum.FindAsync(user, token);
             var personalization = await knowledge.PersonalizationAsync(user, token);
-            var material = await teacher.GenerateAsync(new LessonRequest(topic, Personalization: personalization.ForGeneration()), token);
+            var previousChoice = await store.FindPreviousChoiceQuestionAsync(user, program?.Id, topic, token);
+            var request = new LessonRequest(topic, Personalization: personalization.ForGeneration())
+            {
+                PreviousQuestions = previousChoice is null ? null : [previousChoice],
+                PracticeEvidenceKind = previousChoice is null ? null : ExerciseEvidenceKind.Understanding
+            };
+            var material = await teacher.GenerateAsync(request with { PreferredChoice = ChoiceTeaching.Prefer(request) }, token);
             token.ThrowIfCancellationRequested();
-            var lesson = material.CreateLesson(user, topic);
+            if (previousChoice is not null && !ChoiceTeaching.IsFreshOpenQuestion(material, [previousChoice]))
+                return new LearningResult.ProviderUnavailable();
+            var lesson = await CreateWithChoiceHistoryAsync(user, topic, material, token);
             if (program is not null) lesson.LinkPracticeToProgram(program);
             lesson.SetTeaching(new(PedagogicalStrategy.Standard, personalization.EffectivePreferences()));
             await knowledge.AttachAsync(lesson, lesson.Topic, token);
@@ -195,6 +219,13 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
         if (active.Status != LessonStatus.AwaitingAnswer)
         {
             return new LearningResult.InvalidTransition();
+        }
+        if (active.Choice is { } choice)
+        {
+            var selection = ChoiceAnswerText.Parse(choice.Exercise, answer);
+            return choice.Exercise.IsValidSelection(selection)
+                ? await SubmitChoiceAsync(active, selection, token)
+                : InvalidChoice(active);
         }
 
         var assessmentContent = active.AssessmentContent;
@@ -334,18 +365,26 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
             }
             var strategy = teaching is null ? PedagogicalStrategy.Review : AdaptiveTeaching.StrategyFor(teaching.Action);
             var personalization = await knowledge.PersonalizationAsync(user, token);
-            var recent = status.State.EvidenceSummary is not null
+            var followsChoice = status.Evidence.LastOrDefault()?.ChoiceEvidence is not null;
+            var recent = status.State.EvidenceSummary is not null || followsChoice
                 ? await store.RecentQuestionsAsync(user, skill.Id, token) : [];
-            var material = await teacher.GenerateAsync(new LessonRequest(skill.Description, IsReview: kind == SkillLessonKind.Review,
+            var request = new LessonRequest(skill.Description, IsReview: kind == SkillLessonKind.Review,
                 Teaching: teaching, Personalization: personalization.ForGeneration())
             {
                 PreviousQuestions = recent.Length == 0 ? null : recent,
-                PracticeEvidenceKind = kind == SkillLessonKind.Practice && status.State.EvidenceSummary is { } summary
+                PracticeEvidenceKind = kind == SkillLessonKind.Practice && followsChoice ? ExerciseEvidenceKind.Understanding
+                    : kind == SkillLessonKind.Practice && status.State.EvidenceSummary is { } summary
                     ? summary.Understanding ? ExerciseEvidenceKind.Application : ExerciseEvidenceKind.Understanding
                     : null
+            };
+            var material = await teacher.GenerateAsync(request with
+            {
+                PreferredChoice = ChoiceTeaching.Prefer(request, status.Evidence)
             }, token);
             token.ThrowIfCancellationRequested();
-            var lesson = material.CreateLesson(user, skill.Title);
+            if (followsChoice && !ChoiceTeaching.IsFreshOpenQuestion(material, recent))
+                return new LearningResult.ProviderUnavailable();
+            var lesson = await CreateWithChoiceHistoryAsync(user, skill.Title, material, token);
             if (lesson.Content?.StructuredRubric?.Version == ExerciseRubric.QuestionScopedVersion)
             {
                 var fingerprint = RubricEvidence.FingerprintQuestion(lesson.Question);
@@ -400,6 +439,7 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
         var lesson = await store.FindActiveAsync(user, token);
         if (lesson is null) return new LearningResult.NoActiveLesson();
         if (lesson.Status != LessonStatus.AwaitingAnswer) return new LearningResult.InvalidTransition();
+        if (lesson.Choice is not null) return ExplainChoice(lesson, kind);
         if (kind == LessonInteractionKind.FullAnswer)
         {
             if (lesson.Interactions.FirstOrDefault(interaction => interaction.Kind == LessonInteractionKind.FullAnswer) is { } solution)
@@ -445,7 +485,7 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
     internal static LearningResult.Material Material(Lesson lesson) => new(lesson.Theory, lesson.Question, lesson.Topic)
     {
         Provenance = lesson.Provenance, HasReferenceCheck = lesson.UsesReferenceCheck, ProjectActionId = lesson.ProjectActionId,
-        Transfer = lesson.Transfer, Content = lesson.Content
+        Transfer = lesson.Transfer, Content = lesson.Content, Choice = ChoicePrompt.From(lesson)
     };
 
     public static LearningResult.Session Session(Lesson lesson) => new(lesson.Topic, lesson.ResponseQuestion, lesson.Status)
@@ -453,7 +493,7 @@ public sealed class LearningService(ILessonStore store, ILessonTeacher teacher, 
         Provenance = lesson.Provenance, ProjectActionId = lesson.ProjectActionId, Transfer = lesson.Transfer,
         Content = lesson.Content, Theory = lesson.Theory,
         IsClarifyingAnswer = lesson.ResponseQuestion != lesson.Question,
-        LastExplanation = lesson.SavedGuidance
+        LastExplanation = lesson.SavedGuidance, Choice = ChoicePrompt.From(lesson)
     };
 
     private static void ValidateUser(UserId user, CancellationToken token)

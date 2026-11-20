@@ -53,6 +53,9 @@ internal static class KnowledgeModel
             entity.Property(l => l.RubricEvaluation).HasConversion(
                 value => JsonSerializer.Serialize(value, JsonSerializerOptions.Web),
                 value => JsonSerializer.Deserialize<LessonRubricEvaluation>(value, JsonSerializerOptions.Web)).HasColumnType("jsonb");
+            entity.Property(l => l.Choice).HasConversion(
+                value => JsonSerializer.Serialize(value, JsonSerializerOptions.Web),
+                value => JsonSerializer.Deserialize<ChoiceExerciseState>(value, JsonSerializerOptions.Web)).HasColumnType("jsonb");
             entity.Property(l => l.Teaching).HasConversion(value => SerializeTeaching(value!), value => DeserializeTeaching(value))
                 .HasColumnType("jsonb");
             entity.Property(l => l.Transfer).HasConversion(value => SerializeTransfer(value!), value => DeserializeTransfer(value))
@@ -71,6 +74,9 @@ internal static class KnowledgeModel
             entity.Property(e => e.RubricEvidence).HasConversion(
                 value => JsonSerializer.Serialize(value, JsonSerializerOptions.Web),
                 value => JsonSerializer.Deserialize<RubricEvidence>(value, JsonSerializerOptions.Web)).HasColumnType("jsonb");
+            entity.Property(e => e.ChoiceEvidence).HasConversion(
+                value => JsonSerializer.Serialize(value, JsonSerializerOptions.Web),
+                value => JsonSerializer.Deserialize<ChoiceEvidence>(value, JsonSerializerOptions.Web)).HasColumnType("jsonb");
             entity.Property(e => e.ReviewHistory).HasConversion(
                 value => JsonSerializer.Serialize(value, JsonSerializerOptions.Web),
                 value => JsonSerializer.Deserialize<AssessmentReviewHistory>(value, JsonSerializerOptions.Web)).HasColumnType("jsonb");

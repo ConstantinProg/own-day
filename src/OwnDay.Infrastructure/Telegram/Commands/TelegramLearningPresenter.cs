@@ -36,6 +36,8 @@ public static class TelegramLearningPresenter
         LearningResult.SkillNotFound => ["Skill not found. /learn_skills"],
         LearningResult.ReviewNotDue => ["This skill has no review due yet. /learn_reviews or /learn_status <skill id>"],
         LearningResult.ReviewDeferred deferred => [$"Review rescheduled to {deferred.DueAt:O} (UTC). No assessment or penalty. /learn_reviews"],
+        LearningResult.ChoiceReply choice => [.. string.IsNullOrEmpty(choice.Message) ? [] : new[] { choice.Message },
+            .. choice.Prompt is { } prompt ? new[] { TelegramChoicePresenter.Text(prompt) } : []],
         _ => throw new ArgumentOutOfRangeException(nameof(result))
     };
 
@@ -71,6 +73,8 @@ public static class TelegramLearningPresenter
     private static IReadOnlyList<string> RenderMaterial(LearningResult.Material material)
     {
         var russian = MarketLearningContent.InRussian(material.Theory);
+        if (material.Choice is { } choice)
+            return [.. SourceNotice(material.Provenance, russian), TelegramChoicePresenter.Text(choice)];
         var theory = material.Topic + "\n\n" + material.Theory;
         if (material.Content is { Kind: LearningContentKind.ReadingChoice or LearningContentKind.OpenWriting } content)
             theory += russian ? "\n\nЦель — " + content.Objective : "\n\nObjective — " + content.Objective;
@@ -104,6 +108,7 @@ public static class TelegramLearningPresenter
         AnswerAssessmentStatus.Conflict => $"Conflict: AI and {NormalizedTextAnswerCheck.MethodName} disagree (reference match: {deterministic}). Uncertain; not credited. Additional practice is required.",
         AnswerAssessmentStatus.Agreement => $"AI and {NormalizedTextAnswerCheck.MethodName} agree (reference match: {deterministic}). The AI reference is not independently verified.",
         AnswerAssessmentStatus.Inconclusive => "The available answer does not resolve all criteria. No credit was recorded.",
+        AnswerAssessmentStatus.Deterministic => "The selection was checked against the published choices.",
         _ => "AI only; no deterministic check. Uncertain."
     };
 
@@ -134,6 +139,8 @@ public static class TelegramLearningPresenter
     private static IReadOnlyList<string> RenderSession(LearningResult.Session session)
     {
         var russian = MarketLearningContent.InRussian(session.Theory ?? session.Topic + session.Question);
+        if (session.Choice is { } choice)
+            return [.. session.LastExplanation is { } last ? new[] { last } : [], TelegramChoicePresenter.Text(choice)];
         if (session.Content?.Kind is LearningContentKind.ReadingChoice or LearningContentKind.OpenWriting)
             return RenderRecap(session, !russian);
         var guidance = session.LastExplanation is { } saved
@@ -147,6 +154,7 @@ public static class TelegramLearningPresenter
 
     internal static IReadOnlyList<string> RenderRecap(LearningResult.Session session, bool english)
     {
+        if (session.Choice is not null) return RenderSession(session);
         var action = session.Status == LessonStatus.Paused
             ? english ? "Write “continue” to return to this exercise." : "Напишите «Продолжим», чтобы вернуться к этому вопросу."
             : english ? "Write your answer or ask for help." : "Напишите ответ или попросите помощь.";

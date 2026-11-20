@@ -55,6 +55,11 @@ public static class TelegramKnowledgePresenter
         };
         foreach (var evidence in status.Evidence.TakeLast(3))
         {
+            if (evidence.ChoiceEvidence is not null)
+            {
+                messages.Add(evidence.AssessmentFeedback);
+                continue;
+            }
             messages.Add($"Observed answer ({evidence.ObservedAt:O})\nLesson / operation: {evidence.LessonId}\n{evidence.Answer}");
             messages.Add($"AI interpretation: {((evidence.AiAssessedCorrect ?? evidence.AssessedCorrect) ? "positive" : "negative")}\n" +
                 TelegramLearningPresenter.RenderAssessment(evidence.AssessmentStatus, evidence.DeterministicIsCorrect) + "\n" +
