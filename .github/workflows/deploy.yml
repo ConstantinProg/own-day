@@ -12,6 +12,7 @@ on:
 concurrency:
   group: production
   cancel-in-progress: false
+  queue: max
 
 permissions:
   contents: read
@@ -106,6 +107,9 @@ jobs:
           "-p:SourceRevisionId=$SOURCE_REVISION_ID"
 
       - name: Test
+        env:
+          OWNDAY_EXPECTED_VERSION: ${{ steps.version.outputs.version }}
+          OWNDAY_EXPECTED_COMMIT_SHA: ${{ steps.version.outputs.commit }}
         run: >
           dotnet test OwnDay.slnx
           --configuration Release

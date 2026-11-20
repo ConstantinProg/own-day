@@ -8,7 +8,16 @@ public static class TelegramDialoguePresenter
     public const string EnglishIntroduction = "Tell me what you'd like to learn, answer an exercise, or ask a question in your own words.";
 
     public static IReadOnlyList<string> Help(bool introduce, bool consultation = false, OwnDay.Domain.Dialogue.DialogueContext? context = null,
-        Guid? selectedProgramId = null)
+        Guid? selectedProgramId = null, bool showVersionCommand = false)
+    {
+        var replies = RenderHelp(introduce, consultation, context, selectedProgramId);
+        return showVersionCommand && replies.Count > 0
+            ? [.. replies.SkipLast(1), replies[^1] + "\n\n/version — версия OwnDay."]
+            : replies;
+    }
+
+    private static IReadOnlyList<string> RenderHelp(bool introduce, bool consultation, OwnDay.Domain.Dialogue.DialogueContext? context,
+        Guid? selectedProgramId)
     {
         if (context?.DiagnosticTarget is not null)
             return ["Диагностика и ответы сохранены. Напишите «Продолжим», чтобы увидеть текущее задание; можно попросить «помощь» или написать «пропустим»."];

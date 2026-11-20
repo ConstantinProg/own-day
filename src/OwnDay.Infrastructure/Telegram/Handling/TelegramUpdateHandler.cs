@@ -215,11 +215,8 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
                 introduceDialogue = true;
             }
             // Old commands and buttons explain the current dialogue without executing legacy actions.
-            replies = TelegramDialoguePresenter.Help(false, true, dialogue, selectedProgramForHelp);
-            if (command.Name == "help")
-            {
-                replies = [.. replies.SkipLast(1), replies[^1] + "\n\n/version — версия OwnDay."];
-            }
+            replies = TelegramDialoguePresenter.Help(false, true, dialogue, selectedProgramForHelp,
+                showVersionCommand: command.Name == "help");
         }
 
         if (introduceDialogue) replies = [TelegramDialoguePresenter.Introduction, .. replies];

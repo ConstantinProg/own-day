@@ -70,6 +70,17 @@ public sealed class AppEndpointTests : IClassFixture<OwnDayHostFactory>
         Assert.Equal(metadata["Version"], response.Version);
         Assert.Equal(metadata.GetValueOrDefault("SourceRevisionId"), response.CommitSha);
 
+        var expectedVersion = Environment.GetEnvironmentVariable("OWNDAY_EXPECTED_VERSION");
+        var expectedCommitSha = Environment.GetEnvironmentVariable("OWNDAY_EXPECTED_COMMIT_SHA");
+        if (Environment.GetEnvironmentVariable("GITHUB_ACTIONS") == "true" ||
+            expectedVersion is not null || expectedCommitSha is not null)
+        {
+            Assert.False(string.IsNullOrWhiteSpace(expectedVersion));
+            Assert.False(string.IsNullOrWhiteSpace(expectedCommitSha));
+            Assert.Equal(expectedVersion, response.Version);
+            Assert.Equal(expectedCommitSha, response.CommitSha);
+        }
+
         var numericVersion = Version.Parse(response.Version.Split('-', '+')[0] + ".0");
         Assert.Equal(numericVersion, assembly.GetName().Version);
         Assert.Equal(numericVersion, Version.Parse(assembly.GetCustomAttribute<AssemblyFileVersionAttribute>()!.Version));
