@@ -20,6 +20,9 @@ public sealed class TesterModeState(UserId userId)
     internal bool HasSecretPrompt => PromptExpiresAt is not null && PendingOperation is null;
     internal bool AwaitsDeletePhrase => Authorized && PendingOperation == TesterModeOperation.DeleteAll && ConfirmationId is null;
 
+    // Telegram may restart its update ID sequence after a week without updates.
+    internal bool IsStaleForPrompt(int updateId, DateTimeOffset now) => PromptExpiresAt > now && updateId <= PromptUpdateId;
+
     internal void RequestSecret(int updateId, DateTimeOffset expiresAt)
     {
         PromptUpdateId = updateId;

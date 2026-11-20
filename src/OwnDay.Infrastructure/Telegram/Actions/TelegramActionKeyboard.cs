@@ -10,9 +10,9 @@ namespace OwnDay.Infrastructure.Telegram.Actions;
 
 public sealed class TelegramActionKeyboard(TelegramActionCodec codec)
 {
-    internal TelegramLearningReply RenderConfirmation(string text, string label, TesterModeConfirmation confirmation, long owner, long chat)
+    internal TelegramLearningReply RenderConfirmation(string text, string label, TesterModeConfirmation confirmation, long userId)
     {
-        var button = InlineKeyboardButton.WithCallbackData(label, codec.Encode(confirmation, owner, chat));
+        var button = InlineKeyboardButton.WithCallbackData(label, codec.Encode(confirmation, userId, userId));
         return new(text, JsonSerializer.Serialize(new InlineKeyboardMarkup(new[] { new[] { button } })));
     }
 

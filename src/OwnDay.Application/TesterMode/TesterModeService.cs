@@ -24,20 +24,22 @@ public sealed class TesterModeService(ITesterModeStore store, TesterModeOptions 
             return IsTesterCommand(command) || containsSecret ? TesterModeResult.Disabled : null;
 
         var state = await store.FindAsync(user, cancellationToken);
-        if (IsTesterCommand(command) && !containsSecret)
+        if (containsSecret)
+            return HandleSecret(state, command, text, updateId, now);
+        if (IsTesterCommand(command))
             return await HandleCommandAsync(user, state, command!, hasArguments, updateId, now, cancellationToken);
-        if (command == "cancel" && state?.PromptExpiresAt > now && !containsSecret)
+        if (command == "cancel" && state?.PromptExpiresAt > now)
         {
-            if (updateId <= state.PromptUpdateId)
+            if (state.IsStaleForPrompt(updateId, now))
                 return TesterModeResult.Expired;
             state.ClosePrompt();
             return TesterModeResult.Cancelled;
         }
-        if (!containsSecret && command is null && state?.AwaitsDeletePhrase == true)
-            return await DeleteWithPhraseAsync(state, text, updateId, now, cancellationToken);
-        if (!containsSecret && (command is not null || state?.HasSecretPrompt != true))
+        if (command is not null)
             return null;
-        return HandleSecret(state, command, text, updateId, now);
+        if (state?.AwaitsDeletePhrase == true)
+            return await DeleteWithPhraseAsync(state, text, updateId, now, cancellationToken);
+        return state?.HasSecretPrompt == true ? HandleSecret(state, command, text, updateId, now) : null;
     }
 
     private async Task<TesterModeResponse> HandleCommandAsync(UserId user, TesterModeState? state, string command,
@@ -56,9 +58,9 @@ public sealed class TesterModeService(ITesterModeStore store, TesterModeOptions 
                 return TesterModeResult.Active;
             if (state.IsBlocked(now))
                 return TesterModeResult.Locked;
-            // A delayed command cannot replace a newer prompt.
-            if (updateId >= state.PromptUpdateId)
-                state.RequestSecret(updateId, now.AddSeconds(options.ConfirmationTimeoutSeconds));
+            if (state.IsStaleForPrompt(updateId, now))
+                return TesterModeResult.Expired;
+            state.RequestSecret(updateId, now.AddSeconds(options.ConfirmationTimeoutSeconds));
             return TesterModeResult.PromptForSecret;
         }
         if (command == "tester_off")
@@ -70,7 +72,7 @@ public sealed class TesterModeService(ITesterModeStore store, TesterModeOptions 
             return TesterModeResult.AuthorizationRequired;
         if (command == "tester_status")
             return new(TesterModeResult.Status, Status: await store.ReadStatusAsync(user, cancellationToken));
-        if (updateId <= state.PromptUpdateId)
+        if (state.IsStaleForPrompt(updateId, now))
             return TesterModeResult.Expired;
         var (operation, result) = command switch
         {
@@ -106,13 +108,13 @@ public sealed class TesterModeService(ITesterModeStore store, TesterModeOptions 
     private async Task<TesterModeResponse> DeleteWithPhraseAsync(TesterModeState state, string? text, int updateId,
         DateTimeOffset now, CancellationToken cancellationToken)
     {
-        if (updateId <= state.PromptUpdateId)
-            return TesterModeResult.Expired;
         if (state.PromptExpiresAt is not { } expiresAt || expiresAt <= now)
         {
             state.ClosePrompt();
             return TesterModeResult.Expired;
         }
+        if (state.IsStaleForPrompt(updateId, now))
+            return TesterModeResult.Expired;
         if (!string.Equals(text, "DELETE", StringComparison.Ordinal))
         {
             state.ClosePrompt();

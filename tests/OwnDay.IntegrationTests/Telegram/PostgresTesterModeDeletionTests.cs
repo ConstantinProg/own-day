@@ -45,7 +45,7 @@ public sealed partial class PostgresTesterModeTests
         await CallbackAsync(client, 12, Assert.Single(await ReadButtonsAsync()));
         await using (var db = Open())
             await db.Database.ExecuteSqlAsync($"""
-                UPDATE tester_mode_users SET prompt_expires_at = clock_timestamp() - interval '1 second'
+                UPDATE tester_mode_users SET prompt_expires_at = clock_timestamp() - interval '1 second', prompt_update_id = 1000000
                 WHERE user_id = {Tester.Value}
                 """);
         await PostAsync(client, 13, "DELETE");
@@ -59,6 +59,25 @@ public sealed partial class PostgresTesterModeTests
         var replies = await saved.TelegramOutboxMessages.Select(message => message.Text).ToListAsync();
         Assert.Contains(replies, reply => reply.StartsWith("The phrase did not match.", StringComparison.Ordinal));
         Assert.DoesNotContain(replies, reply => reply.StartsWith("Your user data was deleted", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Post_OldExpiredPromptWithHigherUpdateId_AllowsNewConfirmation()
+    {
+        using var host = Host();
+        using var client = host.CreateClient();
+        await AuthorizeAsync(client);
+        await PostAsync(client, 1_000_000, "/tester_delete_all");
+        var oldButton = Assert.Single(await ReadButtonsAsync());
+        await using (var db = Open())
+            await db.Database.ExecuteSqlAsync($"""
+                UPDATE tester_mode_users SET prompt_expires_at = clock_timestamp() - interval '1 second'
+                WHERE user_id = {Tester.Value}
+                """);
+
+        await PostAsync(client, 3, "/tester_delete_all");
+
+        Assert.NotEqual(oldButton, Assert.Single(await ReadButtonsAsync()));
     }
 
     [Fact]

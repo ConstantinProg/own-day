@@ -11,9 +11,11 @@ namespace OwnDay.IntegrationTests.Telegram;
 
 public sealed class PostgresTelegramOutboxDeliveryTests
 {
-    [Fact]
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
     [Trait("Requires", "PostgreSQL via OWNDAY_TEST_POSTGRES_CONNECTION")]
-    public async Task DeliverBatchAsync_LearningReplyRemovedAfterBatchRead_DoesNotSendRemovedText()
+    public async Task DeliverBatchAsync_PrivateReplyRemovedAfterBatchRead_DoesNotSendRemovedText(bool linkedToLearningRequest)
     {
         var connection = Environment.GetEnvironmentVariable("OWNDAY_TEST_POSTGRES_CONNECTION") ??
             throw new InvalidOperationException("OWNDAY_TEST_POSTGRES_CONNECTION is required for this test.");
@@ -40,7 +42,9 @@ public sealed class PostgresTelegramOutboxDeliveryTests
             await db.SaveChangesAsync();
             db.TelegramOutboxMessages.Add(new TelegramOutboxMessage
             {
-                Id = replyId, ChatId = 10, Text = "Private learning text", LearningRequestId = request.Id, ReplyOrdinal = 0,
+                Id = replyId, ChatId = 10, Text = "Private reply",
+                LearningRequestId = linkedToLearningRequest ? request.Id : null,
+                ReplyOrdinal = linkedToLearningRequest ? 0 : null,
                 CreatedAt = clock.UtcNow, NextAttemptAt = clock.UtcNow, Status = OutboxMessageStatus.Pending
             });
             await db.SaveChangesAsync();
