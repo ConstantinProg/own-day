@@ -9,9 +9,12 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using OwnDay.Application.Dialogue;
 using OwnDay.Application.Learning;
 using OwnDay.Application.Learning.Requests;
+using OwnDay.Domain.Dialogue;
 using OwnDay.Domain.Learning;
+using OwnDay.Infrastructure.Persistence;
 using OwnDay.Infrastructure.Telegram.Delivery;
 using Telegram.Bot.Types.ReplyMarkups;
 using Xunit;
@@ -142,16 +145,108 @@ public sealed partial class PostgresLearningProviderTests
         Assert.Equal(2, acknowledgements.Ids.Count(id => id == "choice-3"));
     }
 
+    [Theory]
+    [InlineData(true, LearningSessionEnd.Idle)]
+    [InlineData(false, LearningSessionEnd.Explicit)]
+    public async Task Post_ChoiceButtonAfterSessionEnd_ReopensQuestionBeforeAssessing(bool idle, LearningSessionEnd reason)
+    {
+        await SeedChoiceProgramAsync();
+        var probe = new Probe("") { Material = ChoiceMaterial(ChoiceFormat.SingleChoice) };
+        using var host = ChoiceHost(probe, new());
+        using var client = host.CreateClient();
+        await SendChoiceTextAsync(client, 1, "/learn_next");
+        await DrainChoiceRequestsAsync(host.Services, 1);
+        var oldButton = (await ChoiceKeyboardAsync()).Buttons[0].CallbackData!;
+        if (idle)
+        {
+            await using var db = Open();
+            var earlier = DateTimeOffset.UtcNow.AddHours(-3);
+            Assert.Equal(1, await db.Set<LearningSession>().ExecuteUpdateAsync(setters => setters
+                .SetProperty(session => session.StartedAt, earlier).SetProperty(session => session.LastActivityAt, earlier)));
+        }
+        else
+        {
+            await SendChoiceTextAsync(client, 2, "/learn_end_session");
+            await DrainChoiceRequestsAsync(host.Services, 1);
+        }
+
+        await PostChoiceCallbackAsync(client, 3, oldButton);
+        await DrainChoiceRequestsAsync(host.Services, 1);
+        var freshButton = (await ChoiceKeyboardAsync()).Buttons[0].CallbackData!;
+        Assert.NotEqual(oldButton, freshButton);
+        await PostChoiceCallbackAsync(client, 4, oldButton);
+        await DrainChoiceRequestsAsync(host.Services, 1);
+
+        await using (var observer = Open())
+        {
+            var lesson = await observer.Set<Lesson>().SingleAsync();
+            Assert.Equal(LessonStatus.AwaitingAnswer, lesson.Status);
+            Assert.Empty(lesson.Choice!.Attempts);
+            Assert.Empty(await observer.Set<LearningEvidence>().ToListAsync());
+            var sessions = await observer.Set<LearningSession>().ToListAsync();
+            Assert.Equal(reason, Assert.Single(sessions, session => session.EndedAt is not null).EndReason);
+            Assert.Single(sessions, session => session.EndedAt is null);
+        }
+
+        await PostChoiceCallbackAsync(client, 5, freshButton);
+        await DrainChoiceRequestsAsync(host.Services, 1);
+        await using var completed = Open();
+        Assert.Equal(LessonStatus.Completed, (await completed.Set<Lesson>().SingleAsync()).Status);
+        Assert.Single(await completed.Set<LearningEvidence>().ToListAsync());
+    }
+
+    [Theory]
+    [InlineData("Z")]
+    [InlineData("А, Б")]
+    [InlineData("А, А")]
+    public async Task Post_InvalidChoiceText_ReturnsOptionsAndAcceptsCorrectedAnswer(string invalid)
+    {
+        var probe = new Probe("") { Material = ChoiceMaterial(ChoiceFormat.SingleChoice), Intent = LearningIntent.Ambiguous };
+        using var host = ChoiceHost(probe, new());
+        using var client = host.CreateClient();
+        await SendChoiceTextAsync(client, 1, "/learn Сложение");
+        await DrainChoiceRequestsAsync(host.Services, 1);
+        await SendChoiceTextAsync(client, 2, invalid);
+        await DrainChoiceRequestsAsync(host.Services, 1);
+        await using (var observer = Open())
+        {
+            Assert.Empty((await observer.Set<Lesson>().SingleAsync()).Choice!.Attempts);
+            Assert.Contains(await observer.TelegramOutboxMessages.Select(reply => reply.Text).ToListAsync(),
+                text => text.Contains("Выберите допустимый", StringComparison.Ordinal));
+        }
+        await SendChoiceTextAsync(client, 3, "А");
+        await DrainChoiceRequestsAsync(host.Services, 1);
+
+        await using var completed = Open();
+        Assert.Single((await completed.Set<Lesson>().SingleAsync()).Choice!.Attempts);
+        Assert.Empty(probe.IntentInputs);
+    }
+
+    [Theory]
+    [InlineData("А")]
+    [InlineData("/answer А")]
+    public async Task Post_ChoiceTextWhileClarificationIsPending_AssessesNewSelection(string answer)
+    {
+        var probe = new Probe("") { Material = ChoiceMaterial(ChoiceFormat.SingleChoice) };
+        using var host = ChoiceHost(probe, new());
+        using var client = host.CreateClient();
+        await SendChoiceTextAsync(client, 1, "/learn Сложение");
+        await DrainChoiceRequestsAsync(host.Services, 1);
+        await SendChoiceTextAsync(client, 2, "не знаю");
+        await DrainChoiceRequestsAsync(host.Services, 1);
+        await using (var observer = Open())
+            Assert.NotNull((await observer.Set<DialogueContext>().SingleAsync()).PendingClarification);
+
+        await SendChoiceTextAsync(client, 3, answer);
+        await DrainChoiceRequestsAsync(host.Services, 1);
+        await using var completed = Open();
+        Assert.Single((await completed.Set<Lesson>().SingleAsync()).Choice!.Attempts);
+    }
+
     [Fact]
     public async Task Post_ChoiceTextThenNext_PublishesOneNewOpenQuestionAndKeepsRouteEvidenceSeparate()
     {
-        await using (var seed = Open())
-        {
-            var program = LearningProgram.Create(_user, "Понять сложение", "Начинаю", null, "Математика",
-                [new("sum", "Сложение", [])], null);
-            seed.AddRange(program, LearningContext.Create(program));
-            await seed.SaveChangesAsync();
-        }
+        await SeedChoiceProgramAsync();
         var generation = new ConcurrentQueue<LessonRequest>();
         var probe = new Probe("")
         {
@@ -159,7 +254,7 @@ public sealed partial class PostgresLearningProviderTests
             {
                 generation.Enqueue(request);
                 return request.PreferredChoice is null
-                    ? new("Новый пример сложения.", "Как вы объясните результат сложения двух отрицательных чисел?")
+                    ? OpenChoiceFollowUp(ExerciseEvidenceKind.Understanding, "Как вы объясните результат сложения двух отрицательных чисел?")
                     : ChoiceMaterial(request.PreferredChoice.Value);
             }
         };
@@ -190,6 +285,31 @@ public sealed partial class PostgresLearningProviderTests
         Assert.Contains(old.Question, generation.Last().PreviousQuestions!);
         Assert.Single(await observer.Set<LearningEvidence>().ToListAsync());
         Assert.Equal(2, probe.Calls);
+    }
+
+    [Fact]
+    public async Task Post_RecognitionGeneratedAfterChoice_RejectsFollowUpAndKeepsTopicOpen()
+    {
+        var programId = await SeedChoiceProgramAsync();
+        var probe = new Probe("")
+        {
+            Generate = request => request.PreferredChoice is { } format ? ChoiceMaterial(format)
+                : OpenChoiceFollowUp(ExerciseEvidenceKind.Recognition, "Назовите знак сложения.")
+        };
+        using var host = ChoiceHost(probe, new());
+        using var client = host.CreateClient();
+        await SendChoiceTextAsync(client, 1, "/learn_next");
+        await DrainChoiceRequestsAsync(host.Services, 1);
+        await SendChoiceTextAsync(client, 2, "А");
+        await DrainChoiceRequestsAsync(host.Services, 1);
+        await SendChoiceTextAsync(client, 3, "/learn_next");
+        await DrainChoiceRequestsAsync(host.Services, 1);
+
+        await using var observer = Open();
+        Assert.NotNull(Assert.Single(await observer.Set<Lesson>().ToListAsync()).Choice);
+        Assert.Empty(await new EfCurriculumStore(observer).CompletedTopicsAsync(_user, programId, 1, default));
+        Assert.Single(await observer.Set<LearningEvidence>().ToListAsync());
+        Assert.Equal(2, probe.KindCalls["generate"]);
     }
 
     [Theory]
@@ -310,6 +430,23 @@ public sealed partial class PostgresLearningProviderTests
     private WebApplicationFactory<Program> ChoiceHost(Probe probe, ChoiceAcknowledgements acknowledgements) =>
         Host(probe, worker: false, publicIngress: true).WithWebHostBuilder(builder => builder.ConfigureServices(services =>
             services.Replace(ServiceDescriptor.Singleton<ITelegramCallbackResponder>(acknowledgements))));
+
+    private async Task<Guid> SeedChoiceProgramAsync()
+    {
+        await using var seed = Open();
+        var program = LearningProgram.Create(_user, "Понять сложение", "Начинаю", null, "Математика",
+            [new("sum", "Сложение", [])], null);
+        seed.AddRange(program, LearningContext.Create(program));
+        await seed.SaveChangesAsync();
+        return program.Id;
+    }
+
+    private static LessonMaterial OpenChoiceFollowUp(ExerciseEvidenceKind kind, string question) =>
+        new("Новый пример сложения.", question)
+        {
+            Content = new(LearningContent.GeneratedExerciseId, "rubric-v2", LearningContentKind.StructuredExercise,
+                "Сложение", question, "Оцените опубликованный вопрос.", new(ExerciseRubric.QuestionScopedVersion, kind, [new("sum", question)]))
+        };
 
     private static LessonMaterial ChoiceMaterial(ChoiceFormat format)
     {

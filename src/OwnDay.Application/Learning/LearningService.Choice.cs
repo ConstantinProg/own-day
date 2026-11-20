@@ -17,13 +17,19 @@ public sealed record ChoicePrompt(Guid LessonId, int Version, int Revision, Choi
 }
 
 public enum ChoiceAction { Select, Toggle, Submit }
-public sealed record ChoiceInput(Guid LessonId, int Version, int Revision, ChoiceAction Action, int Option = 0);
+public sealed record ChoiceInput(Guid LessonId, int Version, int Revision, ChoiceAction Action, int Option = 0)
+{
+    internal bool Matches(Lesson? lesson) => lesson?.Id == LessonId && lesson.MatchesChoice(Version, Revision);
+}
+
+public sealed record ChoiceApplication(LearningResult Reply, bool AttemptRecorded = false);
 
 internal static class ChoiceTeaching
 {
-    public static bool IsFreshOpenQuestion(LessonMaterial material, IEnumerable<string> previousQuestions)
+    public static bool IsValidFollowUp(LessonMaterial material, IEnumerable<string> previousQuestions, ExerciseEvidenceKind requiredKind)
     {
-        if (material.Choice is not null || string.IsNullOrWhiteSpace(material.Question)) return false;
+        if (material.Choice is not null || material.Content?.StructuredRubric?.Kind != requiredKind ||
+            string.IsNullOrWhiteSpace(material.Question)) return false;
         var fingerprint = RubricEvidence.FingerprintQuestion(material.Question);
         return previousQuestions.All(question => RubricEvidence.FingerprintQuestion(question) != fingerprint);
     }
@@ -48,23 +54,25 @@ internal static class ChoiceTeaching
 
 internal static class ChoiceAnswerText
 {
+    public static bool LooksLikeAnswer(ChoiceExercise exercise, string answer)
+    {
+        var normalized = Normalize(answer);
+        if (exercise.Format == ChoiceFormat.TrueFalse && TruthIndex(normalized) >= 0) return true;
+        var parts = SplitLabels(normalized);
+        return parts.Length > 0 && parts.All(part => part.Length == 1 && char.IsLetter(part[0]));
+    }
+
     public static ImmutableArray<int> Parse(ChoiceExercise exercise, string answer)
     {
-        answer = answer.Trim();
+        var normalized = Normalize(answer);
         if (exercise.Format == ChoiceFormat.TrueFalse)
         {
-            var truth = answer.ToUpperInvariant().TrimEnd('.', '!') switch
-            {
-                "TRUE" or "ВЕРНО" or "ИСТИНА" => 0,
-                "FALSE" or "НЕВЕРНО" or "ЛОЖЬ" => 1,
-                _ => -1
-            };
+            var truth = TruthIndex(normalized);
             if (truth >= 0) return [exercise.Options[truth].Id];
         }
 
         var selected = ImmutableArray.CreateBuilder<int>();
-        foreach (var part in answer.ToUpperInvariant().TrimEnd('.').Split([' ', '\t', '\r', '\n', ',', ';', '+', '/'],
-                     StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+        foreach (var part in SplitLabels(normalized))
         {
             if (part.Length != 1) return [];
             var index = ChoicePrompt.LatinLabels.IndexOf(part[0], StringComparison.Ordinal);
@@ -74,29 +82,39 @@ internal static class ChoiceAnswerText
         }
         return selected.ToImmutable();
     }
+
+    private static string Normalize(string answer) => answer.Trim().ToUpperInvariant().TrimEnd('.', '!');
+
+    private static string[] SplitLabels(string answer) => answer.Split([' ', '\t', '\r', '\n', ',', ';', '+', '/'],
+        StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+
+    private static int TruthIndex(string answer) => answer switch
+    {
+        "TRUE" or "ВЕРНО" or "ИСТИНА" => 0,
+        "FALSE" or "НЕВЕРНО" or "ЛОЖЬ" => 1,
+        _ => -1
+    };
 }
 
 public sealed partial class LearningService
 {
-    public static bool IsChoiceText(Lesson lesson, string text) =>
-        lesson.Choice is { } choice && choice.Exercise.IsValidSelection(ChoiceAnswerText.Parse(choice.Exercise, text));
-
-    public async Task<LearningResult> ApplyChoiceAsync(UserId user, ChoiceInput input, CancellationToken token)
+    internal async Task<ChoiceApplication> ApplyChoiceAsync(UserId user, Lesson? lesson, ChoiceInput input, CancellationToken token)
     {
         ValidateUser(user, token);
-        var lesson = await store.FindActiveAsync(user, token);
-        if (lesson?.Id != input.LessonId || !lesson.MatchesChoice(input.Version, input.Revision))
+        if (lesson is not null && lesson.UserId != user)
+            throw new ArgumentException("The lesson belongs to another learner.", nameof(lesson));
+        if (lesson is null || !input.Matches(lesson))
         {
             var russian = lesson is null || MarketLearningContent.InRussian(lesson.Theory);
-            return new LearningResult.ChoiceReply(russian
+            return new(new LearningResult.ChoiceReply(russian
                 ? "Эта кнопка устарела. Используйте последние варианты или напишите «Продолжим»."
                 : "This button is out of date. Use the latest options or write “continue”.",
-                lesson is null ? null : ChoicePrompt.From(lesson));
+                lesson is null ? null : ChoicePrompt.From(lesson)));
         }
 
         var state = lesson.Choice!;
         if (input.Action == ChoiceAction.Toggle && lesson.ToggleChoice(input.Version, input.Revision, input.Option))
-            return new LearningResult.ChoiceReply("", ChoicePrompt.From(lesson));
+            return new(new LearningResult.ChoiceReply("", ChoicePrompt.From(lesson)));
 
         ImmutableArray<int> selection = input.Action switch
         {
@@ -105,8 +123,8 @@ public sealed partial class LearningService
             _ => []
         };
         return state.Exercise.IsValidSelection(selection)
-            ? await SubmitChoiceAsync(lesson, selection, token)
-            : InvalidChoice(lesson);
+            ? new(await SubmitChoiceAsync(lesson, selection, token), AttemptRecorded: true)
+            : new(InvalidChoice(lesson));
     }
 
     private async Task<Lesson> CreateWithChoiceHistoryAsync(UserId user, string topic, LessonMaterial material, CancellationToken token)

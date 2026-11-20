@@ -37,43 +37,43 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
                     .Where(step => step.RequestId == lease.RequestId).OrderBy(step => step.Ordinal).ToListAsync(token);
                 var session = new LearningProviderSession(steps, () => TargetStamp(db), () => TargetIdentities(db));
                 var handler = CreateHandler(services, session, lease.RequestId);
-                return await services.GetRequiredService<ILearningRequestStore>().ApplyAsync(lease, async (request, cancellationToken) =>
+                return await services.GetRequiredService<EfLearningRequestStore>().ApplyAsync(lease, async (request, cancellationToken) =>
                 {
-                    if (request.AttemptCount > maxAttempts) return new(null, "attempts_exhausted");
+                    if (request.AttemptCount > maxAttempts) return new("attempts_exhausted");
                     if (request.PayloadKind == "learning_choice" && request.PayloadVersion == 1)
                         return await ExecuteChoiceAsync(services, db, request, session, cancellationToken);
                     if (request.PayloadKind == "learning_text" && request.PayloadVersion == 1 ||
                         request.PayloadKind == "learning_command" && request.PayloadVersion == 3)
                         return await ExecuteDialogueAsync(services, db, request, session, handler, options.Value, cancellationToken);
-                    if (request.PayloadKind != "learning_command" || request.PayloadVersion is not (1 or 2)) return new(null, "unsupported_payload");
+                    if (request.PayloadKind != "learning_command" || request.PayloadVersion is not (1 or 2)) return new("unsupported_payload");
                     LearningCommandInput? input;
                     try { input = JsonSerializer.Deserialize<LearningCommandInput>(request.NormalizedInput, JsonSerializerOptions.Web); }
-                    catch (JsonException) { return new(null, "unsupported_payload"); }
+                    catch (JsonException) { return new("unsupported_payload"); }
                     if (input is null || input.Name is null || input.Arguments is null || !handler.Handles(input.Name))
-                        return new(null, "unsupported_payload");
+                        return new("unsupported_payload");
                     if (request.PayloadVersion == 2 && input.Name is "answer" or "learn_ask" or "learn_explain")
                     {
                         var lesson = await services.GetRequiredService<ILessonStore>().FindActiveAsync(request.UserId, cancellationToken);
                         if (input.LessonId is null || lesson?.Id != input.LessonId)
-                            return new(null, "stale_target")
+                            return new("stale_target")
                             {
                                 Replies = ["The addressed question is no longer current or was not available when the command arrived. Check the current lesson and repeat the command; no answer was assessed."]
                             };
                     }
                     var replies = await handler.HandleAsync(new(input.Name, input.Arguments, request.UserId), cancellationToken);
                     session.EnsureComplete();
-                    return new(null, "reply_committed") { Replies = replies };
+                    return new("reply_committed") { Replies = replies };
                 }, token);
             }
             catch (LearningProviderRequiredException required) { pending = required.Step; }
             catch (StaleLearningPreparationException)
             {
                 await using var scope = scopes.CreateAsyncScope();
-                return await scope.ServiceProvider.GetRequiredService<ILearningRequestStore>().ApplyAsync(lease,
+                return await scope.ServiceProvider.GetRequiredService<EfLearningRequestStore>().ApplyAsync(lease,
                     async (request, cancellationToken) =>
                     {
                         await SynchronizeTerminalDialogueAsync(scope.ServiceProvider, request, cancellationToken);
-                        return new LearningRequestExecution(null, "stale_target")
+                        return new LearningRequestExecution("stale_target")
                         {
                             Replies = ["Learning context changed while the request was being processed. No result was applied. Check the current lesson or repeat the original command."]
                         };
@@ -90,11 +90,11 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
             if (execution.Unknown)
             {
                 await using var scope = scopes.CreateAsyncScope();
-                return await scope.ServiceProvider.GetRequiredService<ILearningRequestStore>().ApplyAsync(lease,
+                return await scope.ServiceProvider.GetRequiredService<EfLearningRequestStore>().ApplyAsync(lease,
                     async (request, cancellationToken) =>
                     {
                         await SynchronizeTerminalDialogueAsync(scope.ServiceProvider, request, cancellationToken);
-                        return new LearningRequestExecution(null, "provider_outcome_unknown")
+                        return new LearningRequestExecution("provider_outcome_unknown")
                         {
                             Replies = ["The provider outcome is unknown. No result was applied or answer assessed. Check the current lesson before explicitly retrying the original command."]
                         };
@@ -140,30 +140,25 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
     {
         ChoiceInput? input;
         try { input = JsonSerializer.Deserialize<ChoiceInput>(request.NormalizedInput, JsonSerializerOptions.Web); }
-        catch (JsonException) { return new(null, "unsupported_payload"); }
+        catch (JsonException) { return new("unsupported_payload"); }
         if (input is null || request.ChatId != request.UserId.Value || !Enum.IsDefined(input.Action))
-            return new(null, "unsupported_payload");
+            return new("unsupported_payload");
 
         var lessons = services.GetRequiredService<ILessonStore>();
         var lesson = await lessons.FindActiveAsync(request.UserId, token);
-        var attempts = lesson?.Choice?.Attempts.Length;
         var learning = new LearningService(lessons, session, services.GetRequiredService<KnowledgeService>(), request.Id);
-        var result = await learning.ApplyChoiceAsync(request.UserId, input, token);
-        session.EnsureComplete();
-        if (lesson is null || lesson.Choice?.Attempts.Length == attempts)
-            return new(result, "choice_reply");
-
-        var active = lesson.Status == LessonStatus.AwaitingAnswer ? lesson : null;
-        var dialogue = services.GetRequiredService<IDialogueStore>();
-        var context = await dialogue.FindAsync(request.UserId, token);
+        var dialogue = new LearningDialogueService(services.GetRequiredService<IDialogueStore>(), session,
+            sessions: services.GetRequiredService<LearningSessionService>());
         var now = new DateTimeOffset(await db.Database.SqlQuery<DateTime>($"SELECT clock_timestamp() AS \"Value\"").SingleAsync(token));
-        if (context is null) dialogue.Add(DialogueContext.Create(request.UserId, active, now));
-        else context.Synchronize(active, now, request.SourceMessageId ?? request.SourceUpdateId);
-        if (lesson.Status == LessonStatus.Completed &&
+        var turn = new DialogueTurn(request.Id, request.UserId, null, "", input.LessonId, null,
+            new DateTimeOffset(request.ReceivedAt), now, SourceOrder: request.SourceMessageId ?? request.SourceUpdateId);
+        var application = await dialogue.ApplyChoiceAsync(turn, lesson, input, learning, token);
+        var replies = TelegramLearningPresenter.Render(application.Reply);
+        if (application.AttemptRecorded && lesson?.Status == LessonStatus.Completed &&
             await CreatePractice(services, session).SynchronizeAsync(request.UserId, DialogueOperationKind.Answer, token) is { } practice)
-            return new(null, "choice_reply")
-                { Replies = [.. TelegramLearningPresenter.Render(result), .. TelegramPracticePresenter.Render(practice)] };
-        return new(result, "choice_reply");
+            replies = [.. replies, .. TelegramPracticePresenter.Render(practice)];
+        session.EnsureComplete();
+        return new("choice_reply", replies);
     }
 
     private static async Task<LearningRequestExecution> ExecuteDialogueAsync(IServiceProvider services, OwnDayDbContext db,
@@ -176,10 +171,10 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
             if (request.PayloadKind == "learning_command") command = JsonSerializer.Deserialize<LearningCommandInput>(request.NormalizedInput, JsonSerializerOptions.Web);
             else text = JsonSerializer.Deserialize<LearningTextInput>(request.NormalizedInput, JsonSerializerOptions.Web);
         }
-        catch (JsonException) { return new(null, "unsupported_payload"); }
+        catch (JsonException) { return new("unsupported_payload"); }
         if (command is null && (text?.Text is null || text.Text.Length is < 1 or > 3000) ||
             command is not null && (command.Arguments is null || command.Arguments.Length > 4000 ||
-                !handler.Handles(command.Name) && command.Name != "cancel")) return new(null, "unsupported_payload");
+                !handler.Handles(command.Name) && command.Name != "cancel")) return new("unsupported_payload");
         var lesson = await services.GetRequiredService<ILessonStore>().FindActiveAsync(request.UserId, token);
         var store = services.GetRequiredService<IDialogueStore>();
         var program = await store.ReadProgramAsync(request.UserId, token);
@@ -204,7 +199,7 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
                 subjectDiagnostic: true, consultationUse: creation.PracticalUse);
             session.EnsureComplete();
             var completed = FirstGoalConsultation.CompleteCreation(decision.Context, result, turn);
-            return new(null, completed.Audit!.Code)
+            return new(completed.Audit!.Code)
                 { Replies = Introduce(introduce, TelegramDialoguePresenter.Render(completed.Reply!), completed.Reply!.InEnglish) };
         }
         if (decision.Execute is not { } operation)
@@ -218,7 +213,7 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
                     dialogueReplies = [.. dialogueReplies, TelegramKnowledgePresenter.ReviewAfterResume(suggestion)];
             }
             session.EnsureComplete();
-            return new(null, decision.Audit?.Code ?? "dialogue_reply")
+            return new(decision.Audit?.Code ?? "dialogue_reply")
                 { Replies = Introduce(introduce, dialogueReplies, reply.InEnglish), DialogueOutcomeJson = audit };
         }
         if (operation == DialogueOperationKind.ReviewSuggestions || decision.SuggestReviewsOnReturn)
@@ -227,7 +222,7 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
             if (suggestions.Count > 0 || operation == DialogueOperationKind.ReviewSuggestions)
             {
                 session.EnsureComplete();
-                return new(null, "review_suggestions") { Replies = Introduce(introduce, TelegramKnowledgePresenter.Suggestions(suggestions)) };
+                return new("review_suggestions") { Replies = Introduce(introduce, [.. TelegramKnowledgePresenter.Suggestions(suggestions)]) };
             }
         }
         if (operation is DialogueOperationKind.ViewRoute or DialogueOperationKind.EditRoute)
@@ -242,7 +237,7 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
                 result = new CurriculumResult.RouteEditRejected();
             session.EnsureComplete();
             if (operation == DialogueOperationKind.EditRoute) decision.Context.Synchronize(lesson, now, turn.SourceOrder);
-            return new(null, result is CurriculumResult.RouteEditRejected ? "route_rejected" : "route_reply")
+            return new(result is CurriculumResult.RouteEditRejected ? "route_rejected" : "route_reply")
                 { Replies = Introduce(introduce, TelegramCurriculumPresenter.Render(result)), DialogueOutcomeJson = audit };
         }
         if (operation is DialogueOperationKind.ProposeGoalUpdate or DialogueOperationKind.ApplyGoalUpdate)
@@ -265,7 +260,7 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
             }
             else if (operation == DialogueOperationKind.ApplyGoalUpdate)
                 decision.Context.Synchronize(lesson, now, turn.SourceOrder);
-            return new(null, result is CurriculumResult.GoalEditRejected ? "goal_update_rejected" : "goal_update_reply")
+            return new(result is CurriculumResult.GoalEditRejected ? "goal_update_rejected" : "goal_update_reply")
                 { Replies = Introduce(introduce, goalReplies), DialogueOutcomeJson = audit };
         }
         if (operation is DialogueOperationKind.ExplainAssessment or DialogueOperationKind.AppealAssessment)
@@ -276,15 +271,15 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
                 ? await assessments.ReviewAsync(request.UserId, request.Id, decision.Arguments, token)
                 : await assessments.ExplainAsync(request.UserId, program?.Id, decision.Arguments, token);
             session.EnsureComplete();
-            return new(null, "assessment_review")
-                { Replies = TelegramAssessmentReviewPresenter.Render(result, FirstGoalConsultation.InEnglish(lesson?.Theory ?? program?.Goal)) };
+            return new("assessment_review")
+                { Replies = [.. TelegramAssessmentReviewPresenter.Render(result, FirstGoalConsultation.InEnglish(lesson?.Theory ?? program?.Goal))] };
         }
         if (operation == DialogueOperationKind.PreviousTopic)
         {
             var previous = program is null ? null : await CreateCurriculum(services, session).PreviousTopicAsync(request.UserId,
                 program.Id, lesson?.ProgramId == program.Id ? lesson.TopicCode : null, token);
             session.EnsureComplete();
-            return new(null, "previous_topic")
+            return new("previous_topic")
                 { Replies = TelegramLearningPresenter.RenderPreviousTopic(previous, lesson, FirstGoalConsultation.InEnglish(program?.Goal ?? lesson?.Theory)) };
         }
         if (operation == DialogueOperationKind.Diagnose && program?.HasEnglishDiagnostic == true && lesson is null)
@@ -298,7 +293,7 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
                     value.Status is LessonStatus.AwaitingAnswer or LessonStatus.Paused);
                 decision.Context.Synchronize(current, now, turn.SourceOrder);
             }
-            return new(null, result.Outcome) { Replies = Introduce(introduce, TelegramCurriculumPresenter.Render(result.Result)) };
+            return new(result.Outcome) { Replies = Introduce(introduce, TelegramCurriculumPresenter.Render(result.Result)) };
         }
         if (operation == DialogueOperationKind.CompleteDiagnostic)
         {
@@ -316,13 +311,13 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
             }
             session.EnsureComplete();
             var russian = MarketLearningContent.InRussian(program?.Goal ?? turn.Text);
-            return new(null, "diagnostic_reply")
+            return new("diagnostic_reply")
                 { Replies = Introduce(introduce, TelegramCurriculumPresenter.Render(result, russian), !russian) };
         }
         if (operation is DialogueOperationKind.SwitchProgram or DialogueOperationKind.SwitchGoal or DialogueOperationKind.SwitchGoalWithCriterion or
             DialogueOperationKind.SwitchCreateProgram or DialogueOperationKind.SwitchCreateProjectProgram)
         {
-            IReadOnlyList<string> switched;
+            IReadOnlyList<TelegramLearningReply> switched;
             if (operation is DialogueOperationKind.SwitchGoal or DialogueOperationKind.SwitchGoalWithCriterion)
             {
                 var goal = operation == DialogueOperationKind.SwitchGoalWithCriterion
@@ -345,7 +340,7 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
             var restored = await services.GetRequiredService<ILessonStore>().FindActiveAsync(request.UserId, token);
             if (decision.Context.DiagnosticTarget is null) decision.Context.Synchronize(restored, now, turn.SourceOrder);
             if (restored is not null) switched = [.. switched, .. TelegramLearningPresenter.Render(LearningService.Session(restored))];
-            return new(null, decision.Audit?.Code ?? "program_switched") { Replies = switched, DialogueOutcomeJson = audit };
+            return new(decision.Audit?.Code ?? "program_switched") { Replies = switched, DialogueOutcomeJson = audit };
         }
         if (operation is DialogueOperationKind.BeginPractice or DialogueOperationKind.NextPractice or DialogueOperationKind.PausePractice or
             DialogueOperationKind.ResumePractice or DialogueOperationKind.StopPractice or DialogueOperationKind.PracticeInfo)
@@ -355,9 +350,9 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
             var current = db.Set<Lesson>().Local.SingleOrDefault(value => value.UserId == request.UserId &&
                 value.Status is LessonStatus.AwaitingAnswer or LessonStatus.Paused);
             decision.Context.Synchronize(current, now, turn.SourceOrder);
-            return new(null, "practice_reply") { Replies = TelegramPracticePresenter.Render(result) };
+            return new("practice_reply") { Replies = TelegramPracticePresenter.Render(result) };
         }
-        IReadOnlyList<string> replies;
+        IReadOnlyList<TelegramLearningReply> replies;
         if (operation == DialogueOperationKind.PracticeLastSkill)
         {
             var learning = new LearningService(services.GetRequiredService<ILessonStore>(), session, services.GetRequiredService<KnowledgeService>(),
@@ -380,10 +375,10 @@ public sealed class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<
             value.Status is LessonStatus.AwaitingAnswer or LessonStatus.Paused);
         if (operation is not (DialogueOperationKind.Progress or DialogueOperationKind.PreferenceView or DialogueOperationKind.PreferenceSet or DialogueOperationKind.PreferenceReset))
             decision.Context.Synchronize(active, now, turn.SourceOrder);
-        return new(null, decision.Audit?.Code ?? "reply_committed") { Replies = Introduce(introduce, replies), DialogueOutcomeJson = audit };
+        return new(decision.Audit?.Code ?? "reply_committed") { Replies = Introduce(introduce, replies), DialogueOutcomeJson = audit };
     }
 
-    private static IReadOnlyList<string> Introduce(bool introduce, IReadOnlyList<string> replies, bool english = false) => introduce
+    private static IReadOnlyList<TelegramLearningReply> Introduce(bool introduce, IReadOnlyList<TelegramLearningReply> replies, bool english = false) => introduce
         ? [english ? TelegramDialoguePresenter.EnglishIntroduction : TelegramDialoguePresenter.Introduction, .. replies] : replies;
 
     private static DialogueOperationKind CommandKind(string name) => name switch

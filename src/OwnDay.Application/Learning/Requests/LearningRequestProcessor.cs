@@ -3,11 +3,6 @@ using OwnDay.Domain;
 namespace OwnDay.Application.Learning.Requests;
 
 public sealed record LearningRequestLease(Guid RequestId, Guid Token, UserId UserId, int Attempt);
-public sealed record LearningRequestExecution(LearningResult? Result, string Outcome)
-{
-    public IReadOnlyList<string>? Replies { get; init; }
-    public string? DialogueOutcomeJson { get; init; }
-}
 
 public sealed class LearningAppliedOperation
 {
@@ -19,9 +14,6 @@ public sealed class LearningAppliedOperation
 public interface ILearningRequestStore
 {
     Task<LearningRequestLease?> ClaimAsync(TimeSpan lease, CancellationToken token);
-    // Invoke a prepared/no-provider operation and persist its effect, marker, reply and completion atomically.
-    Task<bool> ApplyAsync(LearningRequestLease lease,
-        Func<LearningRequest, CancellationToken, Task<LearningRequestExecution>> execute, CancellationToken token);
 }
 
 public interface ILearningRequestRunner

@@ -10,7 +10,9 @@ internal static class TelegramChoicePresenter
 {
     private const string Prefix = "lc";
 
-    public static string Text(ChoicePrompt prompt)
+    public static TelegramLearningReply Render(ChoicePrompt prompt) => new(Text(prompt), Markup(prompt));
+
+    private static string Text(ChoicePrompt prompt)
     {
         var russian = prompt.InRussian;
         var multiple = prompt.Format == ChoiceFormat.MultipleChoice;
@@ -33,7 +35,7 @@ internal static class TelegramChoicePresenter
         return prompt.Question + "\n\n" + string.Join('\n', lines) + selection + "\n\n" + instructions;
     }
 
-    public static string Markup(ChoicePrompt prompt)
+    private static string Markup(ChoicePrompt prompt)
     {
         var russian = prompt.InRussian;
         var multiple = prompt.Format == ChoiceFormat.MultipleChoice;

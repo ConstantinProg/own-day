@@ -5,7 +5,7 @@ namespace OwnDay.Infrastructure.Telegram.Commands;
 
 public static class TelegramLearningPresenter
 {
-    public static IReadOnlyList<string> Render(LearningResult result, bool inRussian = false) => result switch
+    public static IReadOnlyList<TelegramLearningReply> Render(LearningResult result, bool inRussian = false) => result switch
     {
         LearningResult.Material material => RenderMaterial(material),
         LearningResult.Assessment assessment => [RenderAnswer(assessment),
@@ -37,7 +37,7 @@ public static class TelegramLearningPresenter
         LearningResult.ReviewNotDue => ["This skill has no review due yet. /learn_reviews or /learn_status <skill id>"],
         LearningResult.ReviewDeferred deferred => [$"Review rescheduled to {deferred.DueAt:O} (UTC). No assessment or penalty. /learn_reviews"],
         LearningResult.ChoiceReply choice => [.. string.IsNullOrEmpty(choice.Message) ? [] : new[] { choice.Message },
-            .. choice.Prompt is { } prompt ? new[] { TelegramChoicePresenter.Text(prompt) } : []],
+            .. choice.Prompt is { } prompt ? new[] { TelegramChoicePresenter.Render(prompt) } : []],
         _ => throw new ArgumentOutOfRangeException(nameof(result))
     };
 
@@ -70,11 +70,11 @@ public static class TelegramLearningPresenter
         return verdict + "\n" + assessment.Feedback + assistance + next + review;
     }
 
-    private static IReadOnlyList<string> RenderMaterial(LearningResult.Material material)
+    private static IReadOnlyList<TelegramLearningReply> RenderMaterial(LearningResult.Material material)
     {
         var russian = MarketLearningContent.InRussian(material.Theory);
         if (material.Choice is { } choice)
-            return [.. SourceNotice(material.Provenance, russian), TelegramChoicePresenter.Text(choice)];
+            return [.. SourceNotice(material.Provenance, russian), TelegramChoicePresenter.Render(choice)];
         var theory = material.Topic + "\n\n" + material.Theory;
         if (material.Content is { Kind: LearningContentKind.ReadingChoice or LearningContentKind.OpenWriting } content)
             theory += russian ? "\n\nЦель — " + content.Objective : "\n\nObjective — " + content.Objective;
@@ -83,7 +83,7 @@ public static class TelegramLearningPresenter
             RenderTask(material.Question, material.Content) + "\n\n" + AnswerAction(russian)];
     }
 
-    private static IReadOnlyList<string> RenderExplanation(LearningResult.Explanation explanation)
+    private static IReadOnlyList<TelegramLearningReply> RenderExplanation(LearningResult.Explanation explanation)
     {
         var russian = MarketLearningContent.InRussian(explanation.Text);
         return [explanation.Text, .. SourceNotice(explanation.Provenance, russian),
@@ -136,11 +136,11 @@ public static class TelegramLearningPresenter
         return notice is null ? [] : [notice];
     }
 
-    private static IReadOnlyList<string> RenderSession(LearningResult.Session session)
+    private static IReadOnlyList<TelegramLearningReply> RenderSession(LearningResult.Session session)
     {
         var russian = MarketLearningContent.InRussian(session.Theory ?? session.Topic + session.Question);
         if (session.Choice is { } choice)
-            return [.. session.LastExplanation is { } last ? new[] { last } : [], TelegramChoicePresenter.Text(choice)];
+            return [.. session.LastExplanation is { } last ? new[] { last } : [], TelegramChoicePresenter.Render(choice)];
         if (session.Content?.Kind is LearningContentKind.ReadingChoice or LearningContentKind.OpenWriting)
             return RenderRecap(session, !russian);
         var guidance = session.LastExplanation is { } saved
@@ -152,7 +152,7 @@ public static class TelegramLearningPresenter
         return [$"{session.Topic}\n{RenderTask(session.Question, content)}{guidance}\n\n{action}"];
     }
 
-    internal static IReadOnlyList<string> RenderRecap(LearningResult.Session session, bool english)
+    internal static IReadOnlyList<TelegramLearningReply> RenderRecap(LearningResult.Session session, bool english)
     {
         if (session.Choice is not null) return RenderSession(session);
         var action = session.Status == LessonStatus.Paused
@@ -172,7 +172,7 @@ public static class TelegramLearningPresenter
             .Select(criterion => criterion.Requirement).Where(requirement => !question.Contains(requirement, StringComparison.Ordinal))))
         : question;
 
-    internal static IReadOnlyList<string> RenderPreviousTopic(Lesson? previous, Lesson? active, bool english)
+    internal static IReadOnlyList<TelegramLearningReply> RenderPreviousTopic(Lesson? previous, Lesson? active, bool english)
     {
         if (previous is null) return [english ? "There is no earlier completed topic in this program yet."
             : "В этой программе пока нет предыдущей завершённой темы."];

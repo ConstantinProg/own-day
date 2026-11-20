@@ -66,8 +66,8 @@ public sealed class TelegramCurriculumPresenterTests
             new TopicProgress(topic, false, true, status, true,
                 ProgramSkillLink.Confirm(program, topic.Code, skill, new string('b', 500), DateTimeOffset.UnixEpoch))).ToArray(), 2, true);
         var messages = TelegramCurriculumPresenter.Render(new CurriculumResult.Progress(report));
-        var text = string.Join('\n', messages);
-        Assert.All(messages, m => Assert.InRange(m.Length, 1, 4096));
+        var text = string.Join('\n', messages.Select(message => message.Text));
+        Assert.All(messages, m => Assert.InRange(m.Text.Length, 1, 4096));
         Assert.All(program.CurrentRoute.Topics, topic => Assert.Contains(topic.Code + ": " + topic.Title, text));
         Assert.Contains("Route questions credited: 0/12", text);
         Assert.Contains("Shared identity", text);
@@ -88,8 +88,8 @@ public sealed class TelegramCurriculumPresenterTests
             program.CurrentRoute.Topics.Select(t => new ProjectTopicRecommendation(t, null, true)).ToArray(),
             Enumerable.Range(1, 10).Select(i => new ProjectActionOption(i, new string('a', 200))).ToArray(), 1, true);
         var messages = TelegramCurriculumPresenter.Render(new CurriculumResult.ProjectReport(report));
-        Assert.All(messages, m => Assert.InRange(m.Length, 1, 4096));
-        var text = string.Join('\n', messages);
+        Assert.All(messages, m => Assert.InRange(m.Text.Length, 1, 4096));
+        var text = string.Join('\n', messages.Select(message => message.Text));
         Assert.Contains("AI-proposed skills", text);
         Assert.Contains("No Commitments are created", text);
         Assert.Contains("/learn_project_report 2", text);
@@ -102,10 +102,10 @@ public sealed class TelegramCurriculumPresenterTests
         var result = new CurriculumResult.Adapted(new LearningResult.Material(new string('T', 2500), new string('Q', 1000),
             new string('S', 100)), new string('R', 500));
         var messages = TelegramCurriculumPresenter.Render(result);
-        Assert.Contains("Teaching adjustment", messages[0]);
-        Assert.Contains("/learn_route", messages[0]);
-        Assert.Contains("Write your answer", string.Join('\n', messages));
-        Assert.All(messages, m => Assert.InRange(m.Length, 1, 4096));
+        Assert.Contains("Teaching adjustment", messages[0].Text);
+        Assert.Contains("/learn_route", messages[0].Text);
+        Assert.Contains("Write your answer", string.Join('\n', messages.Select(message => message.Text)));
+        Assert.All(messages, m => Assert.InRange(m.Text.Length, 1, 4096));
     }
 
     [Fact]
@@ -119,9 +119,9 @@ public sealed class TelegramCurriculumPresenterTests
 
         var messages = TelegramCurriculumPresenter.Render(new CurriculumResult.Program(program));
 
-        Assert.All(messages, m => Assert.InRange(m.Length, 1, 4096));
-        Assert.Contains("/learn_diagnose skip", messages[^1]);
-        Assert.Contains("requires:", string.Join('\n', messages));
-        Assert.All(topics, t => Assert.Contains(t.Code + ":", string.Join('\n', messages)));
+        Assert.All(messages, m => Assert.InRange(m.Text.Length, 1, 4096));
+        Assert.Contains("/learn_diagnose skip", messages[^1].Text);
+        Assert.Contains("requires:", string.Join('\n', messages.Select(message => message.Text)));
+        Assert.All(topics, t => Assert.Contains(t.Code + ":", string.Join('\n', messages.Select(message => message.Text))));
     }
 }

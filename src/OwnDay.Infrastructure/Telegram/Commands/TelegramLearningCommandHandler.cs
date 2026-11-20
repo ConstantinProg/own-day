@@ -13,21 +13,21 @@ public sealed class TelegramLearningCommandHandler(LearningService learning,
             "learn_confirm" or "learn_end_session" or "learn_solution" or "learn_assessment" or "learn_appeal" or "learn_route_edit" or
             "learn_goal_update" or "learn_recommend_reviews";
 
-    public Task<IReadOnlyList<string>> HandleAsync(ProcessIncomingCommand command, CancellationToken token, string? currentDiscipline = null,
+    public Task<IReadOnlyList<TelegramLearningReply>> HandleAsync(ProcessIncomingCommand command, CancellationToken token, string? currentDiscipline = null,
         bool inRussian = false) => command.Name switch
     {
         _ when study.Handles(command.Name) => study.HandleAsync(command, token),
         _ when curriculum.Handles(command.Name) => curriculum.HandleAsync(command, token),
         _ when knowledge.Handles(command.Name) => knowledge.HandleAsync(command, token, currentDiscipline),
-        "learn_end_session" => Task.FromResult<IReadOnlyList<string>>(["Напишите «завершить сессию»."]),
-        "learn_assessment" or "learn_appeal" => Task.FromResult<IReadOnlyList<string>>(["Напишите «почему такая оценка»."]),
-        "learn_route_edit" => Task.FromResult<IReadOnlyList<string>>(TelegramDialoguePresenter.Render(new(OwnDay.Application.Dialogue.DialogueReplyKind.RouteEditHelp))),
-        "learn_goal_update" => Task.FromResult<IReadOnlyList<string>>(TelegramCurriculumPresenter.Render(new CurriculumResult.GoalEditRejected())),
-        "learn_recommend_reviews" => Task.FromResult<IReadOnlyList<string>>(["Напишите «что повторить» или воспользуйтесь /learn_reviews для списка по срокам."]),
+        "learn_end_session" => Task.FromResult<IReadOnlyList<TelegramLearningReply>>(["Напишите «завершить сессию»."]),
+        "learn_assessment" or "learn_appeal" => Task.FromResult<IReadOnlyList<TelegramLearningReply>>(["Напишите «почему такая оценка»."]),
+        "learn_route_edit" => Task.FromResult(TelegramDialoguePresenter.Render(new(OwnDay.Application.Dialogue.DialogueReplyKind.RouteEditHelp))),
+        "learn_goal_update" => Task.FromResult(TelegramCurriculumPresenter.Render(new CurriculumResult.GoalEditRejected())),
+        "learn_recommend_reviews" => Task.FromResult<IReadOnlyList<TelegramLearningReply>>(["Напишите «что повторить» или воспользуйтесь /learn_reviews для списка по срокам."]),
         _ => HandleLessonAsync(command, token, inRussian)
     };
 
-    private async Task<IReadOnlyList<string>> HandleLessonAsync(ProcessIncomingCommand command, CancellationToken token, bool inRussian)
+    private async Task<IReadOnlyList<TelegramLearningReply>> HandleLessonAsync(ProcessIncomingCommand command, CancellationToken token, bool inRussian)
     {
         if (command.Name == "learn_confirm") return ["Нет актуального подтверждения. Повторите исходный запрос."];
         var result = command.Name switch

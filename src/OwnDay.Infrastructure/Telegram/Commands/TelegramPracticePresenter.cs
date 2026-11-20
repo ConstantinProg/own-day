@@ -4,7 +4,7 @@ namespace OwnDay.Infrastructure.Telegram.Commands;
 
 public static class TelegramPracticePresenter
 {
-    public static IReadOnlyList<string> Render(LearningPracticeResult result)
+    public static IReadOnlyList<TelegramLearningReply> Render(LearningPracticeResult result)
     {
         var practice = result.Practice;
         var text = result.Kind switch

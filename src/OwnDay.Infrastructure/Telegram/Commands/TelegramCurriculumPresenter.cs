@@ -5,11 +5,11 @@ namespace OwnDay.Infrastructure.Telegram.Commands;
 
 public static class TelegramCurriculumPresenter
 {
-    public static IReadOnlyList<string> Render(CurriculumResult result, bool inRussian = false) => result switch
+    public static IReadOnlyList<TelegramLearningReply> Render(CurriculumResult result, bool inRussian = false) => result switch
     {
-        CurriculumResult.Program program => program.ResumeNotice is null ? RenderProgram(program.Value) :
+        CurriculumResult.Program program => program.ResumeNotice is null ? [.. RenderProgram(program.Value)] :
             [.. RenderProgram(program.Value), program.ResumeNotice],
-        CurriculumResult.RouteView route => RenderRoute(route),
+        CurriculumResult.RouteView route => [.. RenderRoute(route)],
         CurriculumResult.RouteHistory history => ["Последние версии маршрута. Для просмотра используйте /learn_route tree <версия>.",
             .. history.Routes.Select(route => $"v{route.Version} — {route.Reason}")],
         CurriculumResult.RouteEditRejected => ["Изменение или версия недоступны. Проверьте активную программу, текущую версию, коды тем и порядок предпосылок. /learn_route tree · /learn_route history"],
@@ -17,20 +17,20 @@ public static class TelegramCurriculumPresenter
         CurriculumResult.GoalUpdateOffered proposal => ["Предложение для текущей программы. Действующие упражнения и оценки сохраняются. " +
             (proposal.RetainsRouteCredit ? "Зачёт по тем же темам переносится." : "У нового набора тем будет собственный зачёт."),
             .. RenderRoute(new(proposal.Route, true), preview: true)],
-        CurriculumResult.Diagnostic diagnostic => RenderDiagnostic(diagnostic),
+        CurriculumResult.Diagnostic diagnostic => [.. RenderDiagnostic(diagnostic)],
         CurriculumResult.SubjectDiagnosticQuestion diagnostic =>
             [(diagnostic.Notice is null ? "" : diagnostic.Notice + "\n\n") + diagnostic.Value.DiagnosticQuestion! +
                 (MarketLearningContent.InRussian(diagnostic.Value.Goal)
                     ? "\nОтветьте или напишите «пропустить»." : "\nAnswer the question or write “skip”.")],
-        CurriculumResult.Progress progress => TelegramProgressPresenter.Render(progress.Value),
+        CurriculumResult.Progress progress => [.. TelegramProgressPresenter.Render(progress.Value)],
         CurriculumResult.NoProgress empty => [empty.Page == 1
             ? "No programs yet. /learn_program <goal> | <experience>. Free lesson skills: /learn_skills"
             : "No program on this page. /learn_progress"],
-        CurriculumResult.ProjectReport report => RenderProjectReport(report.Value),
+        CurriculumResult.ProjectReport report => [.. RenderProjectReport(report.Value)],
         CurriculumResult.NoProject => ["This program has no project link. Create a project program: /learn_project <id from /projects> | <experience>"],
         CurriculumResult.ProjectCompleted => ["This project is completed. Project practice requires an active project. /learn_project_report"],
         CurriculumResult.ProjectActionNotFound => ["Active task not found in this program's project for this user. /learn_project_report"],
-        CurriculumResult.Programs programs => RenderPrograms(programs),
+        CurriculumResult.Programs programs => [.. RenderPrograms(programs)],
         CurriculumResult.ProgramNotFound => ["Program not found for this user. /learn_programs"],
         CurriculumResult.TransferUnavailable => ["Interdisciplinary practice requires two owned programs in different disciplines, completed diagnosis and prerequisites, " +
             "and the current topic's shared skill explicitly confirmed with /learn_link. The other topic must use that same skill. " +

@@ -10,6 +10,43 @@ namespace OwnDay.Application.Dialogue;
 public sealed class LearningDialogueService(IDialogueStore store, ILearningIntentResolver resolver, bool consultationEnabled = false,
     bool practiceEnabled = false, bool programSwitchEnabled = false, LearningSessionService? sessions = null)
 {
+    public async Task<ChoiceApplication> ApplyChoiceAsync(DialogueTurn turn, Lesson? lesson, ChoiceInput input,
+        LearningService learning, CancellationToken token)
+    {
+        if (lesson is not null && lesson.UserId == turn.UserId && input.Matches(lesson) && sessions is not null &&
+            await store.ReadProgramAsync(turn.UserId, token) is { } program &&
+            await sessions.RecordActivityAsync(turn, program.Id, lesson, token))
+        {
+            var context = await GetChoiceContextAsync(turn, lesson, token);
+            RestoreCurrentExercise(context, turn, lesson);
+            return new(LearningService.Session(lesson));
+        }
+
+        var result = await learning.ApplyChoiceAsync(turn.UserId, lesson, input, token);
+        if (result.AttemptRecorded)
+        {
+            var context = await GetChoiceContextAsync(turn, lesson, token);
+            context.Synchronize(lesson, turn.Now, turn.SourceOrder);
+        }
+        return result;
+    }
+
+    private async Task<DialogueContext> GetChoiceContextAsync(DialogueTurn turn, Lesson? lesson, CancellationToken token)
+    {
+        var context = await store.FindAsync(turn.UserId, token);
+        if (context is not null) return context;
+        context = DialogueContext.Create(turn.UserId, lesson, turn.Now);
+        store.Add(context);
+        return context;
+    }
+
+    private static void RestoreCurrentExercise(DialogueContext context, DialogueTurn turn, Lesson lesson)
+    {
+        lesson.RefreshChoicePrompt();
+        context.Synchronize(lesson, turn.Now, turn.SourceOrder);
+        context.AdvanceResponseBoundary(turn.SourceOrder);
+    }
+
     public async Task<DialogueDecision> DecideAsync(DialogueTurn turn, Lesson? lesson, DialogueProgramSnapshot? program,
         string stamp, CancellationToken token)
     {
@@ -99,8 +136,7 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
             if (returning && lesson is not null && (sessionAction != DialogueOperationKind.Resume ||
                 lesson.Status == LessonStatus.AwaitingAnswer && context.PendingConfirmation is null && context.PendingClarification is null))
             {
-                context.Synchronize(lesson, turn.Now, turn.SourceOrder);
-                context.AdvanceResponseBoundary(turn.SourceOrder);
+                RestoreCurrentExercise(context, turn, lesson);
                 return Recap(context, lesson) with { SuggestReviewsOnReturn = true };
             }
         }
@@ -139,6 +175,12 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
             context.Synchronize(lesson, turn.Now);
         if (context.PendingConfirmation is { } confirmation && command is null)
             return ConfirmationReply(context, confirmation);
+
+        if (context.PendingClarification is { } pendingSelection && (command is null or DialogueOperationKind.Answer) &&
+            turn.ReceiptPromptId == pendingSelection.PromptId && turn.ReceiptLessonId == lesson?.Id &&
+            LooksLikeChoiceAnswer(lesson, turn.Text) &&
+            context.ConsumeClarification(DialogueOperationKind.Answer, turn.ReceivedAt, stamp, turn.Now, turn.SourceOrder) is not null)
+            return await DecideActionAsync(context, turn, DialogueOperationKind.Answer, turn.Text, lesson, program, stamp, false, true, token);
 
         if (context.PendingClarification is { } clarification && command is null)
         {
@@ -279,7 +321,7 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
             return Recap(context, lesson!);
         if (normalized is "ответ" or "вопрос" or "answer" or "question")
             return Reply(context, DialogueReplyKind.NeedActualInput);
-        if (awaiting && LearningService.IsChoiceText(lesson!, turn.Text))
+        if (LooksLikeChoiceAnswer(lesson, turn.Text))
             return await DecideActionAsync(context, turn, DialogueOperationKind.Answer, turn.Text, lesson, program, stamp, false, bound, token);
         if (awaiting && normalized is "yes" or "no" && (lesson!.ResponseQuestion.Contains("yes or no", StringComparison.OrdinalIgnoreCase) ||
             lesson.ResponseQuestion.Contains("yes/no", StringComparison.OrdinalIgnoreCase)))
@@ -511,6 +553,8 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
 
     private static DialogueDecision Recap(DialogueContext context, Lesson lesson) => new(context, null, "",
         new(DialogueReplyKind.Recap, InEnglish: FirstGoalConsultation.InEnglish(lesson.Theory), Recap: LearningService.Session(lesson)));
+    private static bool LooksLikeChoiceAnswer(Lesson? lesson, string text) =>
+        lesson is { Status: LessonStatus.AwaitingAnswer, Choice: { } choice } && ChoiceAnswerText.LooksLikeAnswer(choice.Exercise, text);
     private static string Normalize(string text) => text.Trim().TrimEnd('.', '!').ToLowerInvariant();
     private static string Bounded(string text) => text[..Math.Min(500, text.Length)];
     private static string WithProgramTarget(string stamp, DialogueProgramSnapshot? program) =>

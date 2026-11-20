@@ -32,6 +32,11 @@ public sealed partial class Lesson
     public bool MatchesChoice(int version, int revision) => Status == LessonStatus.AwaitingAnswer &&
         version == ChoiceExercise.CurrentVersion && Choice is { } state && state.Exercise.Version == version && state.Revision == revision;
 
+    public void RefreshChoicePrompt()
+    {
+        if (Status == LessonStatus.AwaitingAnswer) InvalidateChoiceButtons();
+    }
+
     public ChoiceAttempt SubmitChoice(ImmutableArray<int> selected, Guid? operationId)
     {
         RequireAwaitingAnswer();

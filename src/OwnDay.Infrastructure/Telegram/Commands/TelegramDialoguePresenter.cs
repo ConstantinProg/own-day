@@ -16,9 +16,9 @@ public static class TelegramDialoguePresenter
             (selectedProgramId is null || selectedProgramId == context?.Consultation?.CreatedProgramId))
         {
             var prompt = context?.Consultation is { CreatedProgramId: not null } completed
-                ? Render(new(DialogueReplyKind.FirstProgramReady, [completed.OriginalGoal, completed.PracticalUse!],
+                ? RenderText(new(DialogueReplyKind.FirstProgramReady, [completed.OriginalGoal, completed.PracticalUse!],
                     FirstGoalConsultation.InEnglish(completed.OriginalGoal)))
-                : Render(new(context?.Consultation is null ? DialogueReplyKind.AskGoal :
+                : RenderText(new(context?.Consultation is null ? DialogueReplyKind.AskGoal :
                     context.Consultation.PracticalUse is null ? DialogueReplyKind.AskPracticalUse :
                     context.Consultation.Experience is null ? DialogueReplyKind.AskExperience : DialogueReplyKind.ConsultationRetry));
             return introduce ? [Introduction, .. prompt] : prompt;
@@ -29,7 +29,11 @@ public static class TelegramDialoguePresenter
         return introduce ? [Introduction, help] : [help];
     }
 
-    public static IReadOnlyList<string> Render(DialogueReply reply)
+    public static IReadOnlyList<TelegramLearningReply> Render(DialogueReply reply) => reply.Recap is { } recap
+        ? TelegramLearningPresenter.RenderRecap(recap, reply.InEnglish)
+        : [.. RenderText(reply)];
+
+    private static IReadOnlyList<string> RenderText(DialogueReply reply)
     {
         var values = reply.Values ?? [];
         if (reply.InEnglish)
@@ -61,7 +65,6 @@ public static class TelegramDialoguePresenter
             };
             if (english is not null) return [english];
         }
-        if (reply.Recap is { } recap) return TelegramLearningPresenter.RenderRecap(recap, reply.InEnglish);
         if (reply.Kind is DialogueReplyKind.ConfirmFinish or DialogueReplyKind.ConfirmProgramSelection or
             DialogueReplyKind.ConfirmProgramCreation or DialogueReplyKind.ConfirmGoalIntent or DialogueReplyKind.ConfirmProgramSwitch or
             DialogueReplyKind.ConfirmGoalSwitch or DialogueReplyKind.ConfirmRouteEdit or DialogueReplyKind.ConfirmGoalUpdate)

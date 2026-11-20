@@ -44,7 +44,7 @@ public sealed class TelegramStudyCommandHandler(StudyService service)
     public bool Handles(string name) => name is "learn_schedule" or "learn_notify_pause" or "learn_notify_resume" or "learn_notify_off" or
         "learn_invite_start" or "learn_invite_later" or "learn_invite_skip";
 
-    public async Task<IReadOnlyList<string>> HandleAsync(ProcessIncomingCommand command, CancellationToken token)
+    public async Task<IReadOnlyList<TelegramLearningReply>> HandleAsync(ProcessIncomingCommand command, CancellationToken token)
     {
         var args = command.Arguments.Trim();
         if (command.Name == "learn_schedule")
@@ -100,7 +100,7 @@ public sealed class TelegramStudyCommandHandler(StudyService service)
         $"\nStart: /learn_invite_start {invitation.Id:N}\nLater: /learn_invite_later {invitation.Id:N}\nSkip: /learn_invite_skip {invitation.Id:N}" +
         "\nOptional invitation. /learn_notify_pause · /learn_notify_off";
 
-    private static IReadOnlyList<string> Show(StudySchedule? schedule) => schedule is null || schedule.EffectiveReminderTypes == StudyReminderType.None
+    private static IReadOnlyList<TelegramLearningReply> Show(StudySchedule? schedule) => schedule is null || schedule.EffectiveReminderTypes == StudyReminderType.None
         ? ["Notifications are off.", Usage] :
         [$"Study schedule: {schedule.TimeZoneId}; every {schedule.EveryDays} day(s).\n" +
          string.Join(", ", schedule.Windows.Select(w => $"{w.Start:HH:mm}-{w.End:HH:mm}")) +

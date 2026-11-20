@@ -14,6 +14,7 @@ using OwnDay.Domain;
 using OwnDay.Domain.Learning;
 using OwnDay.Infrastructure.Learning;
 using OwnDay.Infrastructure.Persistence;
+using OwnDay.Infrastructure.Telegram.Commands;
 using OwnDay.Infrastructure.Telegram.Handling;
 using OwnDay.Infrastructure.Telegram.Routing;
 using Telegram.Bot.Types;
@@ -158,7 +159,7 @@ public sealed class PostgresLearningWorkerTests : IAsyncLifetime
         {
             started.TrySetResult();
             await release.Task.WaitAsync(token);
-            return new(new LearningResult.NoActiveLesson(), "reply_committed");
+            return new("reply_committed", TelegramLearningPresenter.Render(new LearningResult.NoActiveLesson()));
         }, default);
         try
         {
@@ -287,7 +288,7 @@ public sealed class PostgresLearningWorkerTests : IAsyncLifetime
             var result = await scope.ServiceProvider.GetRequiredService<LearningService>().PauseAsync(request.UserId, token);
             await scope.ServiceProvider.GetRequiredService<OwnDayDbContext>().Database.ExecuteSqlInterpolatedAsync(
                 $"UPDATE learning_requests SET lease_until = clock_timestamp() - interval '1 second' WHERE id = {request.Id}", token);
-            return new(result, "reply_committed");
+            return new("reply_committed", TelegramLearningPresenter.Render(result));
         }, default);
         Assert.False(applied);
         await using var observer = Open();
@@ -297,7 +298,7 @@ public sealed class PostgresLearningWorkerTests : IAsyncLifetime
     }
 
     private OwnDayDbContext Open() => new(new DbContextOptionsBuilder<OwnDayDbContext>().UseNpgsql(_connection).Options);
-    private static ILearningRequestStore Store(IServiceScope scope) => scope.ServiceProvider.GetRequiredService<ILearningRequestStore>();
+    private static EfLearningRequestStore Store(IServiceScope scope) => scope.ServiceProvider.GetRequiredService<EfLearningRequestStore>();
 
     private async Task<Guid> SeedAsync(long user, long sequence, int update, string name)
     {

@@ -11,7 +11,7 @@ public sealed class TelegramKnowledgeCommandHandler(KnowledgeService knowledge, 
         "learn_reviews" or "learn_review" or "learn_review_later" or "learn_review_skip" or
         "learn_preferences" or "learn_preference" or "learn_preference_reset";
 
-    public async Task<IReadOnlyList<string>> HandleAsync(ProcessIncomingCommand command, CancellationToken token, string? currentDiscipline = null)
+    public async Task<IReadOnlyList<TelegramLearningReply>> HandleAsync(ProcessIncomingCommand command, CancellationToken token, string? currentDiscipline = null)
     {
         if (command.Name is "learn_preferences" or "learn_preference" or "learn_preference_reset")
         {
@@ -22,26 +22,26 @@ public sealed class TelegramKnowledgeCommandHandler(KnowledgeService knowledge, 
             if (scoped) arguments = arguments[8..].Trim();
             if (command.Name == "learn_preferences")
             {
-                if (!string.IsNullOrWhiteSpace(command.Arguments)) return TelegramPersonalizationPresenter.Usage;
+                if (!string.IsNullOrWhiteSpace(command.Arguments)) return [.. TelegramPersonalizationPresenter.Usage];
             }
             else if (command.Name == "learn_preference")
             {
                 var parts = arguments.Split('|', 2, StringSplitOptions.TrimEntries);
                 if (parts.Length != 2 || !TryPreference(parts[0], out var kind) ||
                     !await knowledge.SetPreferenceAsync(command.UserId, kind, parts[1], token, discipline))
-                    return TelegramPersonalizationPresenter.Usage;
+                    return [.. TelegramPersonalizationPresenter.Usage];
             }
             else
             {
                 LearningPreferenceKind? kind = null;
                 if (arguments != "all")
                 {
-                    if (!TryPreference(arguments, out var parsed)) return TelegramPersonalizationPresenter.Usage;
+                    if (!TryPreference(arguments, out var parsed)) return [.. TelegramPersonalizationPresenter.Usage];
                     kind = parsed;
                 }
                 await knowledge.ResetPreferenceAsync(command.UserId, kind, token, discipline);
             }
-            return TelegramPersonalizationPresenter.Render(await knowledge.PersonalizationAsync(command.UserId, token, currentDiscipline));
+            return [.. TelegramPersonalizationPresenter.Render(await knowledge.PersonalizationAsync(command.UserId, token, currentDiscipline))];
         }
         if (command.Name is "learn_skills" or "learn_reviews")
         {
@@ -51,8 +51,8 @@ public sealed class TelegramKnowledgeCommandHandler(KnowledgeService knowledge, 
                  page is < 1 or > KnowledgeService.MaxPageNumber))
                 return [$"Use /{command.Name} [page] with a positive page number."];
             if (command.Name == "learn_reviews")
-                return TelegramKnowledgePresenter.Reviews(await knowledge.ReviewsAsync(command.UserId, token, page));
-            return TelegramKnowledgePresenter.List(await knowledge.ListAsync(command.UserId, token, page));
+                return [.. TelegramKnowledgePresenter.Reviews(await knowledge.ReviewsAsync(command.UserId, token, page))];
+            return [.. TelegramKnowledgePresenter.List(await knowledge.ListAsync(command.UserId, token, page))];
         }
         if (!Guid.TryParse(command.Arguments.Trim(), out var id) || id == Guid.Empty)
             return [$"Use /{command.Name} <skill id>. /learn_skills or /learn_reviews"];
@@ -64,7 +64,7 @@ public sealed class TelegramKnowledgeCommandHandler(KnowledgeService knowledge, 
         if (command.Name == "learn_practice")
             return TelegramLearningPresenter.Render(await learning.PracticeAsync(command.UserId, id, token));
         var status = await knowledge.StatusAsync(command.UserId, id, token);
-        return status is null ? ["Skill not found. /learn_skills"] : TelegramKnowledgePresenter.Status(status);
+        return status is null ? ["Skill not found. /learn_skills"] : [.. TelegramKnowledgePresenter.Status(status)];
     }
 
     private static bool TryPreference(string value, out LearningPreferenceKind kind) =>

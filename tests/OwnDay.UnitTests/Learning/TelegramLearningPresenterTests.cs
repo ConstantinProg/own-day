@@ -8,6 +8,28 @@ namespace OwnDay.UnitTests.Learning;
 public sealed class TelegramLearningPresenterTests
 {
     [Fact]
+    public void Render_ChoicePromptAndPlainReplyWithSameText_OnlyPromptHasKeyboard()
+    {
+        var prompt = new ChoicePrompt(Guid.NewGuid(), 1, 1, ChoiceFormat.SingleChoice, "Two plus two?",
+            [new(1, "Four"), new(2, "Five")], [], InRussian: false);
+        var question = Assert.Single(TelegramLearningPresenter.Render(new LearningResult.ChoiceReply("", prompt)));
+
+        var replies = TelegramLearningPresenter.Render(new LearningResult.ChoiceReply(question.Text, prompt));
+
+        Assert.Collection(replies,
+            reply =>
+            {
+                Assert.Equal(question.Text, reply.Text);
+                Assert.Null(reply.ReplyMarkupJson);
+            },
+            reply =>
+            {
+                Assert.Equal(question.Text, reply.Text);
+                Assert.NotNull(reply.ReplyMarkupJson);
+            });
+    }
+
+    [Fact]
     public void Render_EnglishResumeWithMaximumSavedHelp_KeepsQuestionLastWithinTelegramLimit()
     {
         var session = new LearningResult.Session(new string('t', 500), new string('q', 1000), LessonStatus.AwaitingAnswer)
@@ -16,10 +38,10 @@ public sealed class TelegramLearningPresenterTests
             Theory = new string('а', 2500), LastExplanation = new string('h', 2500)
         };
         var messages = TelegramLearningPresenter.Render(session);
-        Assert.Contains(messages, message => message.Contains("Ранее", StringComparison.Ordinal) && message.Contains(session.LastExplanation, StringComparison.Ordinal));
-        Assert.Contains(session.Question, messages[^1]);
-        Assert.Contains("помощь", messages[^1]);
-        Assert.All(messages, message => Assert.InRange(message.Length, 1, 4096));
+        Assert.Contains(messages, message => message.Text.Contains("Ранее", StringComparison.Ordinal) && message.Text.Contains(session.LastExplanation, StringComparison.Ordinal));
+        Assert.Contains(session.Question, messages[^1].Text);
+        Assert.Contains("помощь", messages[^1].Text);
+        Assert.All(messages, message => Assert.InRange(message.Text.Length, 1, 4096));
     }
 
     [Theory]
@@ -37,10 +59,10 @@ public sealed class TelegramLearningPresenterTests
         {
             Provenance = source, HasReferenceCheck = true
         });
-        Assert.Contains(messages, m => m.Contains(expected, StringComparison.Ordinal));
-        Assert.DoesNotContain(messages, m => m.Contains(source.Generator, StringComparison.Ordinal));
-        Assert.DoesNotContain(messages, m => m.Contains("reference was proposed by AI", StringComparison.Ordinal));
-        Assert.All(messages, m => Assert.InRange(m.Length, 1, 4096));
+        Assert.Contains(messages, m => m.Text.Contains(expected, StringComparison.Ordinal));
+        Assert.DoesNotContain(messages, m => m.Text.Contains(source.Generator, StringComparison.Ordinal));
+        Assert.DoesNotContain(messages, m => m.Text.Contains("reference was proposed by AI", StringComparison.Ordinal));
+        Assert.All(messages, m => Assert.InRange(m.Text.Length, 1, 4096));
     }
 
     [Fact]
@@ -54,10 +76,10 @@ public sealed class TelegramLearningPresenterTests
         });
 
         Assert.Equal(2, messages.Count);
-        Assert.Contains(question, messages[^1]);
-        Assert.Contains("подсказку", messages[^1]);
-        Assert.DoesNotContain(messages, text => text.Contains("OpenAI", StringComparison.Ordinal) ||
-            text.Contains("не проверен", StringComparison.OrdinalIgnoreCase) || text.Contains("/answer", StringComparison.Ordinal));
+        Assert.Contains(question, messages[^1].Text);
+        Assert.Contains("подсказку", messages[^1].Text);
+        Assert.DoesNotContain(messages, text => text.Text.Contains("OpenAI", StringComparison.Ordinal) ||
+            text.Text.Contains("не проверен", StringComparison.OrdinalIgnoreCase) || text.Text.Contains("/answer", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -66,11 +88,11 @@ public sealed class TelegramLearningPresenterTests
         var reply = Assert.Single(TelegramLearningPresenter.Render(
             new LearningResult.Session("Algebra", "Two plus two?", LessonStatus.AwaitingAnswer)));
 
-        Assert.Contains("Algebra", reply);
-        Assert.Contains("Two plus two?", reply);
-        Assert.Contains("Write your answer", reply);
-        Assert.DoesNotContain("/answer", reply);
-        Assert.DoesNotContain("Lesson paused", reply);
+        Assert.Contains("Algebra", reply.Text);
+        Assert.Contains("Two plus two?", reply.Text);
+        Assert.Contains("Write your answer", reply.Text);
+        Assert.DoesNotContain("/answer", reply.Text);
+        Assert.DoesNotContain("Lesson paused", reply.Text);
     }
 
     [Fact]
@@ -79,10 +101,10 @@ public sealed class TelegramLearningPresenterTests
         var reply = Assert.Single(TelegramLearningPresenter.Render(
             new LearningResult.Session("Algebra", "Two plus two?", LessonStatus.Paused)));
 
-        Assert.Contains("Algebra", reply);
-        Assert.Contains("Two plus two?", reply);
-        Assert.Contains("Write “continue”", reply);
-        Assert.DoesNotContain("/answer", reply);
+        Assert.Contains("Algebra", reply.Text);
+        Assert.Contains("Two plus two?", reply.Text);
+        Assert.Contains("Write “continue”", reply.Text);
+        Assert.DoesNotContain("/answer", reply.Text);
     }
 
     [Fact]
@@ -97,9 +119,9 @@ public sealed class TelegramLearningPresenterTests
         var paused = TelegramLearningPresenter.Render(new LearningResult.Session(topic, question, LessonStatus.Paused));
         Assert.Equal(2, material.Count);
         Assert.Equal(2, explanation.Count);
-        Assert.All(material.Concat(explanation).Concat(session).Concat(paused), text => Assert.InRange(text.Length, 1, 4096));
-        Assert.Contains(topic, material[0]);
-        Assert.Contains("Write your answer", material[1]);
-        Assert.Contains(question, explanation[1]);
+        Assert.All(material.Concat(explanation).Concat(session).Concat(paused), text => Assert.InRange(text.Text.Length, 1, 4096));
+        Assert.Contains(topic, material[0].Text);
+        Assert.Contains("Write your answer", material[1].Text);
+        Assert.Contains(question, explanation[1].Text);
     }
 }

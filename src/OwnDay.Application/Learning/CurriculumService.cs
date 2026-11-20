@@ -458,7 +458,7 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
                 {
                     PreferredChoice = ChoiceTeaching.Prefer(request, status?.Evidence)
                 }, token);
-            if (previouslySelected && !ChoiceTeaching.IsFreshOpenQuestion(material, recent))
+            if (previouslySelected && !ChoiceTeaching.IsValidFollowUp(material, recent, ExerciseEvidenceKind.Understanding))
                 return new CurriculumResult.ProviderUnavailable();
             if (scaffold) material = material with { Theory = material.Theory + "\n\n" + EnglishLearningContent.LessonScaffold };
             token.ThrowIfCancellationRequested();

@@ -187,7 +187,8 @@ public sealed partial class LearningService(ILessonStore store, ILessonTeacher t
             };
             var material = await teacher.GenerateAsync(request with { PreferredChoice = ChoiceTeaching.Prefer(request) }, token);
             token.ThrowIfCancellationRequested();
-            if (previousChoice is not null && !ChoiceTeaching.IsFreshOpenQuestion(material, [previousChoice]))
+            if (previousChoice is not null &&
+                !ChoiceTeaching.IsValidFollowUp(material, [previousChoice], ExerciseEvidenceKind.Understanding))
                 return new LearningResult.ProviderUnavailable();
             var lesson = await CreateWithChoiceHistoryAsync(user, topic, material, token);
             if (program is not null) lesson.LinkPracticeToProgram(program);
@@ -382,7 +383,8 @@ public sealed partial class LearningService(ILessonStore store, ILessonTeacher t
                 PreferredChoice = ChoiceTeaching.Prefer(request, status.Evidence)
             }, token);
             token.ThrowIfCancellationRequested();
-            if (followsChoice && !ChoiceTeaching.IsFreshOpenQuestion(material, recent))
+            if (followsChoice && !ChoiceTeaching.IsValidFollowUp(material, recent,
+                    request.IsReview ? ExerciseEvidenceKind.Retrieval : ExerciseEvidenceKind.Understanding))
                 return new LearningResult.ProviderUnavailable();
             var lesson = await CreateWithChoiceHistoryAsync(user, skill.Title, material, token);
             if (lesson.Content?.StructuredRubric?.Version == ExerciseRubric.QuestionScopedVersion)

@@ -1,8 +1,6 @@
 using Microsoft.EntityFrameworkCore;
-using OwnDay.Application.Learning;
 using OwnDay.Application.Learning.Requests;
-using OwnDay.Domain.Learning;
-using OwnDay.Infrastructure.Telegram.Commands;
+using OwnDay.Infrastructure.Learning;
 
 namespace OwnDay.Infrastructure.Persistence;
 
@@ -71,6 +69,7 @@ public sealed class EfLearningRequestStore(OwnDayDbContext db) : ILearningReques
         return request is null ? null : new(request.Id, leaseToken, request.UserId, request.AttemptCount);
     }
 
+    // Persist the prepared operation, marker, replies and completion atomically.
     public async Task<bool> ApplyAsync(LearningRequestLease lease,
         Func<LearningRequest, CancellationToken, Task<LearningRequestExecution>> execute, CancellationToken token)
     {
@@ -93,23 +92,16 @@ public sealed class EfLearningRequestStore(OwnDayDbContext db) : ILearningReques
             throw new InvalidOperationException("An unfinished request already has an applied operation.");
 
         var execution = await execute(request, token);
-        var replies = execution.Replies ?? (execution.Result is null
-            ? new[] { "The learning request could not be processed. Retry the original command; no answer was assessed." }
-            : TelegramLearningPresenter.Render(execution.Result));
+        var replies = execution.Replies ??
+            ["The learning request could not be processed. Retry the original command; no answer was assessed."];
         var now = await db.Database.SqlQuery<DateTime>($"SELECT clock_timestamp() AS \"Value\"").SingleAsync(token);
-        // Material, recap and correction use the same choice prompt renderer. Only the
-        // exact prompt for the current persisted revision receives an inline keyboard.
-        var active = db.Set<Lesson>().Local.SingleOrDefault(lesson =>
-            lesson.UserId == request.UserId && lesson.Status == LessonStatus.AwaitingAnswer);
-        var prompt = active is null ? null : ChoicePrompt.From(active);
-        var promptText = prompt is null ? null : TelegramChoicePresenter.Text(prompt);
         for (var ordinal = 0; ordinal < replies.Count; ordinal++)
         {
+            var reply = replies[ordinal];
             db.TelegramOutboxMessages.Add(new TelegramOutboxMessage
             {
                 Id = Guid.NewGuid(), ChatId = request.ChatId, LearningRequestId = request.Id, ReplyOrdinal = ordinal,
-                Text = replies[ordinal], ReplyMarkupJson = prompt is not null && replies[ordinal] == promptText
-                    ? TelegramChoicePresenter.Markup(prompt) : null,
+                Text = reply.Text, ReplyMarkupJson = reply.ReplyMarkupJson,
                 Status = OutboxMessageStatus.Pending, NextAttemptAt = now,
                 CreatedAt = now.AddTicks(ordinal * 10L)
             });

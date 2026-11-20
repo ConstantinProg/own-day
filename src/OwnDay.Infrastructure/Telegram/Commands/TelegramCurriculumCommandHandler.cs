@@ -8,7 +8,7 @@ public sealed class TelegramCurriculumCommandHandler(CurriculumService service)
     public bool Handles(string name) => name is "learn_request" or "learn_program" or "learn_project" or "learn_diagnose" or "learn_route" or "learn_next" or "learn_adapt" or "learn_focus"
         or "learn_programs" or "learn_select" or "learn_link" or "learn_links" or "learn_project_report" or "learn_project_practice" or "learn_transfer" or "learn_progress";
 
-    public async Task<IReadOnlyList<string>> HandleAsync(ProcessIncomingCommand command, CancellationToken token, bool suspendCurrent = false)
+    public async Task<IReadOnlyList<TelegramLearningReply>> HandleAsync(ProcessIncomingCommand command, CancellationToken token, bool suspendCurrent = false)
     {
         CurriculumResult result;
         if (command.Name == "learn_progress")
