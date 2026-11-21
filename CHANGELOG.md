@@ -2,6 +2,26 @@
 
 Здесь собраны пользовательские изменения по выпущенным версиям OwnDay. Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/).
 
+## [0.3.1] - 2026-11-22
+
+### Добавлено
+
+- Команда `/changes` показывает историю изменений текущей версии.
+- В уроках появляются объяснения новых понятий перед проверкой знаний. После правильного ответа бот может предложить следующее упражнение.
+
+### Исправлено
+
+- Улучшены обратная связь, повторные попытки и ограничения подсказок в заданиях с вариантами ответа.
+
+### Added
+
+- The `/changes` command shows the current version's release notes.
+- Lessons explain new concepts before assessment and can offer a follow-up exercise after a correct answer.
+
+### Fixed
+
+- Improved feedback, retries, and hint limits in multiple-choice exercises.
+
 ## [0.2.0] - 2026-11-21
 
 ### Добавлено
@@ -46,5 +66,6 @@
 
 - Inbox and the Telegram commands for managing tasks and records have been retired. The old commands open learning chat help.
 
+[0.3.1]: https://github.com/ConstantinProg/own-day/compare/v0.2.0...v0.3.1
 [0.2.0]: https://github.com/ConstantinProg/own-day/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/ConstantinProg/own-day/tree/v0.1.0
