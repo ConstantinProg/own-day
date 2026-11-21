@@ -165,6 +165,9 @@ public sealed class LearningProviderExecutor(IServiceScopeFactory scopes, IOptio
                 var assessment = step.ReadInput<LessonAssessmentInput>();
                 result = await services.GetRequiredService<ILessonTeacher>().AssessAsync(assessment.Lesson, assessment.Answer, token);
                 break;
+            case "interpret_choice":
+                result = await services.GetRequiredService<ILessonTeacher>().InterpretChoiceAsync(step.ReadInput<ChoiceInterpretationInput>(), token);
+                break;
             case "explain":
                 var explanation = step.ReadInput<LessonExplanationInput>();
                 result = await services.GetRequiredService<ILessonTeacher>().ExplainAsync(explanation.Lesson, explanation.Request, explanation.Kind, token);

@@ -53,18 +53,6 @@ public sealed partial class Lesson
         return attempt;
     }
 
-    public string GiveChoiceHelp(string hint, bool simplified)
-    {
-        RequireAwaitingAnswer();
-        var state = Choice ?? throw new InvalidOperationException("A choice exercise is required.");
-        if (state.SolutionSeen || state.HintsUsed >= MaxHelpSteps)
-            throw new InvalidOperationException("The exercise has reached its hint limit or its solution is already available.");
-        AddExplanation(simplified ? LessonInteractionKind.AlternativeExplanation : LessonInteractionKind.Clarification,
-            "Choice hint", hint);
-        Choice = state with { HintsUsed = state.HintsUsed + 1, Revision = checked(state.Revision + 1) };
-        return hint;
-    }
-
     public string RevealChoice(string solution)
     {
         RequireAwaitingAnswer();

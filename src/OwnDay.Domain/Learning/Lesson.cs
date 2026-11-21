@@ -55,11 +55,15 @@ public sealed partial class Lesson
         RubricEvaluation is { Final: false, AwaitingCorrection: false, Clarification: { } clarification }
         ? clarification : Question;
     public int CorrectionCount => RubricEvaluation is { Corrections.IsDefault: false } evaluation ? evaluation.Corrections.Length : 0;
-    public bool CanOfferMoreHelp => Content?.StructuredRubric is null || CorrectionCount + _interactions.Count < MaxHelpSteps;
-    public string? SavedGuidance => _interactions.FirstOrDefault(interaction => interaction.Kind == LessonInteractionKind.FullAnswer)?.Explanation
-        ?? (!HasPendingLegacyAssessment && RubricEvaluation is { Final: false, AwaitingCorrection: true } evaluation
-        ? evaluation.Corrections[^1].Proposal.Guidance
-        : _interactions.OrderByDescending(interaction => interaction.Id).FirstOrDefault()?.Explanation);
+    public bool CanOfferMoreHelp => !ExercisePending && Choice is { } choice
+        ? !choice.SolutionSeen && choice.HintsUsed < MaxHelpSteps
+        : Content?.StructuredRubric is null || CorrectionCount + _interactions.Count < MaxHelpSteps;
+    public string? SavedGuidance => SavedExplanation?.Explanation ?? PendingCorrection?.Proposal.Guidance;
+    public LessonProvenance? SavedGuidanceProvenance => SavedExplanation?.Provenance;
+    private ExerciseCorrection? PendingCorrection => !HasPendingLegacyAssessment &&
+        RubricEvaluation is { Final: false, AwaitingCorrection: true } evaluation ? evaluation.Corrections[^1] : null;
+    private LessonInteraction? SavedExplanation => _interactions.FirstOrDefault(interaction => interaction.Kind == LessonInteractionKind.FullAnswer)
+        ?? (PendingCorrection is null ? _interactions.MaxBy(interaction => interaction.Id) : null);
     public InterdisciplinaryPractice? Transfer { get; private set; }
     public IReadOnlyCollection<LessonInteraction> Interactions => _interactions.AsReadOnly();
 
@@ -320,7 +324,11 @@ public sealed partial class Lesson
         Validate(request, 1000);
         Validate(explanation, 2500);
         provenance?.Validate();
+        var choice = !ExercisePending && kind != LessonInteractionKind.FullAnswer && Choice is { } state
+            ? state with { HintsUsed = state.HintsUsed + 1, Revision = checked(state.Revision + 1) }
+            : Choice;
         _interactions.Add(new LessonInteraction(Id, kind, request, explanation, preferences, provenance));
+        Choice = choice;
         if (!ExercisePending) Assistance = AnswerAssistance.Assisted;
     }
 

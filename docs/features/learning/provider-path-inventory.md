@@ -10,7 +10,7 @@ the schema-first rollout. Do not mix modes for an owner with pending work.
 | Entry | Existing use case | External steps | Required prepare/apply guards |
 |---|---|---|---|
 | `/learn` | `LearningService.StartAsync` | Generate; conditional RFC source retrieval inside adapter | Owner, no active Lesson, effective preferences; create Lesson/Skill only during apply |
-| `/answer` | `LearningService.AnswerAsync` | Assess | Exact LessonId, AwaitingAnswer, immutable question/material, skill/program identity; atomic answer/evidence/review |
+| `/answer` | `LearningService.AnswerAsync` | Assess open answers or interpret free-text choices when needed | Exact LessonId, AwaitingAnswer, immutable question/material, skill/program identity, and atomic answer/evidence/review. Domain grades interpreted option IDs against the published key. |
 | `/learn_ask`, `/learn_explain` | `LearningService.ClarifyAsync`/`ExplainAsync` | Explain | Exact LessonId, AwaitingAnswer, question/teaching/transfer snapshot; append one interaction and preserve question |
 | `/learn_practice` | `LearningService.PracticeAsync` | Generate; conditional source read | Owned skill, no active Lesson, skill state/preferences; link same skill |
 | `/learn_review` | `LearningService.ReviewAsync` | Generate; conditional source read | Owned skill, due review, no active Lesson, preferences; mark review without route progress |

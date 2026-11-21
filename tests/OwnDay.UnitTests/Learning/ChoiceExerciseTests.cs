@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using OwnDay.Application.Learning;
+using OwnDay.Application.Learning.Requests;
 using OwnDay.Domain;
 using OwnDay.Domain.Learning;
 using Xunit;
@@ -45,6 +46,38 @@ public sealed class ChoiceExerciseTests
             Assert.Equal(LessonStatus.Completed, lesson.Status);
             Assert.Single(knowledge.Evidence);
         }
+    }
+
+    [Fact]
+    public async Task AnswerAsync_OneLetterOptionText_GradesAgainstPublishedKey()
+    {
+        var exercise = Exercise(ChoiceFormat.SingleChoice) with { Options = [new(2, "X"), new(5, "Y")] };
+        var (lesson, learning, knowledge) = Create(exercise);
+
+        await learning.AnswerAsync(lesson.UserId, "x", default);
+
+        Assert.Equal(ChoiceOutcome.Correct, Assert.Single(lesson.Choice!.Attempts).Outcome);
+        Assert.True(Assert.Single(knowledge.Evidence).DeterministicIsCorrect);
+    }
+
+    [Fact]
+    public async Task ClarifyAsync_ChoiceHelpFromProviderAndPublishedHint_ShareLimit()
+    {
+        var teacher = new RecordingTeacher();
+        var (lesson, learning, _) = Create(Exercise(ChoiceFormat.SingleChoice), teacher: teacher);
+
+        Assert.IsType<LearningResult.ChoiceReply>(await learning.ClarifyAsync(lesson.UserId, "hint", default));
+        Assert.IsType<LearningResult.ChoiceReply>(await learning.ClarifyAsync(lesson.UserId, "Could you give a hint?", default));
+        var revision = lesson.Choice!.Revision;
+        Assert.IsType<LearningResult.HelpLimit>(await learning.ClarifyAsync(lesson.UserId, "Could you give another hint?", default));
+        Assert.IsType<LearningResult.HelpLimit>(await learning.ExplainAsync(lesson.UserId, default));
+
+        Assert.Equal(1, teacher.ExplanationCalls);
+        Assert.Equal(Lesson.MaxHelpSteps, lesson.Choice.HintsUsed);
+        Assert.Equal(Lesson.MaxHelpSteps, lesson.Interactions.Count);
+        Assert.Equal(revision, lesson.Choice.Revision);
+        Assert.Equal(AnswerAssistance.Assisted, lesson.Assistance);
+        Assert.IsType<LearningResult.ChoiceReply>(await learning.RevealAsync(lesson.UserId, default));
     }
 
     [Fact]
@@ -152,18 +185,21 @@ public sealed class ChoiceExerciseTests
     }
 
     private static (Lesson Lesson, LearningService Service, KnowledgeStore Knowledge) Create(ChoiceFormat format,
-        bool reused = false, bool review = false)
+        bool reused = false, bool review = false) => Create(Exercise(format), reused, review);
+
+    private static (Lesson Lesson, LearningService Service, KnowledgeStore Knowledge) Create(ChoiceExercise exercise,
+        bool reused = false, bool review = false, ILessonTeacher? teacher = null)
     {
         var user = new UserId(123);
         var knowledge = new KnowledgeStore();
         var skill = Skill.Create(user, "Тема", "Навык");
         knowledge.Add(skill);
-        var question = Exercise(format);
-        var lesson = Lesson.Start(user, "Тема", "Разберём условие.", question.Question);
-        lesson.PublishChoice(question, reused);
+        var lesson = Lesson.Start(user, "Тема", "Разберём условие.", exercise.Question);
+        lesson.PublishChoice(exercise, reused);
         lesson.LinkToSkill(skill);
         if (review) lesson.MarkAsReview();
-        return (lesson, new(new SingleLesson(lesson), new NoProvider(), new(knowledge, new FixedTimeProvider(DateTime.UnixEpoch.AddDays(10)))),
+        return (lesson, new(new SingleLesson(lesson), teacher ?? new RecordingTeacher(),
+                new(knowledge, new FixedTimeProvider(DateTime.UnixEpoch.AddDays(10)))),
             knowledge);
     }
 
@@ -175,11 +211,18 @@ public sealed class ChoiceExerciseTests
         public void Add(Lesson value) => throw new NotSupportedException();
     }
 
-    private sealed class NoProvider : ILessonTeacher
+    private sealed class RecordingTeacher : ILessonTeacher
     {
+        public int ExplanationCalls { get; private set; }
+
         public Task<LessonMaterial> GenerateAsync(LessonRequest request, CancellationToken token) => throw new NotSupportedException();
         public Task<LessonAssessment> AssessAsync(Lesson lesson, string answer, CancellationToken token) => throw new NotSupportedException();
         public Task<LessonExplanation> ExplainAsync(Lesson lesson, string request, LessonInteractionKind kind, CancellationToken token) =>
             throw new NotSupportedException();
+        public Task<LessonExplanation> ExplainAsync(LessonSnapshot lesson, string request, LessonInteractionKind kind, CancellationToken token)
+        {
+            ExplanationCalls++;
+            return Task.FromResult(new LessonExplanation("Try another example."));
+        }
     }
 }

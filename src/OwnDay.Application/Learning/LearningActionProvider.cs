@@ -24,11 +24,11 @@ public static class LearningActionProvider
         _ => []
     };
 
-    public static IReadOnlyList<LearningAction> ForPractice(PracticeReplyKind kind) => kind switch
+    public static IReadOnlyList<LearningAction> ForPractice(LearningPracticeResult result) => result.Kind switch
     {
         PracticeReplyKind.ReadyNext => [new(LearningActionKind.Next), new(LearningActionKind.PausePractice), new(LearningActionKind.StopPractice)],
         PracticeReplyKind.Paused => [new(LearningActionKind.Continue), new(LearningActionKind.StopPractice)],
-        PracticeReplyKind.ProviderUnavailable => [new(LearningActionKind.Next)],
+        PracticeReplyKind.ProviderUnavailable => [new(LearningActionKind.Next, result.RetryLessonId ?? Guid.Empty)],
         _ => []
     };
 
@@ -57,8 +57,7 @@ public static class LearningActionProvider
 
     public static bool CanOffer(LearningAction action, Lesson? lesson) => action.Kind switch
     {
-        LearningActionKind.Hint => lesson is { AcceptsAnswer: true } &&
-            (lesson.Choice is { } choice ? !choice.SolutionSeen && choice.HintsUsed < Lesson.MaxHelpSteps : lesson.CanOfferMoreHelp),
+        LearningActionKind.Hint => lesson is { AcceptsAnswer: true, CanOfferMoreHelp: true },
         LearningActionKind.Solution => lesson is { AcceptsAnswer: true } &&
             (lesson.Choice is { } choice ? !choice.SolutionSeen : lesson.Interactions.All(interaction => interaction.Kind != LessonInteractionKind.FullAnswer)),
         LearningActionKind.Criteria => lesson is { AcceptsAnswer: true, AssessmentContent.StructuredRubric: not null },

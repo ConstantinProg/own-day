@@ -546,13 +546,69 @@ public sealed partial class PostgresLearningProviderTests
     }
 
     [Fact]
-    public async Task Post_ExplicitChoiceExample_GivesRequestedExplanationWithoutAnAttempt()
+    public async Task Post_RevealedChoiceReplacementFails_RetryButtonReplacesTheActivePracticeExercise()
+    {
+        await SeedChoiceProgramAsync();
+        var openAttempts = 0;
+        var probe = new Probe("")
+        {
+            Generate = request =>
+            {
+                if (request.PreferredChoice is { } format) return ChoiceMaterial(format);
+                if (Interlocked.Increment(ref openAttempts) == 1) throw new LessonProviderException();
+                return OpenChoiceFollowUp(ExerciseEvidenceKind.Understanding, "Как проверить сумму на новом примере?");
+            }
+        };
+        using var host = ChoiceHost(probe, new()).WithWebHostBuilder(builder =>
+            builder.UseSetting("Learning:Processing:PracticeEnabled", "true"));
+        using var client = host.CreateClient();
+        await SendChoiceTextAsync(client, 1, "давай два упражнения");
+        await DrainChoiceRequestsAsync(host.Services, 1);
+        await SendChoiceTextAsync(client, 2, "к упражнению");
+        await DrainChoiceRequestsAsync(host.Services, 1);
+        await SendChoiceTextAsync(client, 3, "покажи решение");
+        await DrainChoiceRequestsAsync(host.Services, 1);
+        await SendChoiceTextAsync(client, 4, "дальше");
+        await DrainChoiceRequestsAsync(host.Services, 1);
+
+        string callback;
+        Guid revealedId;
+        await using (var failed = Open())
+        {
+            var revealed = await failed.Set<Lesson>().SingleAsync();
+            revealedId = revealed.Id;
+            Assert.True(revealed.Choice!.SolutionSeen);
+            Assert.True(revealed.AcceptsAnswer);
+            Assert.Equal(revealedId, Assert.Single((await failed.Set<LearningContext>().SingleAsync()).Practice!.LessonIds));
+            var reply = await failed.TelegramOutboxMessages.SingleAsync(message => message.Text.Contains("новое упражнение пока недоступно"));
+            var markup = JsonSerializer.Deserialize<InlineKeyboardMarkup>(Assert.IsType<string>(reply.ReplyMarkupJson));
+            var button = Assert.Single(Assert.Single(Assert.IsType<InlineKeyboardMarkup>(markup).InlineKeyboard));
+            Assert.Equal("Дальше", button.Text);
+            callback = Assert.IsType<string>(button.CallbackData);
+        }
+
+        await PostChoiceCallbackAsync(client, 5, callback);
+        await DrainChoiceRequestsAsync(host.Services, 1);
+
+        await using var final = Open();
+        Assert.Equal(LessonStatus.Finished, (await final.Set<Lesson>().FindAsync(revealedId))!.Status);
+        var fresh = await final.Set<Lesson>().SingleAsync(lesson => lesson.Choice == null);
+        Assert.True(fresh.AcceptsAnswer);
+        Assert.Equal(fresh.Id, Assert.Single((await final.Set<LearningContext>().SingleAsync()).Practice!.LessonIds));
+        Assert.Equal(2, openAttempts);
+    }
+
+    [Fact]
+    public async Task Post_ExplicitChoiceExample_GivesExplanationWithVerificationNoticeWithoutAnAttempt()
     {
         var probe = new Probe("")
         {
             Material = ClearingChoiceMaterial(),
             Recognize = _ => LearningIntent.Clarify,
             Explanation = new("На складе сначала записывают, сколько коробок должен передать каждый участник.")
+            {
+                Provenance = new("test", null, null, null, null, MaterialSourceStatus.Unverified)
+            }
         };
         using var host = ChoiceHost(probe, new());
         using var client = host.CreateClient();
@@ -560,12 +616,19 @@ public sealed partial class PostgresLearningProviderTests
         await DrainChoiceRequestsAsync(host.Services, 1);
         await SendChoiceTextAsync(client, 2, "Приведи ещё один пример и объясни подробнее");
         await DrainChoiceRequestsAsync(host.Services, 1);
+        await SendChoiceTextAsync(client, 3, "Продолжим");
+        await DrainChoiceRequestsAsync(host.Services, 1);
 
         await using var db = Open();
         Assert.Equal(1, probe.KindCalls["explain"]);
-        Assert.Empty((await db.Set<Lesson>().SingleAsync()).Choice!.Attempts);
+        var choice = (await db.Set<Lesson>().SingleAsync()).Choice!;
+        Assert.Empty(choice.Attempts);
+        Assert.Equal(1, choice.HintsUsed);
         var explanation = await db.Set<LessonInteraction>().SingleAsync();
         Assert.Contains("коробок", explanation.Explanation);
+        Assert.Equal(MaterialSourceStatus.Unverified, explanation.Provenance?.Status);
+        Assert.Equal(2, await db.TelegramOutboxMessages.CountAsync(reply =>
+            reply.Text.Contains("Актуальные детали не удалось подтвердить")));
     }
 
     [Fact]
@@ -573,17 +636,16 @@ public sealed partial class PostgresLearningProviderTests
     {
         const string ambiguous = "Клиринг как-то обрабатывает сделку";
         const string answer = "Посчитать, кто сколько должен после сделки";
+        var interpreted = new ConcurrentQueue<string>();
         var probe = new Probe("")
         {
             Material = ClearingChoiceMaterial(),
-            Assessment = (lesson, text) =>
+            Interpretation = input =>
             {
-                Assert.NotNull(lesson.ChoiceResponse);
-                Assert.Equal(4, lesson.ChoiceResponse.Options.Count);
-                return new("This verdict is ignored for a published choice.", false)
-                {
-                    SelectedOptions = text == answer ? [1] : null
-                };
+                Assert.Equal(ChoiceFormat.SingleChoice, input.Format);
+                Assert.Equal(4, input.Options.Length);
+                interpreted.Enqueue(input.Answer);
+                return new(input.Answer == answer ? [1] : null);
             }
         };
         using var host = ChoiceHost(probe, new());
@@ -607,7 +669,8 @@ public sealed partial class PostgresLearningProviderTests
         Assert.Equal(answer, assessment.Answer);
         Assert.Equal(ChoiceOutcome.Correct, assessment.Outcome);
         Assert.True((await final.Set<LearningEvidence>().SingleAsync()).DeterministicIsCorrect);
-        Assert.Equal(new[] { ambiguous, answer }, probe.AssessedAnswers.ToArray());
+        Assert.Equal(new[] { ambiguous, answer }, interpreted.ToArray());
+        Assert.Empty(probe.AssessedAnswers);
     }
 
     [Fact]

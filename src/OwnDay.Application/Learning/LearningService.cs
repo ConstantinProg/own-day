@@ -89,8 +89,6 @@ public sealed record LessonAssessment(string Feedback, bool IsCorrect)
     public string Source { get; init; } = "LLM (unspecified model)";
     public RubricAssessment? Rubric { get; init; }
     public ExerciseCorrectionProposal? Correction { get; init; }
-    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
-    public int[]? SelectedOptions { get; init; }
 }
 public sealed record LessonExplanation(string Explanation)
 {
@@ -108,6 +106,8 @@ public interface ILessonTeacher
     // Legacy implementations remain source-compatible. Background execution requires
     // these immutable contracts and safely rejects an adapter that does not support them.
     Task<LessonAssessment> AssessAsync(Requests.LessonSnapshot lesson, string answer, CancellationToken token) =>
+        throw new LessonProviderException();
+    Task<Requests.ChoiceInterpretation> InterpretChoiceAsync(Requests.ChoiceInterpretationInput input, CancellationToken token) =>
         throw new LessonProviderException();
     Task<LessonExplanation> ExplainAsync(Requests.LessonSnapshot lesson, string request, LessonInteractionKind kind, CancellationToken token) =>
         throw new LessonProviderException();
@@ -162,6 +162,7 @@ public abstract record LearningResult
         public LearningContent? Content { get; init; }
         public string? Theory { get; init; }
         public string? LastExplanation { get; init; }
+        public LessonProvenance? LastExplanationProvenance { get; init; }
         public LessonProvenance? Provenance { get; init; }
         public long? ProjectActionId { get; init; }
         public InterdisciplinaryPractice? Transfer { get; init; }
@@ -186,6 +187,7 @@ public abstract record LearningResult
     public sealed record ChoiceReply(string Message, ChoicePrompt? Prompt = null, LearningContinuation? Continuation = null) : LearningResult
     {
         public Guid? AssessedLessonId { get; init; }
+        public LessonProvenance? Provenance { get; init; }
     }
 }
 
@@ -540,7 +542,7 @@ public sealed partial class LearningService(ILessonStore store, ILessonTeacher t
         Provenance = lesson.Provenance, ProjectActionId = lesson.ProjectActionId, Transfer = lesson.Transfer,
         Content = lesson.Content, Theory = lesson.TheorySkipped ? null : lesson.Theory,
         IsClarifyingAnswer = lesson.ResponseQuestion != lesson.Question,
-        LastExplanation = lesson.SavedGuidance, Choice = ChoicePrompt.From(lesson),
+        LastExplanation = lesson.SavedGuidance, LastExplanationProvenance = lesson.SavedGuidanceProvenance, Choice = ChoicePrompt.From(lesson),
         PendingExerciseId = lesson.ExercisePending ? lesson.Id : null
     };
 

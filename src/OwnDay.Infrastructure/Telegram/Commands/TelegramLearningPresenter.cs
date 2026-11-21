@@ -45,6 +45,7 @@ public static class TelegramLearningPresenter
                     ? TelegramLearningReply.WithActions(choice.Message + ChoiceContinuationFallback(choice),
                         LearningActionProvider.ForAssessment(choice.AssessedLessonId, continuation)) : new TelegramLearningReply(choice.Message)
             },
+            .. SourceNotice(choice.Provenance, choice.Prompt?.InRussian ?? MarketLearningContent.InRussian(choice.Message)),
             .. choice.Prompt is { } prompt ? new[] { TelegramChoicePresenter.Render(prompt) } : []],
         _ => throw new ArgumentOutOfRangeException(nameof(result))
     };
@@ -163,7 +164,8 @@ public static class TelegramLearningPresenter
                 .. session.LastExplanation is { } explanation ? new[] { explanation } : []];
         }
         if (session.Choice is { } choice)
-            return [.. session.LastExplanation is { } last ? new[] { last } : [], TelegramChoicePresenter.Render(choice)];
+            return [.. session.LastExplanation is { } last ? new[] { last } : [],
+                .. SourceNotice(session.LastExplanationProvenance, choice.InRussian), TelegramChoicePresenter.Render(choice)];
         if (session.Content?.Kind is LearningContentKind.ReadingChoice or LearningContentKind.OpenWriting)
             return RenderRecap(session, !russian);
         var guidance = session.LastExplanation is { } saved

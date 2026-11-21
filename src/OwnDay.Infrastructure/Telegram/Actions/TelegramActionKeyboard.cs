@@ -29,7 +29,7 @@ public sealed class TelegramActionKeyboard(TelegramActionCodec codec)
             if (bound is null || expiresAt <= now) continue;
             if (action.Kind is LearningActionKind.Hint or LearningActionKind.Solution or LearningActionKind.Criteria)
                 bound = bound with { TargetId = lesson!.Id };
-            var label = Label(bound, reply.Choice, russian);
+            var label = Label(bound, reply.Choice, russian, lesson?.ExercisePending == true);
             rows.Add([InlineKeyboardButton.WithCallbackData(label, codec.Encode(bound, owner, chat, expiresAt))]);
         }
         return rows.Count == 0 ? reply : reply with { ReplyMarkupJson = JsonSerializer.Serialize(new InlineKeyboardMarkup(rows)) };
@@ -49,7 +49,7 @@ public sealed class TelegramActionKeyboard(TelegramActionCodec codec)
         return (action with { Revision = action.Revision ^ (dialogue?.Revision ?? 0) }, now.AddDays(1));
     }
 
-    private static string Label(LearningAction action, ChoicePrompt? prompt, bool russian)
+    private static string Label(LearningAction action, ChoicePrompt? prompt, bool russian, bool exercisePending)
     {
         if (prompt is not null && action.Kind is LearningActionKind.SelectChoice or LearningActionKind.ToggleChoice)
         {
@@ -77,7 +77,7 @@ public sealed class TelegramActionKeyboard(TelegramActionCodec codec)
         {
             LearningActionKind.SubmitChoice => ("Ответить", "Submit"),
             LearningActionKind.Continue or LearningActionKind.ClarifyContinue => ("Продолжить", "Continue"),
-            LearningActionKind.Next when action.TargetId != Guid.Empty => ("К упражнению", "Start exercise"),
+            LearningActionKind.Next when exercisePending => ("К упражнению", "Start exercise"),
             LearningActionKind.Next => ("Дальше", "Next"),
             LearningActionKind.Hint or LearningActionKind.DiagnosisHelp => ("Подсказка", "Hint"),
             LearningActionKind.Solution => ("Показать решение", "Show solution"),

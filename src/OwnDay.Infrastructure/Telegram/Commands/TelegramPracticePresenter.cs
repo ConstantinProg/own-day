@@ -19,7 +19,7 @@ public static class TelegramPracticePresenter
             PracticeReplyKind.ProviderUnavailable => "План практики сохранён, но новое упражнение пока недоступно. Для явной повторной попытки напишите «дальше».",
             _ => "Не удалось начать практику. Выберите от одного до трёх упражнений или напишите «помощь», чтобы вернуться к текущему вопросу."
         };
-        var reply = TelegramLearningReply.WithActions(text, LearningActionProvider.ForPractice(result.Kind), inRussian: true);
+        var reply = TelegramLearningReply.WithActions(text, LearningActionProvider.ForPractice(result), inRussian: true);
         return result.Lesson is null ? [reply] : [reply, .. TelegramLearningPresenter.Render(result.Lesson)];
     }
 }

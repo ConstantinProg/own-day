@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -8,7 +9,7 @@ using OwnDay.Application.Dialogue;
 
 namespace OwnDay.Application.Learning.Requests;
 
-// Concrete snapshots for the five existing Learning provider operations. No Domain
+// Concrete snapshots for Learning provider operations. No Domain
 // entity or service scope is retained by a durable step or sent to a provider.
 public sealed record LessonSnapshot(Guid Id, UserId UserId, string Topic, string Theory, string Question,
     LessonStatus Status, LessonTeaching? Teaching, InterdisciplinaryPractice? Transfer,
@@ -52,6 +53,8 @@ public sealed record ChoiceResponseContext(ChoiceFormat Format, IReadOnlyList<Ch
 public sealed record AssessmentReviewContext(string Argument, string Stage);
 
 public sealed record LessonAssessmentInput(LessonSnapshot Lesson, string Answer);
+public sealed record ChoiceInterpretationInput(string Question, ChoiceFormat Format, ImmutableArray<ChoiceOption> Options, string Answer);
+public sealed record ChoiceInterpretation(ImmutableArray<int>? SelectedOptions);
 public sealed record LessonExplanationInput(LessonSnapshot Lesson, string Request, LessonInteractionKind Kind);
 public sealed record TeachingInput(string Goal, string Discipline, CurriculumTopic[] Topics,
     string CurrentTopicCode, string[] Completed, LearnerSkillState State, string[] RecentFeedback)
@@ -121,6 +124,9 @@ public sealed class LearningProviderSession(IReadOnlyList<LearningProviderStep> 
 
     public Task<LessonAssessment> AssessAsync(LessonSnapshot lesson, string answer, CancellationToken token) =>
         ConsumeAsync<LessonAssessment>("assess", new LessonAssessmentInput(lesson, answer), token);
+
+    public Task<ChoiceInterpretation> InterpretChoiceAsync(ChoiceInterpretationInput input, CancellationToken token) =>
+        ConsumeAsync<ChoiceInterpretation>("interpret_choice", input, token);
 
     public Task<LessonExplanation> ExplainAsync(Lesson lesson, string request, LessonInteractionKind kind, CancellationToken token) =>
         ExplainAsync(LessonSnapshot.From(lesson), request, kind, token);

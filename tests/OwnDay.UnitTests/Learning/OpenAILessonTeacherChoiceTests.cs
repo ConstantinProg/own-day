@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 using OpenAI;
 using OpenAI.Chat;
 using OwnDay.Application.Learning;
+using OwnDay.Application.Learning.Requests;
 using OwnDay.Domain.Learning;
 using OwnDay.Infrastructure.Learning;
 using OwnDay.Infrastructure.OpenAIAnalysis;
@@ -14,6 +15,32 @@ namespace OwnDay.UnitTests.Learning;
 
 public sealed partial class OpenAILessonTeacherTests
 {
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task InterpretChoiceAsync_ProviderSelectionOrAmbiguity_ReturnsOnlySelectedIds(bool matched)
+    {
+        var response = JsonSerializer.Serialize(new { SelectedOptions = matched ? new[] { 4 } : null });
+        using var handler = new ResponseHandler(JsonSerializer.Serialize(new
+        {
+            id = "interpretation", model = "test", created = 1, @object = "chat.completion",
+            choices = new[] { new { index = 0, finish_reason = "stop", message = new { role = "assistant", content = response } } }
+        }));
+        using var http = new HttpClient(handler);
+        var input = new ChoiceInterpretationInput("Choose a sum.", ChoiceFormat.SingleChoice,
+            [new(4, "Two plus two"), new(2, "Two plus three")], "The sum of two twos.");
+
+        var result = await Teacher(http, new RecordingLogger()).InterpretChoiceAsync(input, default);
+
+        Assert.Equal(matched ? new[] { 4 } : null, result.SelectedOptions?.ToArray());
+        using var body = JsonDocument.Parse(handler.RequestBody!);
+        var messages = body.RootElement.GetProperty("messages");
+        using var sent = JsonDocument.Parse(messages[1].GetProperty("content").GetString()!);
+        Assert.Equal(input.Answer, sent.RootElement.GetProperty("Answer").GetString());
+        Assert.Equal(2, sent.RootElement.GetProperty("Options").GetArrayLength());
+        Assert.False(sent.RootElement.TryGetProperty("CorrectOptions", out _));
+    }
+
     [Theory]
     [InlineData("valid", true)]
     [InlineData("duplicate", false)]

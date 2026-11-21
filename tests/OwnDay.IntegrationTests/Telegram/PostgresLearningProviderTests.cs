@@ -506,6 +506,7 @@ public sealed partial class PostgresLearningProviderTests : IAsyncLifetime
         public LessonMaterial Material { get; init; } = new("Theory", "Question");
         public Func<LessonRequest, LessonMaterial>? Generate { get; init; }
         public Func<LessonSnapshot, string, LessonAssessment>? Assessment { get; init; }
+        public Func<ChoiceInterpretationInput, ChoiceInterpretation>? Interpretation { get; init; }
         public LessonExplanation Explanation { get; init; } = new("Explanation");
         public System.Collections.Concurrent.ConcurrentQueue<LearningIntentInput> IntentInputs { get; } = new();
         public System.Collections.Concurrent.ConcurrentQueue<string> AssessedAnswers { get; } = new();
@@ -571,6 +572,11 @@ public sealed partial class PostgresLearningProviderTests : IAsyncLifetime
         }
         public async Task<LessonAssessment> AssessAsync(LessonSnapshot lesson, string answer, CancellationToken token)
         { probe.AssessedAnswers.Enqueue(answer); probe.AssessedLessons.Enqueue(lesson); await BlockAsync("assess", token); return probe.Assessment?.Invoke(lesson, answer) ?? new("Feedback", true); }
+        public async Task<ChoiceInterpretation> InterpretChoiceAsync(ChoiceInterpretationInput input, CancellationToken token)
+        {
+            await BlockAsync("interpret_choice", token);
+            return probe.Interpretation?.Invoke(input) ?? new(null);
+        }
         public async Task<LearningIntentProposal> ResolveAsync(LearningIntentInput input, CancellationToken token)
         { probe.IntentInputs.Enqueue(input); await BlockAsync("intent", token); return new(probe.Recognize?.Invoke(input) ?? probe.Intent); }
         public async Task<LessonExplanation> ExplainAsync(LessonSnapshot lesson, string request, LessonInteractionKind kind, CancellationToken token)

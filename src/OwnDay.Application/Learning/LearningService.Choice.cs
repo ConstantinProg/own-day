@@ -50,10 +50,10 @@ internal static class ChoiceTeaching
         return ChoiceFormat.SingleChoice;
     }
 
-    public static TeachingAction AfterAttempt(ChoiceExerciseState choice, bool isReview, bool needsScaffolding)
+    public static TeachingAction AfterAttempt(Lesson lesson, bool needsScaffolding)
     {
-        if (choice.SolutionSeen || choice.Reused || isReview || choice.Exercise.Format == ChoiceFormat.TrueFalse ||
-            choice.HintsUsed >= Lesson.MaxHelpSteps ||
+        var choice = lesson.Choice!;
+        if (!lesson.CanOfferMoreHelp || choice.Reused || lesson.IsReview || choice.Exercise.Format == ChoiceFormat.TrueFalse ||
             choice.Attempts.Length >= ChoiceExerciseState.MaxAttempts ||
             choice.Attempts.Length > 1 && needsScaffolding && choice.Attempts[^2].Outcome == ChoiceOutcome.Incorrect)
             return TeachingAction.Explain;
@@ -148,33 +148,28 @@ public sealed partial class LearningService
         var choice = lesson.Choice!;
         if (choice.SolutionSeen)
             return new LearningResult.ChoiceReply("", ChoicePrompt.From(lesson));
-        var selection = ChoiceAnswerText.Parse(choice.Exercise, answer);
-        var looksLikeLabels = ChoiceAnswerText.LooksLikeAnswer(choice.Exercise, answer);
-        if (!choice.Exercise.IsValidSelection(selection) && !looksLikeLabels)
+        var exercise = choice.Exercise;
+        var selection = ChoiceAnswerText.Parse(exercise, answer);
+        if (exercise.IsValidSelection(selection)) return await SubmitChoiceAsync(lesson, selection, token, answer);
+
+        var optionText = answer.TrimEnd('.', '!');
+        var option = exercise.Options.FirstOrDefault(option =>
+            string.Equals(option.Text.Trim().TrimEnd('.', '!'), optionText, StringComparison.OrdinalIgnoreCase));
+        if (option is not null) return await SubmitChoiceAsync(lesson, [option.Id], token, answer);
+        if (ChoiceAnswerText.LooksLikeAnswer(exercise, answer)) return InvalidChoice(lesson);
+
+        try
         {
-            selection = [.. choice.Exercise.Options
-                .Where(option => string.Equals(option.Text.TrimEnd('.', '!'), answer.TrimEnd('.', '!'), StringComparison.OrdinalIgnoreCase))
-                .Select(option => option.Id)];
-            if (!choice.Exercise.IsValidSelection(selection))
-            {
-                try
-                {
-                    var interpretation = await teacher.AssessAsync(LessonSnapshot.From(lesson) with
-                    {
-                        ChoiceResponse = ChoiceResponseContext.From(choice) with { LastAttempt = null }
-                    }, answer, token);
-                    token.ThrowIfCancellationRequested();
-                    selection = interpretation.SelectedOptions is { } selected ? [.. selected] : [];
-                }
-                catch (LessonProviderException)
-                {
-                    return InvalidChoice(lesson);
-                }
-            }
+            var interpretation = await teacher.InterpretChoiceAsync(new(exercise.Question, exercise.Format, exercise.Options, answer), token);
+            token.ThrowIfCancellationRequested();
+            selection = interpretation.SelectedOptions ?? [];
         }
-        if (choice.Exercise.IsValidSelection(selection))
+        catch (LessonProviderException)
+        {
+            return InvalidChoice(lesson);
+        }
+        if (exercise.IsValidSelection(selection))
             return await SubmitChoiceAsync(lesson, selection, token, answer);
-        if (looksLikeLabels) return InvalidChoice(lesson);
         return new LearningResult.ChoiceReply(MarketLearningContent.InRussian(lesson.Theory)
             ? "Не удалось однозначно связать ваш ответ с вариантами. Уточните, какой вариант вы имеете в виду, или выберите его ниже."
             : "I couldn't match your answer to the options with confidence. Clarify which option you mean, or select it below.",
@@ -185,7 +180,6 @@ public sealed partial class LearningService
     {
         var russian = MarketLearningContent.InRussian(lesson.Theory);
         var attempt = lesson.SubmitChoice(selection, operationId, answer);
-        var state = lesson.Choice!;
         var verdict = attempt.Outcome switch
         {
             ChoiceOutcome.Correct => russian ? "Верно." : "Correct.",
@@ -199,7 +193,7 @@ public sealed partial class LearningService
                 ? await curriculum.FindAsync(lesson.UserId, programId, token) : null;
             var needsScaffolding = history?.State.RepeatedDifficulty == true ||
                 lesson.Teaching?.Strategy is PedagogicalStrategy.Simplify or PedagogicalStrategy.ReviewPrerequisite;
-            var action = ChoiceTeaching.AfterAttempt(state, lesson.IsReview, needsScaffolding);
+            var action = ChoiceTeaching.AfterAttempt(lesson, needsScaffolding);
             if (action != TeachingAction.Explain)
             {
                 var foundation = program is not null &&
@@ -263,7 +257,9 @@ public sealed partial class LearningService
                 hint = (russian ? $"Проверьте вариант «{selected}». " : $"Revisit the choice “{selected}”. ") + hint;
             }
         }
-        return lesson.GiveChoiceHelp(hint, simplified);
+        lesson.AddExplanation(simplified ? LessonInteractionKind.AlternativeExplanation : LessonInteractionKind.Clarification,
+            "Choice hint", hint);
+        return hint;
     }
 
     private static LearningResult.ChoiceReply InvalidChoice(Lesson lesson)
@@ -283,10 +279,10 @@ public sealed partial class LearningService
             var solution = lesson.RevealChoice(ChoiceSolution(choice.Exercise, russian));
             return new LearningResult.ChoiceReply(solution, ChoicePrompt.From(lesson));
         }
+        if (!lesson.CanOfferMoreHelp) return new LearningResult.HelpLimit();
         if (kind == LessonInteractionKind.Clarification && request.TrimEnd('.', '!', '?').ToLowerInvariant() is
             "дай короткую подсказку" or "дай подсказку" or "подскажи" or "подсказка" or "give me a short hint" or "hint")
         {
-            if (choice.SolutionSeen || choice.HintsUsed >= Lesson.MaxHelpSteps) return new LearningResult.HelpLimit();
             return new LearningResult.ChoiceReply(GiveChoiceScaffold(lesson,
                 choice.HintsUsed == 0 ? TeachingAction.Hint : TeachingAction.Simplify, russian, foundation: false), ChoicePrompt.From(lesson));
         }
@@ -298,8 +294,10 @@ public sealed partial class LearningService
             }, request, kind, token);
             token.ThrowIfCancellationRequested();
             lesson.AddExplanation(kind, request, explanation.Explanation, provenance: explanation.Provenance);
-            lesson.RefreshChoicePrompt();
-            return new LearningResult.ChoiceReply(explanation.Explanation, ChoicePrompt.From(lesson));
+            return new LearningResult.ChoiceReply(explanation.Explanation, ChoicePrompt.From(lesson))
+            {
+                Provenance = explanation.Provenance
+            };
         }
         catch (Exception exception) when (exception is LessonProviderException or ArgumentException)
         {

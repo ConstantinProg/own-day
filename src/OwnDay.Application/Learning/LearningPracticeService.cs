@@ -5,7 +5,10 @@ using OwnDay.Domain.Learning;
 namespace OwnDay.Application.Learning;
 
 public enum PracticeReplyKind { Unavailable, NeedProgram, NeedDiagnosis, Current, ReadyNext, Paused, Stopped, Completed, ProviderUnavailable }
-public sealed record LearningPracticeResult(PracticeReplyKind Kind, LearningPractice? Practice = null, LearningResult? Lesson = null);
+public sealed record LearningPracticeResult(PracticeReplyKind Kind, LearningPractice? Practice = null, LearningResult? Lesson = null)
+{
+    public Guid? RetryLessonId { get; init; }
+}
 
 public sealed class LearningPracticeService(ICurriculumStore programs, ILessonStore lessons, LearningService learning, CurriculumService curriculum)
 {
@@ -53,7 +56,7 @@ public sealed class LearningPracticeService(ICurriculumStore programs, ILessonSt
                     ? (await curriculum.NextAsync(user, programId, token) as CurriculumResult.Lesson)?.Value
                     : await learning.PracticeAsync(user, practice.SkillId!.Value, token);
                 if (replacement is not (LearningResult.Material or LearningResult.Session { PendingExerciseId: not null }))
-                    return new(PracticeReplyKind.ProviderUnavailable, context.Practice);
+                    return new(PracticeReplyKind.ProviderUnavailable, context.Practice) { RetryLessonId = active.Id };
                 var fresh = await lessons.FindActiveAsync(user, token)
                     ?? throw new InvalidOperationException("A fresh practice exercise is required.");
                 context.ReplaceRevealedPracticeLesson(active, fresh);
