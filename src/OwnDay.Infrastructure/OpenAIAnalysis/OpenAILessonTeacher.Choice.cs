@@ -32,7 +32,7 @@ public sealed partial class OpenAILessonTeacher
     }
 
     private static string ChoiceInstructions(ChoiceFormat format) =>
-        $" Also propose Choice in the exact requested format {format} when a short recognition check helps the current goal and level, or null. Keep the top-level Theory/Criteria as a separate usable open fallback. " +
+        $" Also propose Choice in the exact requested format {format} when a short recognition check helps the current goal and level, or null. Choice and the open fallback in Criteria must both check the same idea taught in Theory. " +
         "Publishable choice questions use a self-contained hypothetical or established principle and never depend on recent, disputed, or sensitive facts. " +
         "Choice.Question is up to 1000 characters and contains all data needed to answer. Avoid giving away the key in the question or option wording. " +
         "Write Question, option descriptions and Explanation in the learner's language. Give 2–6 distinct options (each one line up to 160 characters), with numeric IDs from 1 to 6. " +
@@ -41,7 +41,7 @@ public sealed partial class OpenAILessonTeacher
         "Set Review.Unambiguous or Review.SelfContained to false if the question cannot meet that rule, if anything relies on a sensitive, current or disputed assertion, or if it needs an external source. " +
         "Explanation up to 1500 characters justifies the entire answer set, including why plausible distractors fail. Avoid repeating a previous question. ";
 
-    private static (ChoiceExercise Exercise, string Context)? TryChoice(GeneratedLesson lesson, ChoiceFormat format, LessonRequest request)
+    private static ChoiceExercise? TryChoice(GeneratedLesson lesson, ChoiceFormat format, LessonRequest request)
     {
         if (lesson.NeedsCurrentVerification || lesson.Choice is not { Review: { SelfContained: true, Unambiguous: true } review } candidate ||
             candidate.Format != format.ToString())
@@ -57,7 +57,7 @@ public sealed partial class OpenAILessonTeacher
         catch (ArgumentException) { return null; }
         if (!exercise.IsValidSelection(review.DerivedOptions) || exercise.Grade(review.DerivedOptions) != ChoiceOutcome.Correct)
             return null;
-        return (exercise, russian ? "Короткая проверка по теме." : "A short check on this topic.");
+        return exercise;
     }
 
     private sealed record GeneratedChoice(string Format, string Question, ImmutableArray<ChoiceOption> Options,

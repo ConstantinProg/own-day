@@ -15,7 +15,11 @@ public interface ILessonStore
 }
 
 public sealed record LessonProgramContext(string Discipline, string Goal, string Experience,
-    string? DiagnosticQuestion, string? DiagnosticAnswer);
+    string? DiagnosticQuestion, string? DiagnosticAnswer)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public DiagnosticStartingLevel? StartingLevel { get; init; }
+}
 public sealed record LessonRequest(string Topic, LessonProgramContext? Program = null, TeachingContext? Teaching = null,
     bool IsReview = false, SharedSkillContext? SharedSkill = null, ProjectPracticeContext? ProjectPractice = null,
     LearningPersonalization? Personalization = null, TransferPracticeContext? Transfer = null)
@@ -111,6 +115,7 @@ public abstract record LearningResult
         public long? ProjectActionId { get; init; }
         public InterdisciplinaryPractice? Transfer { get; init; }
         public ChoicePrompt? Choice { get; init; }
+        public bool IncludeTheory { get; init; } = true;
     }
     public sealed record Assessment(string Feedback) : LearningResult
     {
@@ -139,6 +144,7 @@ public abstract record LearningResult
         public InterdisciplinaryPractice? Transfer { get; init; }
         public bool IsClarifyingAnswer { get; init; }
         public ChoicePrompt? Choice { get; init; }
+        public Guid? PendingExerciseId { get; init; }
     }
     public sealed record Explanation(string Text, string Topic, string Question, LessonProvenance? Provenance = null) : LearningResult
     {
@@ -220,7 +226,7 @@ public sealed partial class LearningService(ILessonStore store, ILessonTeacher t
         {
             return new LearningResult.NoActiveLesson();
         }
-        if (active.Status != LessonStatus.AwaitingAnswer)
+        if (!active.AcceptsAnswer)
         {
             return new LearningResult.InvalidTransition();
         }
@@ -443,8 +449,9 @@ public sealed partial class LearningService(ILessonStore store, ILessonTeacher t
         if (string.IsNullOrWhiteSpace(request) || request.Length > 1000) return new LearningResult.InvalidClarification();
         var lesson = await store.FindActiveAsync(user, token);
         if (lesson is null) return new LearningResult.NoActiveLesson();
-        if (lesson.Status != LessonStatus.AwaitingAnswer) return new LearningResult.InvalidTransition();
-        if (lesson.Choice is not null) return ExplainChoice(lesson, kind);
+        if (lesson.Status != LessonStatus.AwaitingAnswer || lesson.ExercisePending && kind == LessonInteractionKind.FullAnswer)
+            return new LearningResult.InvalidTransition();
+        if (lesson.AcceptsAnswer && lesson.Choice is not null) return ExplainChoice(lesson, kind);
         if (kind == LessonInteractionKind.FullAnswer)
         {
             if (lesson.Interactions.FirstOrDefault(interaction => interaction.Kind == LessonInteractionKind.FullAnswer) is { } solution)
@@ -466,13 +473,17 @@ public sealed partial class LearningService(ILessonStore store, ILessonTeacher t
             }
             var preferenceSnapshot = preferences is { } values && (!values.IsEmpty() || lesson.Teaching?.Preferences.IsEmpty() == false)
                 ? values : null;
-            var result = preferenceSnapshot is null && factDiscipline is null
+            var snapshot = Requests.LessonSnapshot.From(lesson) with
+                { ExplanationPreferences = preferenceSnapshot, FactCheckDiscipline = factDiscipline };
+            if (lesson.ExercisePending) snapshot = snapshot with { Question = "", Content = null, RubricEvaluation = null };
+            var result = !lesson.ExercisePending && preferenceSnapshot is null && factDiscipline is null
                 ? await teacher.ExplainAsync(lesson, request, kind, token)
-                : await teacher.ExplainAsync(Requests.LessonSnapshot.From(lesson) with
-                    { ExplanationPreferences = preferenceSnapshot, FactCheckDiscipline = factDiscipline }, request, kind, token);
+                : await teacher.ExplainAsync(snapshot, request, kind, token);
             token.ThrowIfCancellationRequested();
             lesson.AddExplanation(kind, request, result.Explanation, preferenceSnapshot, result.Provenance);
-            return Explanation(lesson, result.Explanation, result.Provenance);
+            return lesson.ExercisePending
+                ? Session(lesson) with { Theory = result.Explanation, Provenance = result.Provenance, LastExplanation = null }
+                : Explanation(lesson, result.Explanation, result.Provenance);
         }
         catch (Exception exception) when (exception is LessonProviderException or ArgumentException)
         {
@@ -490,15 +501,17 @@ public sealed partial class LearningService(ILessonStore store, ILessonTeacher t
     internal static LearningResult.Material Material(Lesson lesson) => new(lesson.Theory, lesson.Question, lesson.Topic)
     {
         Provenance = lesson.Provenance, HasReferenceCheck = lesson.UsesReferenceCheck, ProjectActionId = lesson.ProjectActionId,
-        Transfer = lesson.Transfer, Content = lesson.Content, Choice = ChoicePrompt.From(lesson)
+        Transfer = lesson.Transfer, Content = lesson.Content, Choice = ChoicePrompt.From(lesson),
+        IncludeTheory = !lesson.TheorySkipped
     };
 
     public static LearningResult.Session Session(Lesson lesson) => new(lesson.Topic, lesson.ResponseQuestion, lesson.Status)
     {
         Provenance = lesson.Provenance, ProjectActionId = lesson.ProjectActionId, Transfer = lesson.Transfer,
-        Content = lesson.Content, Theory = lesson.Theory,
+        Content = lesson.Content, Theory = lesson.TheorySkipped ? null : lesson.Theory,
         IsClarifyingAnswer = lesson.ResponseQuestion != lesson.Question,
-        LastExplanation = lesson.SavedGuidance, Choice = ChoicePrompt.From(lesson)
+        LastExplanation = lesson.SavedGuidance, Choice = ChoicePrompt.From(lesson),
+        PendingExerciseId = lesson.ExercisePending ? lesson.Id : null
     };
 
     private static void ValidateUser(UserId user, CancellationToken token)

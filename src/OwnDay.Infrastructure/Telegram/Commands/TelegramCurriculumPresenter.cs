@@ -76,7 +76,8 @@ public static class TelegramCurriculumPresenter
     private static IReadOnlyList<TelegramLearningReply> RenderSubjectDiagnostic(CurriculumResult.SubjectDiagnosticQuestion diagnostic)
     {
         var russian = MarketLearningContent.InRussian(diagnostic.Value.Goal);
-        var text = (diagnostic.Notice is null ? "" : diagnostic.Notice + "\n\n") + diagnostic.Value.DiagnosticQuestion! +
+        var text = (diagnostic.Notice is null ? "" : diagnostic.Notice + "\n\n") +
+            (russian ? "Диагностический вопрос\n" : "Diagnostic question\n") + diagnostic.Value.DiagnosticQuestion! +
             (russian ? "\nОтветьте текстом. Чтобы пропустить, можно написать «пропустить»." : "\nReply with your answer, or write “skip”.");
         return [TelegramLearningReply.WithActions(text, [new(LearningActionKind.SkipDiagnosis)], russian)];
     }
@@ -118,7 +119,7 @@ public static class TelegramCurriculumPresenter
                 [new(LearningActionKind.Continue)], inRussian: true)];
         var index = diagnostic.Results.Length;
         return [TelegramLearningReply.WithActions(
-            notice + $"Задание {index + 1} из 2.\n" + EnglishLearningContent.Text(index) + "\n\n" + EnglishLearningContent.Question(index) +
+            notice + $"Диагностика. Задание {index + 1} из 2.\n" + EnglishLearningContent.Text(index) + "\n\n" + EnglishLearningContent.Question(index) +
             "\n\nТекстом — «помощь», «пропустим» или «пауза». Ответы с помощью отмечаются отдельно.",
             [new(LearningActionKind.DiagnosisHelp), new(LearningActionKind.SkipDiagnosis), new(LearningActionKind.PauseDiagnosis)], inRussian: true)];
     }

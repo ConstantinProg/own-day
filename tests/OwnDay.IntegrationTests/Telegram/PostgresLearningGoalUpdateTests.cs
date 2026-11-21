@@ -33,7 +33,8 @@ public sealed partial class PostgresLearningProviderTests
         using (var client = host.CreateClient())
         {
             await SendEnglishAsync(client, 1, "/learn_next");
-            await SendEnglishAsync(client, 2, $"обновить цель на {goal} | {criterion}");
+            await SendEnglishAsync(client, 2, "/learn_next");
+            await SendEnglishAsync(client, 3, $"обновить цель на {goal} | {criterion}");
             await using var db = Open();
             Assert.Equal(original, (await db.Set<LearningProgram>().SingleAsync()).Goal);
             Assert.Single(await db.Set<CurriculumRoute>().ToListAsync());
@@ -48,8 +49,8 @@ public sealed partial class PostgresLearningProviderTests
 
         using var restarted = ConsultationHost(probe);
         using var resumed = restarted.CreateClient();
-        await SendEnglishAsync(resumed, 3, "/learn_confirm " + code);
         await SendEnglishAsync(resumed, 4, "/learn_confirm " + code);
+        await SendEnglishAsync(resumed, 5, "/learn_confirm " + code);
         await using (var db = Open())
         {
             var changed = await db.Set<LearningProgram>().Include(value => value.Routes).SingleAsync();
@@ -63,11 +64,11 @@ public sealed partial class PostgresLearningProviderTests
             Assert.Equal(1, exercise.RouteVersion);
         }
         Assert.Equal(1, probe.KindCalls["plan"]);
-        await SendEnglishAsync(resumed, 5, "/answer Both types share a discriminant.");
-        await SendEnglishAsync(resumed, 6, "откатить маршрут к версии 1");
+        await SendEnglishAsync(resumed, 6, "/answer Both types share a discriminant.");
+        await SendEnglishAsync(resumed, 7, "откатить маршрут к версии 1");
         await using (var db = Open())
             code = (await db.Set<DialogueContext>().SingleAsync()).PendingConfirmation!.Code;
-        await SendEnglishAsync(resumed, 7, "/learn_confirm " + code);
+        await SendEnglishAsync(resumed, 8, "/learn_confirm " + code);
 
         await using var result = Open();
         var restored = await result.Set<LearningProgram>().Include(value => value.Routes).SingleAsync();

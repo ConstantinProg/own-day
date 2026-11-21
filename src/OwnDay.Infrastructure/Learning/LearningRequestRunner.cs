@@ -258,7 +258,7 @@ public sealed partial class LearningRequestRunner(IServiceScopeFactory scopes, I
         if (actionInput is { Action: var action })
         {
             var boundContext = await store.FindAsync(request.UserId, token);
-            if (!LearningActionProvider.MatchesDialogue(action, boundContext) || !LearningActionProvider.CanOffer(action.Kind, lesson))
+            if (!LearningActionProvider.MatchesDialogue(action, boundContext) || !LearningActionProvider.CanOffer(action, lesson))
                 return ActionUnavailable(actionInput.InRussian);
             (command, text) = await BindDialogueActionAsync(services, request, actionInput, boundContext, lesson, token);
             if (command is null && text is null) return ActionUnavailable(actionInput.InRussian);

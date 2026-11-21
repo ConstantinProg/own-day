@@ -154,7 +154,7 @@ public sealed partial class PostgresLearningProviderTests
                 previous.Entry(pending).Property(item => item.RubricEvaluation).CurrentValue =
                     new(oldRubric, answer, Guid.NewGuid(), content.StructuredRubric.Criteria[1].Requirement, Final: false);
                 var context = await previous.Set<DialogueContext>().SingleAsync();
-                context.Synchronize(pending, context.LastActivityAt, 4);
+                context.Synchronize(pending, context.LastActivityAt, 5);
                 await previous.SaveChangesAsync();
             }
         }
@@ -162,8 +162,8 @@ public sealed partial class PostgresLearningProviderTests
         using (var host = ConsultationHost(probe))
         using (var client = host.CreateClient())
         {
-            await SendEnglishAsync(client, 5, deliveredAnswer);
-            using var duplicate = await PostPublicAsync(client, 5, deliveredAnswer);
+            await SendEnglishAsync(client, 6, deliveredAnswer);
+            using var duplicate = await PostPublicAsync(client, 6, deliveredAnswer);
             duplicate.EnsureSuccessStatusCode();
         }
 
@@ -185,8 +185,8 @@ public sealed partial class PostgresLearningProviderTests
 
         using var continued = ConsultationHost(probe);
         using var continuedClient = continued.CreateClient();
-        await SendEnglishAsync(continuedClient, 6, "ещё задание");
-        await SendEnglishAsync(continuedClient, 7, nextAnswer);
+        await SendEnglishAsync(continuedClient, 7, "ещё задание");
+        await SendEnglishAsync(continuedClient, 8, nextAnswer);
         var lessons = await db.Set<Lesson>().AsNoTracking().ToListAsync();
         Assert.Equal(2, lessons.Count);
         Assert.All(lessons, item => Assert.Equal(LessonStatus.Completed, item.Status));
@@ -217,7 +217,7 @@ public sealed partial class PostgresLearningProviderTests
         using var host = ConsultationHost(probe);
         using var client = host.CreateClient();
         await StartRubricExerciseAsync(client);
-        var id = 5;
+        var id = 6;
         if (help is not null) await SendEnglishAsync(client, id++, help);
         await SendEnglishAsync(client, id, answer);
 
@@ -252,13 +252,13 @@ public sealed partial class PostgresLearningProviderTests
         using var host = ConsultationHost(probe);
         using var client = host.CreateClient();
         await StartRubricExerciseAsync(client);
-        await SendEnglishAsync(client, 5, "брокер");
+        await SendEnglishAsync(client, 6, "брокер");
         await using var db = Open();
         var pending = await db.Set<Lesson>().AsNoTracking().SingleAsync();
         Assert.Equal(LessonStatus.AwaitingAnswer, pending.Status);
         Assert.Equal(second, pending.ResponseQuestion);
         Assert.Empty(await db.Set<LearningEvidence>().ToListAsync());
-        await SendEnglishAsync(client, 6, clarification);
+        await SendEnglishAsync(client, 7, clarification);
 
         var evidence = await db.Set<LearningEvidence>().SingleAsync();
         Assert.True(evidence.AssessedCorrect);
@@ -308,16 +308,16 @@ public sealed partial class PostgresLearningProviderTests
         using var host = ConsultationHost(probe);
         using var client = host.CreateClient();
         await StartRubricExerciseAsync(client);
-        await SendEnglishAsync(client, 5, answer);
-        using var duplicate = await PostPublicAsync(client, 5, answer);
+        await SendEnglishAsync(client, 6, answer);
+        using var duplicate = await PostPublicAsync(client, 6, answer);
         duplicate.EnsureSuccessStatusCode();
         await using var db = Open();
-        var request = await db.Set<LearningRequest>().SingleAsync(item => item.SourceUpdateId == 5);
+        var request = await db.Set<LearningRequest>().SingleAsync(item => item.SourceUpdateId == 6);
         Assert.Equal(answer, System.Text.Json.JsonSerializer.Deserialize<LearningTextInput>(request.NormalizedInput,
             System.Text.Json.JsonSerializerOptions.Web)!.Text);
         Assert.Equal(LessonStatus.AwaitingAnswer, (await db.Set<Lesson>().AsNoTracking().SingleAsync()).Status);
         Assert.Empty(await db.Set<LearningEvidence>().ToListAsync());
-        await SendEnglishAsync(client, 6, answer);
+        await SendEnglishAsync(client, 7, answer);
 
         var evidence = await db.Set<LearningEvidence>().SingleAsync();
         Assert.True(evidence.AssessedCorrect);
@@ -341,7 +341,7 @@ public sealed partial class PostgresLearningProviderTests
 
     private async Task StartRubricExerciseAsync(HttpClient client)
     {
-        string[] turns = ["Хочу изучить биржу", "Разобраться в биржевых торгах", "Начинаю с нуля", "Продолжим"];
+        string[] turns = ["Хочу изучить биржу", "Разобраться в биржевых торгах", "Начинаю с нуля", "Продолжим", "К упражнению"];
         for (var index = 0; index < turns.Length; index++) await SendEnglishAsync(client, index + 1, turns[index]);
     }
 
@@ -378,7 +378,7 @@ public sealed partial class PostgresLearningProviderTests
         using (var host = ConsultationHost(probe))
         using (var client = host.CreateClient())
         {
-            string[] turns = ["Хочу понять union types", "Разбирать обработчики TypeScript", "Начинаю с нуля", "Продолжим"];
+            string[] turns = ["Хочу понять union types", "Разбирать обработчики TypeScript", "Начинаю с нуля", "Продолжим", "К упражнению"];
             for (var index = 0; index < turns.Length; index++) await SendEnglishAsync(client, index + 1, turns[index]);
             await using var db = Open();
             lessonId = (await db.Set<Lesson>().SingleAsync()).Id;
@@ -387,7 +387,7 @@ public sealed partial class PostgresLearningProviderTests
             configure: options => { options.Enabled = true; options.DialogueEnabled = true; }))
         using (var client = host.CreateClient())
         {
-            using var accepted = await PostPublicAsync(client, 5, "/answer " + first);
+            using var accepted = await PostPublicAsync(client, 6, "/answer " + first);
             accepted.EnsureSuccessStatusCode();
             using var scope = host.Services.CreateScope();
             var lease = (await scope.ServiceProvider.GetRequiredService<ILearningRequestStore>().ClaimAsync(TimeSpan.FromMinutes(1), default))!;
@@ -402,7 +402,7 @@ public sealed partial class PostgresLearningProviderTests
         using (var host = ConsultationHost(probe))
         using (var client = host.CreateClient())
         {
-            await WaitAllPublicAsync(5);
+            await WaitAllPublicAsync(6);
             await using var db = Open();
             var lesson = await db.Set<Lesson>().SingleAsync();
             Assert.Equal(LessonStatus.AwaitingAnswer, lesson.Status);
@@ -413,13 +413,13 @@ public sealed partial class PostgresLearningProviderTests
         using (var host = ConsultationHost(probe))
         using (var client = host.CreateClient())
         {
-            await SendEnglishAsync(client, 6, "Продолжим");
-            await SendEnglishAsync(client, 7, "/answer Варианты сохраняются все.");
-            await SendEnglishAsync(client, 8, "дай подсказку");
-            await SendEnglishAsync(client, 9, "покажи решение");
+            await SendEnglishAsync(client, 7, "Продолжим");
+            await SendEnglishAsync(client, 8, "/answer Варианты сохраняются все.");
+            await SendEnglishAsync(client, 9, "дай подсказку");
             await SendEnglishAsync(client, 10, "покажи решение");
-            await SendEnglishAsync(client, 11, "/answer " + success);
-            using var duplicate = await PostPublicAsync(client, 11, "/answer " + success);
+            await SendEnglishAsync(client, 11, "покажи решение");
+            await SendEnglishAsync(client, 12, "/answer " + success);
+            using var duplicate = await PostPublicAsync(client, 12, "/answer " + success);
             duplicate.EnsureSuccessStatusCode();
         }
 
@@ -465,13 +465,13 @@ public sealed partial class PostgresLearningProviderTests
         using (var host = ConsultationHost(probe))
         using (var client = host.CreateClient())
         {
-            string[] turns = ["Хочу изучить TypeScript", "Проверять типы в React", "Начинаю с нуля", "Продолжим"];
+            string[] turns = ["Хочу изучить TypeScript", "Проверять типы в React", "Начинаю с нуля", "Продолжим", "К упражнению"];
             for (var index = 0; index < turns.Length; index++) await SendEnglishAsync(client, index + 1, turns[index]);
             await using var db = Open();
             originalPrompt = (await db.Set<DialogueContext>().AsNoTracking().SingleAsync()).PromptId;
             Assert.Contains(await db.TelegramOutboxMessages.Select(reply => reply.Text).ToListAsync(),
                 text => text.Contains(requirement, StringComparison.Ordinal));
-            await SendEnglishAsync(client, 5, "/answer " + originalAnswer);
+            await SendEnglishAsync(client, 6, "/answer " + originalAnswer);
             var lesson = await db.Set<Lesson>().SingleAsync();
             Assert.Equal(LessonStatus.AwaitingAnswer, lesson.Status);
             Assert.Equal(requirement, lesson.ResponseQuestion);
@@ -482,16 +482,16 @@ public sealed partial class PostgresLearningProviderTests
         using (var host = ConsultationHost(probe))
         using (var client = host.CreateClient())
         {
-            await SendEnglishAsync(client, 6, "Продолжим");
-            await SendEnglishAsync(client, 7, "/answer " + clarification);
-            using var duplicate = await PostPublicAsync(client, 7, "/answer " + clarification);
+            await SendEnglishAsync(client, 7, "Продолжим");
+            await SendEnglishAsync(client, 8, "/answer " + clarification);
+            using var duplicate = await PostPublicAsync(client, 8, "/answer " + clarification);
             duplicate.EnsureSuccessStatusCode();
         }
 
         await using var result = Open();
         var evidence = await result.Set<LearningEvidence>().SingleAsync();
         var completed = await result.Set<Lesson>().SingleAsync();
-        var operation = await result.Set<LearningRequest>().SingleAsync(request => request.SourceUpdateId == 7);
+        var operation = await result.Set<LearningRequest>().SingleAsync(request => request.SourceUpdateId == 8);
         Assert.True(evidence.AssessedCorrect);
         Assert.Equal(originalAnswer, evidence.RubricEvidence!.Evaluation.InitialAnswer);
         Assert.Equal(operation.Id, evidence.RubricEvidence.Evaluation.OperationId);

@@ -24,7 +24,7 @@ public sealed class TelegramActionKeyboard(TelegramActionCodec codec)
         var russian = reply.InRussian ?? MarketLearningContent.InRussian(reply.Text);
         foreach (var action in reply.Actions)
         {
-            if (!LearningActionProvider.CanOffer(action.Kind, lesson)) continue;
+            if (!LearningActionProvider.CanOffer(action, lesson)) continue;
             var (bound, expiresAt) = Bind(action, dialogue, now);
             if (bound is null || expiresAt <= now) continue;
             if (action.Kind is LearningActionKind.Hint or LearningActionKind.Solution or LearningActionKind.Criteria)
@@ -77,6 +77,7 @@ public sealed class TelegramActionKeyboard(TelegramActionCodec codec)
         {
             LearningActionKind.SubmitChoice => ("Ответить", "Submit"),
             LearningActionKind.Continue or LearningActionKind.ClarifyContinue => ("Продолжить", "Continue"),
+            LearningActionKind.Next when action.TargetId != Guid.Empty => ("К упражнению", "Start exercise"),
             LearningActionKind.Next => ("Дальше", "Next"),
             LearningActionKind.Hint or LearningActionKind.DiagnosisHelp => ("Подсказка", "Hint"),
             LearningActionKind.Solution => ("Показать решение", "Show solution"),

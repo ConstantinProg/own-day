@@ -78,7 +78,7 @@ public static class FirstGoalConsultation
         if (text.Length > 500) return Prompt(context);
         var shortExperience = normalized.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length <= 2;
         if (context.Consultation.PracticalUseDefinesCriterion && shortExperience &&
-            normalized is not ("с нуля" or "новичок" or "beginner" or "no experience" or "не знаю") &&
+            !LearnerExperience.IsBeginner(normalized) && normalized != "не знаю" &&
             !(EnglishLearningContent.IsEnglishGoal(context.Consultation.OriginalGoal) && normalized is "a1" or "a2" or "b1" or "b2" or "c1" or "c2") &&
             !await MatchesConsultationIntentAsync(context, turn, resolver, LearningIntent.RelevantExperience,
                 "Что вы уже умеете в этой области?", token))

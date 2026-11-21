@@ -64,6 +64,7 @@ public sealed class PostgresAdaptiveTeachingTests
                 if (restart == 0)
                 {
                     await Post(host.Services, 1, "/learn_next");
+                    await Post(host.Services, 11, "/learn_next");
                     await Post(host.Services, 2, "/answer wrong");
                     await Post(host.Services, 3, "/learn_next");
                     await Post(host.Services, 4, "/answer wrong again");
@@ -102,7 +103,7 @@ public sealed class PostgresAdaptiveTeachingTests
                     var active = await db.Set<Lesson>().SingleAsync(l => l.Status == LessonStatus.AwaitingAnswer);
                     Assert.Equal("advanced", active.TopicCode);
                     Assert.Equal(2, active.RouteVersion);
-                    Assert.Equal(10, await db.Set<OwnDay.Application.Learning.Requests.LearningRequest>().CountAsync());
+                    Assert.Equal(11, await db.Set<OwnDay.Application.Learning.Requests.LearningRequest>().CountAsync());
                 }
             }
             Assert.Single(planner.Requests);

@@ -81,12 +81,13 @@ public static class TelegramLearningPresenter
     private static IReadOnlyList<TelegramLearningReply> RenderMaterial(LearningResult.Material material)
     {
         var russian = MarketLearningContent.InRussian(material.Theory);
-        if (material.Choice is { } choice)
-            return [.. SourceNotice(material.Provenance, russian), TelegramChoicePresenter.Render(choice)];
         var theory = material.Topic + "\n\n" + material.Theory;
+        if (material.Choice is { } choice)
+            return [.. material.IncludeTheory ? new[] { theory } : [], .. SourceNotice(material.Provenance, russian),
+                TelegramChoicePresenter.Render(choice)];
         if (material.Content is { Kind: LearningContentKind.ReadingChoice or LearningContentKind.OpenWriting } content)
             theory += russian ? "\n\nЦель — " + content.Objective : "\n\nObjective — " + content.Objective;
-        return [theory, .. SourceNotice(material.Provenance, russian),
+        return [.. material.IncludeTheory ? new[] { theory } : [], .. SourceNotice(material.Provenance, russian),
             .. ContextNotices(material.ProjectActionId, material.Transfer, russian),
             TelegramLearningReply.WithActions(RenderTask(material.Question, material.Content) + "\n\n" + AnswerAction(russian),
                 LearningActionProvider.ForExercise(), russian)];
@@ -149,6 +150,18 @@ public static class TelegramLearningPresenter
     private static IReadOnlyList<TelegramLearningReply> RenderSession(LearningResult.Session session)
     {
         var russian = MarketLearningContent.InRussian(session.Theory ?? session.Topic + session.Question);
+        if (session.PendingExerciseId is { } lessonId)
+        {
+            var paused = session.Status == LessonStatus.Paused;
+            var next = paused
+                ? russian ? "Занятие на паузе. Напишите «Продолжим»." : "Lesson paused. Write “continue” when you're ready."
+                : russian ? "Когда будете готовы или если тема уже знакома, напишите «к упражнению»."
+                    : "When you're ready or already know the topic, write “start exercise”.";
+            return [TelegramLearningReply.WithActions($"{session.Topic}\n\n{session.Theory}\n\n{next}",
+                    [paused ? new(LearningActionKind.Continue) : new(LearningActionKind.Next, lessonId)], russian),
+                .. SourceNotice(session.Provenance, russian),
+                .. session.LastExplanation is { } explanation ? new[] { explanation } : []];
+        }
         if (session.Choice is { } choice)
             return [.. session.LastExplanation is { } last ? new[] { last } : [], TelegramChoicePresenter.Render(choice)];
         if (session.Content?.Kind is LearningContentKind.ReadingChoice or LearningContentKind.OpenWriting)
@@ -165,7 +178,7 @@ public static class TelegramLearningPresenter
 
     internal static IReadOnlyList<TelegramLearningReply> RenderRecap(LearningResult.Session session, bool english)
     {
-        if (session.Choice is not null) return RenderSession(session);
+        if (session.PendingExerciseId is not null || session.Choice is not null) return RenderSession(session);
         var action = session.Status == LessonStatus.Paused
             ? english ? "Write “continue” to return to this exercise." : "Напишите «Продолжим», чтобы вернуться к этому вопросу."
             : english ? "Write your answer or ask for help." : "Напишите ответ или попросите помощь.";

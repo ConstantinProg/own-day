@@ -22,6 +22,9 @@ public sealed partial class Lesson
     public AnswerReferenceKind ReferenceKind { get; private set; }
     public LessonProvenance? Provenance { get; private set; }
     public LessonStatus Status { get; private set; }
+    public bool ExercisePending { get; private set; }
+    public bool TheorySkipped { get; private set; }
+    public bool AcceptsAnswer => Status == LessonStatus.AwaitingAnswer && !ExercisePending;
     public LessonStatus? SuspendedFrom { get; private set; }
     public Guid? SuspendedForProgramId { get; private set; }
     public Guid? ProgramId { get; private set; }
@@ -209,9 +212,31 @@ public sealed partial class Lesson
 
     public void Pause()
     {
-        RequireAwaitingAnswer();
+        if (Status != LessonStatus.AwaitingAnswer) throw new InvalidOperationException("Lesson is not active.");
         InvalidateChoiceButtons();
         Status = LessonStatus.Paused;
+    }
+
+    public void PresentTheoryFirst()
+    {
+        RequireAwaitingAnswer();
+        if (ProgramId is null || TheorySkipped || RubricEvaluation is not null || Choice is { Attempts.IsEmpty: false })
+            throw new InvalidOperationException("Only an unattempted program exercise can follow theory.");
+        ExercisePending = true;
+    }
+
+    public void OpenExercise()
+    {
+        if (Status != LessonStatus.AwaitingAnswer || !ExercisePending)
+            throw new InvalidOperationException("No exercise is pending.");
+        ExercisePending = false;
+    }
+
+    public void SkipTheory()
+    {
+        RequireAwaitingAnswer();
+        if (ProgramId is null) throw new InvalidOperationException("Only a program lesson can skip theory.");
+        TheorySkipped = true;
     }
 
     public void SetTeaching(LessonTeaching teaching)
@@ -285,7 +310,8 @@ public sealed partial class Lesson
     public void AddExplanation(LessonInteractionKind kind, string request, string explanation, LearningPreferenceValues? preferences = null,
         LessonProvenance? provenance = null)
     {
-        RequireAwaitingAnswer();
+        if (Status != LessonStatus.AwaitingAnswer || ExercisePending && kind == LessonInteractionKind.FullAnswer)
+            throw new InvalidOperationException("This explanation is unavailable at the current lesson stage.");
         if (!Enum.IsDefined(kind)) throw new ArgumentOutOfRangeException(nameof(kind));
         if (kind == LessonInteractionKind.FullAnswer
             ? _interactions.Any(interaction => interaction.Kind == LessonInteractionKind.FullAnswer)
@@ -295,12 +321,12 @@ public sealed partial class Lesson
         Validate(explanation, 2500);
         provenance?.Validate();
         _interactions.Add(new LessonInteraction(Id, kind, request, explanation, preferences, provenance));
-        Assistance = AnswerAssistance.Assisted;
+        if (!ExercisePending) Assistance = AnswerAssistance.Assisted;
     }
 
     private void RequireAwaitingAnswer()
     {
-        if (Status != LessonStatus.AwaitingAnswer) throw new InvalidOperationException("Lesson is not awaiting an answer.");
+        if (!AcceptsAnswer) throw new InvalidOperationException("Lesson is not awaiting an answer.");
     }
 
     private static void Validate(string value, int maximum)

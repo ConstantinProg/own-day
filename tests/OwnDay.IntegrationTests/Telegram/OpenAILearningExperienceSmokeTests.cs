@@ -77,6 +77,7 @@ public sealed partial class PostgresLearningProviderTests
                 await SendSmokeAsync(client, ++id, "ответ: Yes, I can send the list today.");
             }
             else await SendSmokeAsync(client, ++id, "пропустим");
+            await SendSmokeAsync(client, ++id, "К упражнению");
             await SendSmokeAsync(client, ++id, "Почему здесь используется could?");
             await using (var db = Open())
             {

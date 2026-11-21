@@ -37,7 +37,8 @@ public sealed partial class PostgresLearningProviderTests
         using (var client = host.CreateClient())
         {
             await SendEnglishAsync(client, 1, "практика 2");
-            await SendEnglishAsync(client, 2, "переключись на финансы");
+            await SendEnglishAsync(client, 2, "К упражнению");
+            await SendEnglishAsync(client, 3, "переключись на финансы");
             await using (var db = Open())
             {
                 var replies = await db.TelegramOutboxMessages.Select(reply => reply.Text).ToListAsync();
@@ -51,10 +52,10 @@ public sealed partial class PostgresLearningProviderTests
                 exercise.AddExplanation(LessonInteractionKind.Clarification, "What is kind?", "The clue is a common field.");
                 await db.SaveChangesAsync();
             }
-            await SendEnglishAsync(client, 3, "switch to equities");
-            await SendEnglishAsync(client, 4, "/learn_confirm " + await SwitchCodeAsync());
-            await SendEnglishAsync(client, 5, "/learn_next");
-            await SendEnglishAsync(client, 6, "/learn_pause");
+            await SendEnglishAsync(client, 4, "switch to equities");
+            await SendEnglishAsync(client, 5, "/learn_confirm " + await SwitchCodeAsync());
+            await SendEnglishAsync(client, 6, "/learn_next");
+            await SendEnglishAsync(client, 7, "/learn_pause");
             await using (var db = Open())
             {
                 otherLesson = (await db.Set<Lesson>().SingleAsync(lesson => lesson.ProgramId == finance.Id)).Id;
@@ -62,13 +63,13 @@ public sealed partial class PostgresLearningProviderTests
                 Assert.True(updated.SetTopicSkipped(1, "basics", true, "Skip foundations"));
                 await db.SaveChangesAsync();
             }
-            await SendEnglishAsync(client, 7, "выбрать программу TypeScript");
+            await SendEnglishAsync(client, 8, "выбрать программу TypeScript");
             returnCode = await SwitchCodeAsync();
         }
 
         using var restarted = SwitchHost(probe);
         using var resumed = restarted.CreateClient();
-        await SendEnglishAsync(resumed, 8, "/learn_confirm " + returnCode);
+        await SendEnglishAsync(resumed, 9, "/learn_confirm " + returnCode);
 
         await using var result = Open();
         Assert.Equal(typescript.Id, (await result.Set<LearningContext>().SingleAsync()).ProgramId);

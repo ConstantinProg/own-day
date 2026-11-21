@@ -346,13 +346,13 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
         var russian = MarketLearningContent.InRussian(program.Value.Goal);
         if (program.Value.SubjectDiagnostic is { Deferred: true })
             return exercise with { Introduction = russian
-                ? "Перейдём к упражнению. После него можно написать «вернуться к диагностике»."
-                : "Let's try an exercise. Afterward, write “start diagnostic” to return to the diagnostic." };
+                ? "Начнём занятие. После него можно написать «вернуться к диагностике»."
+                : "Let's start the lesson. Afterward, write “start diagnostic” to return to the diagnostic." };
         if (program.Value.SubjectDiagnostic?.Observations.LastOrDefault()?.Kind == DiagnosticAnswerKind.StartWithFoundations)
             return exercise with { Introduction = russian ? "Начнём с основ и попробуем применить их на примере."
                 : "Let's start with the basics and try them in an example." };
-        return exercise with { Introduction = russian ? "Перейдём к первому упражнению. По ходу подберём подходящую сложность."
-            : "Let's try the first exercise. We'll adjust the difficulty as we go." };
+        return exercise with { Introduction = russian ? "Начнём занятие. По ходу подберём подходящую сложность."
+            : "Let's start the lesson. We'll adjust the difficulty as we go." };
     }
 
     internal async Task<CurriculumResult> NextAsync(UserId user, Guid programId, CancellationToken token)
@@ -383,7 +383,16 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
         if (program.EnglishDiagnostic is { Supported: false }) return new CurriculumResult.ProviderUnavailable();
         if (program.DiagnosticPending) return new CurriculumResult.Program(program);
         var active = await lessons.FindActiveAsync(user, token);
-        if (active is not null) return new CurriculumResult.Lesson(LearningService.Session(active));
+        if (active is not null)
+        {
+            if (selection == LessonSelection.Next && active.ProgramId == program.Id &&
+                active is { Status: LessonStatus.AwaitingAnswer, ExercisePending: true })
+            {
+                active.OpenExercise();
+                return new CurriculumResult.Lesson(LearningService.Material(active) with { IncludeTheory = false });
+            }
+            return new CurriculumResult.Lesson(LearningService.Session(active));
+        }
         var suspended = await store.FindSuspendedLessonAsync(user, program.Id, token);
         if (suspended is not null)
         {
@@ -449,7 +458,10 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
             var recent = previouslySelected && status is not null ? await lessons.RecentQuestionsAsync(user, status.Skill.Id, token) : [];
             var request = new LessonRequest(topic.Title,
                 new LessonProgramContext(program.Discipline, program.Goal, program.Experience,
-                    diagnosticApplies ? program.DiagnosticQuestion : null, diagnosticApplies ? program.DiagnosticAnswer : null), teaching, SharedSkill: shared,
+                    diagnosticApplies ? program.DiagnosticQuestion : null, diagnosticApplies ? program.DiagnosticAnswer : null)
+                {
+                    StartingLevel = StartingLevel(program.Experience, diagnosticApplies ? program.SubjectDiagnostic : null)
+                }, teaching, SharedSkill: shared,
                 Personalization: personalization.ForGeneration())
             {
                 RouteDepth = depth == CurriculumDepth.Standard ? null : depth,
@@ -476,8 +488,14 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
             else await knowledge.AttachAsync(lesson, $"{topic.Title}\nDiscipline: {program.Discipline}\nLearning goal: {program.Goal}", token);
             if (revision is not null) program.ApplyAdaptation(revision);
             lesson.LinkToProgram(program, topic.Code);
+            var demonstrated = (shared?.State ?? status?.State)?.Mastery == SkillMastery.Demonstrated &&
+                shared?.NeedsVerification != true;
+            if (demonstrated) lesson.SkipTheory();
+            else if (status?.Evidence.Count is not > 0 || shared?.NeedsVerification == true)
+                lesson.PresentTheoryFirst();
             lessons.Add(lesson);
-            var result = LearningService.Material(lesson);
+            LearningResult result = lesson.ExercisePending ? LearningService.Session(lesson)
+                : LearningService.Material(lesson);
             return revision is null ? new CurriculumResult.Lesson(result) { Introduction = SharedSkillNotice(shared) } :
                 new CurriculumResult.Adapted(result, revision.Reason);
         }
@@ -485,6 +503,19 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
         {
             return new CurriculumResult.ProviderUnavailable();
         }
+    }
+
+    private static DiagnosticStartingLevel? StartingLevel(string experience, SubjectDiagnostic? diagnostic)
+    {
+        if (diagnostic is { Supported: true })
+        {
+            if (diagnostic.Observations.LastOrDefault()?.Kind == DiagnosticAnswerKind.StartWithFoundations)
+                return DiagnosticStartingLevel.Foundation;
+            if (diagnostic.StartingLevel != DiagnosticStartingLevel.Unknown)
+                return diagnostic.StartingLevel;
+        }
+
+        return LearnerExperience.IsBeginner(LearnerExperience.ReadSelfReport(experience)) ? DiagnosticStartingLevel.Foundation : null;
     }
 
     private static void ValidateUser(UserId user, CancellationToken token)

@@ -9,6 +9,22 @@ namespace OwnDay.UnitTests.Learning;
 public sealed class LearningActionProviderTests
 {
     [Fact]
+    public void CanOffer_TheoryPending_RequiresNextActionTargetingTheCurrentLesson()
+    {
+        var user = new UserId(1);
+        var program = LearningProgram.Create(user, "Learn fractions", "Beginner", null, "Math",
+            [new("fractions", "Fractions", [])], null);
+        var lesson = Lesson.Start(user, "Fractions", "A fraction expresses some parts of a whole.", "What is one half?");
+        lesson.LinkToProgram(program, "fractions");
+        lesson.PresentTheoryFirst();
+
+        Assert.False(LearningActionProvider.CanOffer(new(LearningActionKind.Next), lesson));
+        Assert.False(LearningActionProvider.CanOffer(new(LearningActionKind.Next, Guid.NewGuid()), lesson));
+        Assert.True(LearningActionProvider.CanOffer(new(LearningActionKind.Next, lesson.Id), lesson));
+        Assert.True(LearningActionProvider.CanOffer(new(LearningActionKind.Next), null));
+    }
+
+    [Fact]
     public void ForChoice_MultipleChoice_OffersSubmitOnlyWithSelections()
     {
         var prompt = new ChoicePrompt(Guid.NewGuid(), 1, 2, ChoiceFormat.MultipleChoice, "Select",

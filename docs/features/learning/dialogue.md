@@ -52,6 +52,22 @@ Pause/restart/resume preserves the Lesson and does not generate a replacement.
 Resume of an already active question produces a recap. Existing Domain prerequisites
 still govern Next, program selection and creation.
 
+For a new curriculum topic, the first reply presents the saved explanation.
+“К упражнению”, “start exercise” or `/learn_next` opens the question from that same
+lesson. A learner who already knows the topic can proceed immediately.
+Demonstrated knowledge of the skill can open the exercise directly. Optional
+diagnostics are labeled and can precede the lesson.
+During theory, learners can ask for another explanation or ask to open the
+exercise in their own words. Questions about theory do not reveal the pending
+exercise or use its answer as context.
+
+Migration `20261121100000_AddLessonExercisePending` stores the transition in
+`Lesson`. Existing exercises keep their current state. Pause and resume preserve
+the pending exercise. Opening it publishes a new prompt identity so that an answer
+received during theory cannot be graded against the newly opened question.
+Migration `20261121110000_AddLessonTheorySkipped` preserves the decision to
+skip theory for a demonstrated skill when the learner resumes the exercise.
+
 `/learn_route` shows the active route. Use `/learn_route tree [version]` for
 prerequisites and `/learn_route history` for recent versions. The route view
 shows topic codes for requests such as `пропустить тему basics`,

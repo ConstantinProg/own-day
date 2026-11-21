@@ -216,6 +216,7 @@ public sealed partial class OpenAILessonTeacherTests
         var messages = body.RootElement.GetProperty("messages");
         Assert.Contains("new application scenario", messages[0].GetProperty("content").GetString());
         Assert.Contains("without revealing the answer", messages[0].GetProperty("content").GetString());
+        Assert.DoesNotContain("Make the exercise test only what Theory teaches", messages[0].GetProperty("content").GetString());
         Assert.Contains("untrusted data", messages[0].GetProperty("content").GetString());
         using var input = JsonDocument.Parse(messages[1].GetProperty("content").GetString()!);
         Assert.True(input.RootElement.GetProperty("IsReview").GetBoolean());

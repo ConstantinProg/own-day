@@ -114,13 +114,14 @@ public sealed partial class PostgresLearningProviderTests
                 message => message.Contains("/learn_focus basics", StringComparison.Ordinal));
         }
 
-        await SendEnglishAsync(restartedClient, 6, "/answer independently explained unions");
-        await SendEnglishAsync(restartedClient, 7, "restore route version 1");
+        await SendEnglishAsync(restartedClient, 6, "/learn_next");
+        await SendEnglishAsync(restartedClient, 7, "/answer independently explained unions");
+        await SendEnglishAsync(restartedClient, 8, "restore route version 1");
         string restoreCode;
         await using (var db = Open())
             restoreCode = (await db.Set<DialogueContext>().SingleAsync()).PendingConfirmation!.Code;
-        await SendEnglishAsync(restartedClient, 8, "/learn_confirm " + restoreCode);
-        await SendEnglishAsync(restartedClient, 9, "/learn_next");
+        await SendEnglishAsync(restartedClient, 9, "/learn_confirm " + restoreCode);
+        await SendEnglishAsync(restartedClient, 10, "/learn_next");
 
         await using var result = Open();
         var routes = await result.Set<CurriculumRoute>().OrderBy(route => route.Version).ToArrayAsync();

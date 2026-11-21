@@ -71,7 +71,8 @@ public sealed class LearningPracticeService(ICurriculumStore programs, ILessonSt
                 result = await learning.PracticeAsync(user, skill, token);
         }
         else result = await learning.PracticeAsync(user, practice.SkillId!.Value, token);
-        if (result is not LearningResult.Material) return new(PracticeReplyKind.ProviderUnavailable, context.Practice);
+        if (result is not (LearningResult.Material or LearningResult.Session { PendingExerciseId: not null }))
+            return new(PracticeReplyKind.ProviderUnavailable, context.Practice);
         var issued = await lessons.FindActiveAsync(user, token) ?? throw new InvalidOperationException("A generated exercise must exist before association.");
         context.IssuePracticeLesson(issued, previous);
         return new(PracticeReplyKind.Current, context.Practice, result);

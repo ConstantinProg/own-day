@@ -69,7 +69,7 @@ public static class TelegramDialoguePresenter
                 DialogueReplyKind.AskRelevantExperience => $"What can you already do toward your goal “{values[0]}”? Give one example or say “no experience”.",
                 DialogueReplyKind.ConsultationPaused => "Your goal and answers are saved. Write “continue” when you're ready.",
                 DialogueReplyKind.ConsultationRetry => "Your goal and answers are saved. Write “retry” to try creating the program again.",
-                DialogueReplyKind.DiagnosticQuestion => values[0] + "\nAnswer the question or write “skip” to open the exercise.",
+                DialogueReplyKind.DiagnosticQuestion => "Diagnostic question\n" + values[0] + "\nAnswer the question or write “skip” to start the lesson.",
                 DialogueReplyKind.DiagnosticOffer => "Write “yes” to see the optional diagnostic question or “skip” to open the exercise.",
                 DialogueReplyKind.FirstProgramReady => $"Goal saved — {TelegramCurriculumPresenter.DisplayGoal(values[0])}\nApplication — {TelegramCurriculumPresenter.DisplayGoal(values[1])}\n" +
                     (values.Count > 2 ? $"First topics — {values[2]}\n" : "") +
@@ -146,7 +146,7 @@ public static class TelegramDialoguePresenter
                 (values.Count > 3 && values[3] == "start"
                     ? "Напишите «Продолжим», чтобы открыть первое упражнение."
                     : "Можно начать с короткой диагностики. Напишите «давай» или «пропустить»."),
-            DialogueReplyKind.DiagnosticQuestion => values[0] + "\nОтветьте на вопрос или напишите «пропустить», чтобы перейти к упражнению.",
+            DialogueReplyKind.DiagnosticQuestion => "Диагностический вопрос\n" + values[0] + "\nОтветьте на вопрос или напишите «пропустить», чтобы начать занятие.",
             DialogueReplyKind.DiagnosticOffer => "Можно начать с короткой диагностики. Напишите «давай», чтобы увидеть вопрос, или «пропустить», чтобы открыть упражнение.",
             DialogueReplyKind.SessionEnded => "Сессия завершена. Ваш прогресс сохранён. Напишите «Продолжим», когда будете готовы.",
             DialogueReplyKind.ExerciseCriteria => "На что обратить внимание\n" + string.Join("\n\n", values),

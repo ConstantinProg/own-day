@@ -161,6 +161,8 @@ public sealed partial class PostgresLearningProviderTests
         using var client = host.CreateClient();
         await SendChoiceTextAsync(client, 1, "/learn_next");
         await DrainChoiceRequestsAsync(host.Services, 1);
+        await SendChoiceTextAsync(client, 2, "/learn_next");
+        await DrainChoiceRequestsAsync(host.Services, 1);
         var oldButton = (await ChoiceKeyboardAsync()).Buttons[0].CallbackData!;
         if (idle)
         {
@@ -171,15 +173,15 @@ public sealed partial class PostgresLearningProviderTests
         }
         else
         {
-            await SendChoiceTextAsync(client, 2, "/learn_end_session");
+            await SendChoiceTextAsync(client, 3, "/learn_end_session");
             await DrainChoiceRequestsAsync(host.Services, 1);
         }
 
-        await PostChoiceCallbackAsync(client, 3, oldButton);
+        await PostChoiceCallbackAsync(client, 4, oldButton);
         await DrainChoiceRequestsAsync(host.Services, 1);
         var freshButton = (await ChoiceKeyboardAsync()).Buttons[0].CallbackData!;
         Assert.NotEqual(oldButton, freshButton);
-        await PostChoiceCallbackAsync(client, 4, oldButton);
+        await PostChoiceCallbackAsync(client, 5, oldButton);
         await DrainChoiceRequestsAsync(host.Services, 1);
 
         await using (var observer = Open())
@@ -193,7 +195,7 @@ public sealed partial class PostgresLearningProviderTests
             Assert.Single(sessions, session => session.EndedAt is null);
         }
 
-        await PostChoiceCallbackAsync(client, 5, freshButton);
+        await PostChoiceCallbackAsync(client, 6, freshButton);
         await DrainChoiceRequestsAsync(host.Services, 1);
         await using var completed = Open();
         Assert.Equal(LessonStatus.Completed, (await completed.Set<Lesson>().SingleAsync()).Status);
@@ -305,9 +307,11 @@ public sealed partial class PostgresLearningProviderTests
         using var client = host.CreateClient();
         await SendChoiceTextAsync(client, 1, "/learn_next");
         await DrainChoiceRequestsAsync(host.Services, 1);
-        await SendChoiceTextAsync(client, 2, "А");
+        await SendChoiceTextAsync(client, 2, "/learn_next");
         await DrainChoiceRequestsAsync(host.Services, 1);
-        await SendChoiceTextAsync(client, 3, "/learn_next");
+        await SendChoiceTextAsync(client, 3, "А");
+        await DrainChoiceRequestsAsync(host.Services, 1);
+        await SendChoiceTextAsync(client, 4, "/learn_next");
         await DrainChoiceRequestsAsync(host.Services, 1);
 
         await using var observer = Open();

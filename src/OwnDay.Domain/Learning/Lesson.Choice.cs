@@ -29,12 +29,12 @@ public sealed partial class Lesson
         return true;
     }
 
-    public bool MatchesChoice(int version, int revision) => Status == LessonStatus.AwaitingAnswer &&
+    public bool MatchesChoice(int version, int revision) => AcceptsAnswer &&
         version == ChoiceExercise.CurrentVersion && Choice is { } state && state.Exercise.Version == version && state.Revision == revision;
 
     public void RefreshChoicePrompt()
     {
-        if (Status == LessonStatus.AwaitingAnswer) InvalidateChoiceButtons();
+        if (AcceptsAnswer) InvalidateChoiceButtons();
     }
 
     public ChoiceAttempt SubmitChoice(ImmutableArray<int> selected, Guid? operationId)

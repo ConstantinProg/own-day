@@ -23,13 +23,14 @@ public sealed partial class OpenAILessonTeacherTests
     [InlineData("wrong-format", false)]
     public async Task GenerateAsync_ChoiceProposalAndReview_PublishesOnlyUsableProposalOrOpenFallback(string scenario, bool publishes)
     {
+        const string theory = "Сложение объединяет количества. Если в коробках два и три карандаша, вместе их пять.";
         var proposal = JsonSerializer.Serialize(new
         {
-            Theory = "Рассмотрим сложение в другом примере.",
+            Theory = theory,
             EvidenceKind = "Understanding",
             SourceQuote = (string?)null,
             NeedsCurrentVerification = scenario == "disputed",
-            Criteria = new[] { new { Code = "explain", Requirement = "Почему слагаемые можно переставить?" } },
+            Criteria = new[] { new { Code = "explain", Requirement = "Объясните, как найти общее число карандашей в двух коробках." } },
             Choice = new
             {
                 Format = scenario == "wrong-format" ? "TrueFalse" : "SingleChoice",
@@ -56,9 +57,12 @@ public sealed partial class OpenAILessonTeacherTests
         { Transport = new HttpClientPipelineTransport(http), RetryPolicy = new ClientRetryPolicy(0) }),
             Options.Create(new OpenAIInboxAnalysisOptions { Enabled = true, ApiKey = "dummy" }), new RecordingLogger(), usage: usage);
 
-        var material = await teacher.GenerateAsync(new LessonRequest("Сложение") { PreferredChoice = ChoiceFormat.SingleChoice }, default);
+        var program = new LessonProgramContext("Математика", "Научиться считать покупки",
+            "Применение: подсчёт товаров в корзине\nОпыт: С нуля", null, null) { StartingLevel = DiagnosticStartingLevel.Foundation };
+        var material = await teacher.GenerateAsync(new LessonRequest("Сложение", program) { PreferredChoice = ChoiceFormat.SingleChoice }, default);
 
         Assert.Equal(1, handler.Requests);
+        Assert.Equal(theory, material.Theory);
         if (publishes)
         {
             Assert.NotNull(material.Choice);
@@ -69,10 +73,21 @@ public sealed partial class OpenAILessonTeacherTests
         else
         {
             Assert.Null(material.Choice);
-            Assert.Equal("Почему слагаемые можно переставить?", material.Question);
+            Assert.Equal("Объясните, как найти общее число карандашей в двух коробках.", material.Question);
             Assert.Equal(ExerciseEvidenceKind.Understanding, material.Content?.StructuredRubric?.Kind);
         }
         using var body = JsonDocument.Parse(handler.RequestBody!);
+        var messages = body.RootElement.GetProperty("messages");
+        var instructions = messages[0].GetProperty("content").GetString();
+        Assert.Contains("same idea taught in Theory", instructions);
+        Assert.Contains("Adjust difficulty based on the supplied evidence for the current topic", instructions);
+        Assert.Contains("For Foundation, assume no prior subject vocabulary", instructions);
+        Assert.Contains("Use only terms introduced in Theory or everyday words in the exercise question and all answer options", instructions);
+        using var input = JsonDocument.Parse(messages[1].GetProperty("content").GetString()!);
+        var context = input.RootElement.GetProperty("Program");
+        Assert.Equal("Foundation", context.GetProperty("StartingLevel").GetString());
+        Assert.Equal(program.Goal, context.GetProperty("Goal").GetString());
+        Assert.Equal(program.Experience, context.GetProperty("Experience").GetString());
         var schema = body.RootElement.GetProperty("response_format").GetProperty("json_schema").GetProperty("schema");
         Assert.Contains(schema.GetProperty("required").EnumerateArray(), property => property.GetString() == "Choice");
     }

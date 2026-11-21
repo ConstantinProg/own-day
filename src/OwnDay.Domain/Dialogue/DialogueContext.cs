@@ -75,9 +75,9 @@ public sealed partial class DialogueContext
         PromptId = lesson is null ? Guid.Empty : QuestionPrompt(lesson.Id, fingerprint!);
         if (changed) PromptOpenedAt = lesson is null ? null : now;
         Phase = lesson?.Status == LessonStatus.Paused ? DialoguePhase.Paused : DialoguePhase.Learning;
-        ExpectedResponse = lesson?.Status == LessonStatus.AwaitingAnswer ? DialogueExpectedResponse.LessonAnswer : DialogueExpectedResponse.None;
+        ExpectedResponse = lesson?.AcceptsAnswer == true ? DialogueExpectedResponse.LessonAnswer : DialogueExpectedResponse.None;
         if (lesson is null) ResponseAfterSourceOrder = Math.Max(ResponseAfterSourceOrder, sourceOrder);
-        else if (lesson.Status == LessonStatus.AwaitingAnswer && newExpectation && sourceOrder > 0)
+        else if (sourceOrder > 0 && (lesson.ExercisePending && changed || lesson.AcceptsAnswer && newExpectation))
             ResponseAfterSourceOrder = Math.Max(ResponseAfterSourceOrder, sourceOrder);
     }
 
@@ -99,6 +99,7 @@ public sealed partial class DialogueContext
 
     private static string LessonQuestionFingerprint(Lesson lesson) => lesson.RubricEvaluation switch
     {
+        _ when lesson.ExercisePending => Hash("theory\n" + lesson.Question),
         { Final: false, AwaitingCorrection: true } => Hash($"rubric-correction-v1/{lesson.CorrectionCount}\n{lesson.ResponseQuestion}"),
         { Final: false } evaluation => Hash("rubric-clarification-v1\n" + (evaluation.Clarification ?? lesson.Question)),
         _ when lesson.Choice is { Attempts.Length: > 0 } choice => Hash($"choice-retry-v1/{choice.Attempts.Length}\n{lesson.Question}"),

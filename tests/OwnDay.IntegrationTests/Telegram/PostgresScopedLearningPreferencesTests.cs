@@ -33,8 +33,9 @@ public sealed partial class PostgresLearningProviderTests
         {
             await SendEnglishAsync(client, 1, "запомни для этой дисциплины depth | detailed types");
             await SendEnglishAsync(client, 2, "/learn_next");
-            await SendEnglishAsync(client, 3, "объясни короче");
-            await SendEnglishAsync(client, 4, "I have 3 minutes");
+            await SendEnglishAsync(client, 3, "/learn_next");
+            await SendEnglishAsync(client, 4, "объясни короче");
+            await SendEnglishAsync(client, 5, "I have 3 minutes");
             await using var db = Open();
             var lesson = await db.Set<Lesson>().Include(value => value.Interactions).SingleAsync();
             Assert.Equal(probe.Material.Question, lesson.Question);
@@ -49,13 +50,13 @@ public sealed partial class PostgresLearningProviderTests
 
         using var restarted = SwitchHost(probe);
         using var resumed = restarted.CreateClient();
-        await SendEnglishAsync(resumed, 5, "/learn_preferences");
-        await SendEnglishAsync(resumed, 6, "switch to Finance");
-        await SendEnglishAsync(resumed, 7, "/learn_confirm " + await SwitchCodeAsync());
-        await SendEnglishAsync(resumed, 8, "/learn_next");
-        await SendEnglishAsync(resumed, 9, "выбрать программу TypeScript");
-        await SendEnglishAsync(resumed, 10, "/learn_confirm " + await SwitchCodeAsync());
-        await SendEnglishAsync(resumed, 11, "/learn_preference_reset subject all");
+        await SendEnglishAsync(resumed, 6, "/learn_preferences");
+        await SendEnglishAsync(resumed, 7, "switch to Finance");
+        await SendEnglishAsync(resumed, 8, "/learn_confirm " + await SwitchCodeAsync());
+        await SendEnglishAsync(resumed, 9, "/learn_next");
+        await SendEnglishAsync(resumed, 10, "выбрать программу TypeScript");
+        await SendEnglishAsync(resumed, 11, "/learn_confirm " + await SwitchCodeAsync());
+        await SendEnglishAsync(resumed, 12, "/learn_preference_reset subject all");
 
         await using var result = Open();
         var different = await result.Set<Lesson>().SingleAsync(lesson => lesson.ProgramId == finance.Id);

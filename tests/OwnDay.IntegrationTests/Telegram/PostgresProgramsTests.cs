@@ -85,6 +85,7 @@ public sealed class PostgresProgramsTests
                     await Post(host.Services, 2, "/learn_program Physics | Beginner");
                     await Post(host.Services, 3, $"/learn_link basics | {skill.Id} | The same concept in mechanics");
                     await Post(host.Services, 4, "/learn_next");
+                    await Post(host.Services, 13, "/learn_next");
                     await Post(host.Services, 5, "/learn_pause");
                 }
                 else
@@ -94,6 +95,7 @@ public sealed class PostgresProgramsTests
                     await Post(host.Services, 7, "/learn_resume");
                     await Post(host.Services, 8, "/answer correct");
                     await Post(host.Services, 9, "/learn_focus basics");
+                    await Post(host.Services, 14, "/learn_next");
                     await Post(host.Services, 10, "/answer correct");
                     await Post(host.Services, 11, $"/learn_select {source.Id}");
                     await Post(host.Services, 12, "/learn_next");
@@ -126,7 +128,7 @@ public sealed class PostgresProgramsTests
                     Assert.Equal(2, LearnerSkillState.Evaluate(observations).PositiveAssessments);
                     Assert.Equal(2, target.Routes.Count);
                     Assert.Equal(1, target.CurrentRoute.ProgressVersion);
-                    Assert.Equal(12, await db.Set<OwnDay.Application.Learning.Requests.LearningRequest>().CountAsync());
+                    Assert.Equal(14, await db.Set<OwnDay.Application.Learning.Requests.LearningRequest>().CountAsync());
                     Assert.Equal("Advanced", teacher.Requests[^1].Topic);
                 }
             }

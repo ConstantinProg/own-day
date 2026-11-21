@@ -55,7 +55,7 @@ public sealed partial class PostgresLearningProviderTests
         using (var host = ConsultationHost(probe))
         using (var client = host.CreateClient())
         {
-            string[] turns = ["Хочу изучить биржу", "инвистиции", "Начинаю с нуля", "пропустить",
+            string[] turns = ["Хочу изучить биржу", "инвистиции", "Начинаю с нуля", "пропустить", "К упражнению",
                 "Какие требования к ответу?", "Объясни проще", "Дай подсказку", "Закончим на сегодня"];
             for (var index = 0; index < turns.Length; index++)
                 await SendEnglishAsync(client, index + 1, turns[index]);
@@ -71,10 +71,10 @@ public sealed partial class PostgresLearningProviderTests
         using (var host = ConsultationHost(probe))
         using (var client = host.CreateClient())
         {
-            await SendEnglishAsync(client, 9, "Продолжим");
-            await SendEnglishAsync(client, 10, answer);
-            await SendEnglishAsync(client, 11, "Почему мой ответ неправильный?");
-            await SendEnglishAsync(client, 12, "Вернёмся к предыдущей теме");
+            await SendEnglishAsync(client, 10, "Продолжим");
+            await SendEnglishAsync(client, 11, answer);
+            await SendEnglishAsync(client, 12, "Почему мой ответ неправильный?");
+            await SendEnglishAsync(client, 13, "Вернёмся к предыдущей теме");
         }
 
         await using var result = Open();
@@ -131,6 +131,7 @@ public sealed partial class PostgresLearningProviderTests
                 await SendEnglishAsync(client, ++id, "Yes, I can send the list today.");
             }
             else await SendEnglishAsync(client, ++id, "пропустим");
+            await SendEnglishAsync(client, ++id, "К упражнению");
             await SendEnglishAsync(client, ++id, "Почему здесь используется could?");
             await using (var db = Open())
             {
@@ -197,11 +198,12 @@ public sealed partial class PostgresLearningProviderTests
             await SendEnglishAsync(client, 2, "Рабочие письма");
             await SendEnglishAsync(client, 3, "Начинаю с нуля");
             await SendEnglishAsync(client, 4, "пропустим");
+            await SendEnglishAsync(client, 5, "К упражнению");
             await using (var db = Open()) lessonId = (await db.Set<Lesson>().SingleAsync()).Id;
-            using var explain = await PostPublicAsync(client, 5, "Объясни could");
+            using var explain = await PostPublicAsync(client, 6, "Объясни could");
             explain.EnsureSuccessStatusCode();
             await probe.Started.Task.WaitAsync(TimeSpan.FromSeconds(10));
-            using var pause = await PostPublicAsync(client, 6, "пауза").WaitAsync(TimeSpan.FromSeconds(3));
+            using var pause = await PostPublicAsync(client, 7, "пауза").WaitAsync(TimeSpan.FromSeconds(3));
             pause.EnsureSuccessStatusCode();
             // Disposing the Host cancels the actual provider invocation and worker.
         }
@@ -211,8 +213,8 @@ public sealed partial class PostgresLearningProviderTests
         using (var restarted = ExperienceHost(recovery, new ExperienceSender()))
         using (var client = restarted.CreateClient())
         {
-            await WaitAllPublicAsync(6);
-            await SendEnglishAsync(client, 7, "Продолжим");
+            await WaitAllPublicAsync(7);
+            await SendEnglishAsync(client, 8, "Продолжим");
             await WaitExperienceDeliveryAsync();
         }
         await using var result = Open();
@@ -220,7 +222,7 @@ public sealed partial class PostgresLearningProviderTests
         Assert.Equal(LessonStatus.AwaitingAnswer, (await result.Set<Lesson>().SingleAsync()).Status);
         Assert.Empty(await result.Set<LearningEvidence>().ToListAsync());
         Assert.Empty(await result.InboxItems.ToListAsync());
-        Assert.Equal(7, await result.Set<LearningAppliedOperation>().CountAsync());
+        Assert.Equal(8, await result.Set<LearningAppliedOperation>().CountAsync());
         Assert.All(await result.Set<LearningRequest>().ToListAsync(), request =>
         {
             Assert.Equal(LearningRequestStatus.Completed, request.Status);

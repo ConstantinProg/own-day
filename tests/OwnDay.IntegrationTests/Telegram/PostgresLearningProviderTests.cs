@@ -417,6 +417,8 @@ public sealed partial class PostgresLearningProviderTests : IAsyncLifetime
             Generate = request =>
             {
                 Assert.Equal(TeachingAction.Simplify, request.Teaching!.Action);
+                Assert.Equal(DiagnosticStartingLevel.Foundation, request.Program?.StartingLevel);
+                Assert.Equal(ChoiceFormat.TrueFalse, request.PreferredChoice);
                 Assert.Equal(topic, request.Topic);
                 return new("Пример с одной заявкой.", "Какую цену укажете?");
             }

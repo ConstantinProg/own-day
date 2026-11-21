@@ -73,6 +73,7 @@ public sealed class PostgresVerificationTests
                 {
                     await Post(host.Services, 1, "/learn_program Mathematics | Beginner");
                     await Post(host.Services, 2, "/learn_next");
+                    await Post(host.Services, 7, "/learn_next");
                     await Post(host.Services, 3, "/learn_pause");
                 }
                 else if (restart == 1)

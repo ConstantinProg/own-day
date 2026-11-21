@@ -35,7 +35,7 @@ public sealed partial class PostgresLearningProviderTests
     }
 
     [Fact]
-    public async Task Post_MarketGoalRestatementAndUnrelatedExperience_StartsExerciseOnResume()
+    public async Task Post_MarketGoalRestatementAndUnrelatedExperience_StartsLessonWithTheoryOnResume()
     {
         const string original = "Хочу понять, как работает Московская биржа";
         const string practicalUse = "Хочу понять, как работает биржа, чтобы делать инвистиции";
@@ -62,11 +62,13 @@ public sealed partial class PostgresLearningProviderTests
         Assert.Contains(practicalUse, program.GoalCriterion);
         var lesson = await db.Set<Lesson>().SingleAsync();
         Assert.Equal(probe.Material.Question, lesson.Question);
+        Assert.True(lesson.ExercisePending);
         var replies = await db.TelegramOutboxMessages.Select(message => message.Text).ToListAsync();
         Assert.Contains(replies, reply => reply.Contains("Биржевые заявки", StringComparison.Ordinal));
         Assert.Contains(replies, reply => reply.Contains(program.GoalCriterion!.Replace("инвистиции", "инвестиции", StringComparison.Ordinal), StringComparison.Ordinal));
         Assert.DoesNotContain(replies, reply => reply.Contains("инвистиции", StringComparison.Ordinal));
-        Assert.Contains(replies, reply => reply.Contains(probe.Material.Question, StringComparison.Ordinal));
+        Assert.Contains(replies, reply => reply.Contains(probe.Material.Theory, StringComparison.Ordinal));
+        Assert.DoesNotContain(replies, reply => reply.Contains(probe.Material.Question, StringComparison.Ordinal));
         await Assert.ThrowsAsync<PostgresException>(() =>
             db.GetService<IMigrator>().MigrateAsync("20261114130000_AddProgramSuspension"));
         db.ChangeTracker.Clear();

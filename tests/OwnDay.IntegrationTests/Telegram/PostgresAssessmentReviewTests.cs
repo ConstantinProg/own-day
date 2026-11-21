@@ -30,7 +30,7 @@ public sealed partial class PostgresLearningProviderTests
         using (var host = ConsultationHost(probe))
         using (var client = host.CreateClient())
         {
-            string[] turns = ["Хочу изучить TypeScript", "Разбирать списки React", "Начинаю с нуля", "Продолжим",
+            string[] turns = ["Хочу изучить TypeScript", "Разбирать списки React", "Начинаю с нуля", "Продолжим", "К упражнению",
                 "/answer React keeps each item's identity.", "/answer The key persists when the list is reordered."];
             for (var index = 0; index < turns.Length; index++) await SendEnglishAsync(client, index + 1, turns[index]);
             await using var db = Open();
@@ -44,14 +44,14 @@ public sealed partial class PostgresLearningProviderTests
         using (var host = ConsultationHost(probe))
         using (var client = host.CreateClient())
         {
-            await SendEnglishAsync(client, 7, "оспорить оценку");
+            await SendEnglishAsync(client, 8, "оспорить оценку");
             Assert.Equal(2, probe.AssessedAnswers.Count);
         }
         using (var host = Host(probe, worker: false, publicIngress: true, interceptor: new RejectBoundary("apply"),
             configure: options => { options.Enabled = true; options.DialogueEnabled = true; }))
         using (var client = host.CreateClient())
         {
-            using var accepted = await PostPublicAsync(client, 8, appeal);
+            using var accepted = await PostPublicAsync(client, 9, appeal);
             accepted.EnsureSuccessStatusCode();
             using var scope = host.Services.CreateScope();
             var lease = (await scope.ServiceProvider.GetRequiredService<ILearningRequestStore>().ClaimAsync(TimeSpan.FromMinutes(1), default))!;
@@ -67,13 +67,13 @@ public sealed partial class PostgresLearningProviderTests
         using (var host = ConsultationHost(probe))
         using (var client = host.CreateClient())
         {
-            await WaitAllPublicAsync(8);
-            await SendEnglishAsync(client, 9, $"/learn_appeal {id} | 0 | Другая формулировка");
-            using var duplicate = await PostPublicAsync(client, 8, appeal);
+            await WaitAllPublicAsync(9);
+            await SendEnglishAsync(client, 10, $"/learn_appeal {id} | 0 | Другая формулировка");
+            using var duplicate = await PostPublicAsync(client, 9, appeal);
             duplicate.EnsureSuccessStatusCode();
-            await SendEnglishAsync(client, 10, "/learn_progress");
-            await TelegramCurriculumFixture.PostAsync(client, 11, 202, $"/learn_appeal {id} | 1 | Попытка другого владельца");
-            await WaitAllPublicAsync(11);
+            await SendEnglishAsync(client, 11, "/learn_progress");
+            await TelegramCurriculumFixture.PostAsync(client, 12, 202, $"/learn_appeal {id} | 1 | Попытка другого владельца");
+            await WaitAllPublicAsync(12);
         }
 
         await using var result = Open();

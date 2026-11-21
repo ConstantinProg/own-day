@@ -240,6 +240,7 @@ public sealed class PostgresStudyTests
             await LearningWorkerFixture.ProcessAsync(host.Services, 2, 101, "/learn_schedule Europe/Moscow | 1 | 18:00-20:00 | review");
             Assert.Null((await TelegramStudyFixture.Dispatch(host.Services)).InvitationId);
             await LearningWorkerFixture.ProcessAsync(host.Services, 3, 101, "/learn_next");
+            await LearningWorkerFixture.ProcessAsync(host.Services, 7, 101, "/learn_next");
             if (variant == "new prompt")
             {
                 await using var db = database.Context();

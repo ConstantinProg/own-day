@@ -15,7 +15,8 @@ public enum LearningIntent
 }
 public sealed record LearningIntentInput(string Input, string Question, string? Goal, string? Discipline,
     string[] RecentInteractions, LearningIntent[] Allowed, Guid? ProgramId = null, int? RouteVersion = null,
-    uint? ProgramVersion = null, long DialogueRevision = 0, Guid? PromptId = null);
+    uint? ProgramVersion = null, long DialogueRevision = 0, Guid? PromptId = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Theory = null);
 public sealed record LearningIntentProposal(LearningIntent Intent)
 {
     public static LearningIntentProposal Parse(string json)

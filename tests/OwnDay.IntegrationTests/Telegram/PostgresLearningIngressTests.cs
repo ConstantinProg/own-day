@@ -144,7 +144,7 @@ public sealed partial class PostgresLearningProviderTests
         using (var client = host.CreateClient())
         {
             foreach (var (id, command) in new[] { (1, "/learn_request English | Work emails"), (2, "/learn_next"),
-                (3, "/learn_ask Explain the question"), (4, "/learn_pause") })
+                (3, "/learn_next"), (4, "/learn_ask Explain the question"), (5, "/learn_pause") })
             {
                 using var response = await PostPublicAsync(client, id, command);
                 response.EnsureSuccessStatusCode();
@@ -160,7 +160,7 @@ public sealed partial class PostgresLearningProviderTests
         using (var host = Host(probe, worker: true, publicIngress: true))
         using (var client = host.CreateClient())
         {
-            foreach (var (id, command) in new[] { (5, "/learn_resume"), (6, "/answer My answer"), (6, "/answer My answer") })
+            foreach (var (id, command) in new[] { (6, "/learn_resume"), (7, "/answer My answer"), (7, "/answer My answer") })
             {
                 using var response = await PostPublicAsync(client, id, command);
                 response.EnsureSuccessStatusCode();

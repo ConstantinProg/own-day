@@ -69,6 +69,7 @@ public sealed class PostgresLearningAcceptanceTests
                         Assert.Empty(await failureInspection.ServiceProvider.GetRequiredService<OwnDayDbContext>().Set<Lesson>().ToListAsync());
                     teacher.Fail = false;
                     await Post("/learn_next");
+                    await Post("/learn_next");
                     await Post("/learn_ask Why does this work?");
                     await Post("/answer incorrect");
                     await LearningWorkerFixture.ProcessAsync(host.Services, update, 101, "/answer incorrect");

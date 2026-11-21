@@ -55,14 +55,17 @@ public static class LearningActionProvider
         ? [new(LearningActionKind.StartReview, skillId), new(LearningActionKind.PostponeReview, skillId), new(LearningActionKind.SkipReview, skillId)]
         : [new(LearningActionKind.SkillPractice, skillId)];
 
-    public static bool CanOffer(LearningActionKind kind, Lesson? lesson) => kind switch
+    public static bool CanOffer(LearningAction action, Lesson? lesson) => action.Kind switch
     {
-        LearningActionKind.Hint => lesson is { Status: LessonStatus.AwaitingAnswer } &&
+        LearningActionKind.Hint => lesson is { AcceptsAnswer: true } &&
             (lesson.Choice is { } choice ? !choice.SolutionSeen && choice.HintsUsed < choice.Exercise.Hints.Length : lesson.CanOfferMoreHelp),
-        LearningActionKind.Solution => lesson is { Status: LessonStatus.AwaitingAnswer } &&
+        LearningActionKind.Solution => lesson is { AcceptsAnswer: true } &&
             (lesson.Choice is { } choice ? !choice.SolutionSeen : lesson.Interactions.All(interaction => interaction.Kind != LessonInteractionKind.FullAnswer)),
-        LearningActionKind.Criteria => lesson is { Status: LessonStatus.AwaitingAnswer, AssessmentContent.StructuredRubric: not null },
-        LearningActionKind.Next or LearningActionKind.AnotherExercise or LearningActionKind.ProjectPractice or
+        LearningActionKind.Criteria => lesson is { AcceptsAnswer: true, AssessmentContent.StructuredRubric: not null },
+        LearningActionKind.Next => lesson is null
+            ? action.TargetId == Guid.Empty
+            : lesson is { Status: LessonStatus.AwaitingAnswer, ExercisePending: true } && action.TargetId == lesson.Id,
+        LearningActionKind.AnotherExercise or LearningActionKind.ProjectPractice or
             LearningActionKind.FocusTopic or LearningActionKind.StartReview or LearningActionKind.SkillPractice => lesson is null,
         _ => true
     };

@@ -33,7 +33,8 @@ public sealed partial class PostgresLearningProviderTests
             await SendEnglishAsync(client, 3, "Начинаю с нуля");
             await SendEnglishAsync(client, 4, "пропустим");
             await SendEnglishAsync(client, 5, "давай два упражнения");
-            await SendEnglishAsync(client, 6, "Kim asks for the updated agenda. I can send it tomorrow.");
+            await SendEnglishAsync(client, 6, "К упражнению");
+            await SendEnglishAsync(client, 7, "Kim asks for the updated agenda. I can send it tomorrow.");
             await using var db = Open();
             Assert.Single(await db.Set<Lesson>().ToListAsync());
             Assert.Single(await db.Set<LearningEvidence>().ToListAsync());
@@ -41,17 +42,17 @@ public sealed partial class PostgresLearningProviderTests
         using (var restarted = PracticeHost(probe))
         using (var client = restarted.CreateClient())
         {
-            await SendEnglishAsync(client, 7, "пауза");
-            await SendEnglishAsync(client, 8, "Можем перейти к следующему?");
+            await SendEnglishAsync(client, 8, "пауза");
+            await SendEnglishAsync(client, 9, "Можем перейти к следующему?");
             await using (var db = Open())
             {
                 Assert.Single(await db.Set<Lesson>().ToListAsync());
                 Assert.Equal(LearningPracticeStatus.Paused, (await db.Set<LearningContext>().SingleAsync()).Practice!.Status);
             }
-            await SendEnglishAsync(client, 9, "Готов снова заниматься");
-            await SendEnglishAsync(client, 10, "A second answer.");
-            await SendEnglishAsync(client, 11, "дальше");
-            using var duplicate = await PostPublicAsync(client, 11, "дальше");
+            await SendEnglishAsync(client, 10, "Готов снова заниматься");
+            await SendEnglishAsync(client, 11, "A second answer.");
+            await SendEnglishAsync(client, 12, "дальше");
+            using var duplicate = await PostPublicAsync(client, 12, "дальше");
             duplicate.EnsureSuccessStatusCode();
         }
         await using var result = Open();
@@ -113,8 +114,9 @@ public sealed partial class PostgresLearningProviderTests
             await SendEnglishAsync(client, 3, "Начинаю с нуля");
             await SendEnglishAsync(client, 4, "пропустим");
             await SendEnglishAsync(client, 5, "давай два упражнения");
-            await SendEnglishAsync(client, 6, "Kim asks for the agenda. I can send it tomorrow.");
-            await SendEnglishAsync(client, 7, "дальше");
+            await SendEnglishAsync(client, 6, "К упражнению");
+            await SendEnglishAsync(client, 7, "Kim asks for the agenda. I can send it tomorrow.");
+            await SendEnglishAsync(client, 8, "дальше");
         }
         await using (var db = Open())
         {
@@ -123,7 +125,7 @@ public sealed partial class PostgresLearningProviderTests
         }
         var recovery = new Probe("");
         using (var host = PracticeHost(recovery))
-        using (var client = host.CreateClient()) await SendEnglishAsync(client, 8, "дальше");
+        using (var client = host.CreateClient()) await SendEnglishAsync(client, 9, "дальше");
         await using var result = Open();
         Assert.Equal(2, await result.Set<Lesson>().CountAsync());
         Assert.Equal(2, (await result.Set<LearningContext>().SingleAsync()).Practice!.LessonIds.Length);
@@ -145,21 +147,22 @@ public sealed partial class PostgresLearningProviderTests
         await SendEnglishAsync(client, 3, "Начинаю с нуля");
         await SendEnglishAsync(client, 4, "пропустим");
         await SendEnglishAsync(client, 5, "давай два упражнения");
-        using var answer = await PostPublicAsync(client, 100, "Kim asks for the agenda. I can send it tomorrow.");
+        await SendEnglishAsync(client, 6, "К упражнению");
+        using var answer = await PostPublicAsync(client, 101, "Kim asks for the agenda. I can send it tomorrow.");
         answer.EnsureSuccessStatusCode();
-        await WaitAllPublicAsync(6);
-        using var late = await PostPublicAsync(client, 6, "дальше");
-        late.EnsureSuccessStatusCode();
         await WaitAllPublicAsync(7);
+        using var late = await PostPublicAsync(client, 7, "дальше");
+        late.EnsureSuccessStatusCode();
+        await WaitAllPublicAsync(8);
         await using (var db = Open())
         {
             Assert.Single(await db.Set<Lesson>().ToListAsync());
             Assert.Single((await db.Set<LearningContext>().SingleAsync()).Practice!.LessonIds);
         }
         Assert.Equal(0, probe.KindCalls.GetValueOrDefault("generate"));
-        using var fresh = await PostPublicAsync(client, 101, "дальше");
+        using var fresh = await PostPublicAsync(client, 102, "дальше");
         fresh.EnsureSuccessStatusCode();
-        await WaitAllPublicAsync(8);
+        await WaitAllPublicAsync(9);
         await using var result = Open();
         Assert.Equal(2, await result.Set<Lesson>().CountAsync());
         Assert.Equal(1, probe.KindCalls.GetValueOrDefault("generate"));
@@ -176,10 +179,11 @@ public sealed partial class PostgresLearningProviderTests
         await SendEnglishAsync(client, 3, "Начинаю с нуля");
         await SendEnglishAsync(client, 4, "пропустим");
         await SendEnglishAsync(client, 5, "давай два упражнения");
-        await SendEnglishAsync(client, 6, "Kim asks for the agenda. I can send it tomorrow.");
-        await SendEnglishAsync(client, 7, "/learn A different skill");
-        await SendEnglishAsync(client, 8, "практика 4");
-        await SendEnglishAsync(client, 9, "помощь");
+        await SendEnglishAsync(client, 6, "К упражнению");
+        await SendEnglishAsync(client, 7, "Kim asks for the agenda. I can send it tomorrow.");
+        await SendEnglishAsync(client, 8, "/learn A different skill");
+        await SendEnglishAsync(client, 9, "практика 4");
+        await SendEnglishAsync(client, 10, "помощь");
         await using var result = Open();
         Assert.Single(await result.Set<Lesson>().ToListAsync());
         var practice = (await result.Set<LearningContext>().SingleAsync()).Practice!;
@@ -251,10 +255,11 @@ public sealed partial class PostgresLearningProviderTests
         await SendEnglishAsync(client, 2, "Рабочие письма");
         await SendEnglishAsync(client, 3, "Начинаю с нуля");
         await SendEnglishAsync(client, 4, "пропустим");
-        await SendEnglishAsync(client, 5, "Kim asks for the agenda. I can send it tomorrow.");
-        await SendEnglishAsync(client, 6, "давай одно упражнение");
-        await SendEnglishAsync(client, 7, "A fresh practice answer.");
-        await SendEnglishAsync(client, 8, "дальше");
+        await SendEnglishAsync(client, 5, "К упражнению");
+        await SendEnglishAsync(client, 6, "Kim asks for the agenda. I can send it tomorrow.");
+        await SendEnglishAsync(client, 7, "давай одно упражнение");
+        await SendEnglishAsync(client, 8, "A fresh practice answer.");
+        await SendEnglishAsync(client, 9, "дальше");
         await using var result = Open();
         var lessons = await result.Set<Lesson>().ToListAsync();
         Assert.Equal(2, lessons.Count);
@@ -277,13 +282,14 @@ public sealed partial class PostgresLearningProviderTests
             await SendEnglishAsync(client, 3, "Начинаю с нуля");
             await SendEnglishAsync(client, 4, "пропустим");
             await SendEnglishAsync(client, 5, "давай два упражнения");
-            await SendEnglishAsync(client, 6, "Kim asks for the agenda. I can send it tomorrow.");
+            await SendEnglishAsync(client, 6, "К упражнению");
+            await SendEnglishAsync(client, 7, "Kim asks for the agenda. I can send it tomorrow.");
         }
         using (var host = Host(probe, worker: false, publicIngress: true, interceptor: new RejectBoundary("apply"),
             configure: options => { options.Enabled = true; options.DialogueEnabled = true; }))
         using (var client = host.CreateClient())
         {
-            using var receipt = await PostPublicAsync(client, 7, "дальше");
+            using var receipt = await PostPublicAsync(client, 8, "дальше");
             receipt.EnsureSuccessStatusCode();
             using var scope = host.Services.CreateScope();
             var lease = (await scope.ServiceProvider.GetRequiredService<ILearningRequestStore>().ClaimAsync(TimeSpan.FromMinutes(1), default))!;
@@ -296,7 +302,7 @@ public sealed partial class PostgresLearningProviderTests
             await db.Database.ExecuteSqlRawAsync("UPDATE learning_requests SET lease_until = clock_timestamp() - interval '1 second' WHERE status = 2");
         }
         using (var host = PracticeHost(probe))
-        using (var client = host.CreateClient()) await WaitAllPublicAsync(7);
+        using (var client = host.CreateClient()) await WaitAllPublicAsync(8);
         await using var result = Open();
         Assert.Equal(2, await result.Set<Lesson>().CountAsync());
         Assert.Equal(2, (await result.Set<LearningContext>().SingleAsync()).Practice!.LessonIds.Length);

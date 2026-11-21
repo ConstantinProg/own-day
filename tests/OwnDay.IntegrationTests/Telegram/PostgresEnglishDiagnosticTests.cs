@@ -49,7 +49,8 @@ public sealed partial class PostgresLearningProviderTests
         Assert.Equal(program.Id, lesson.ProgramId);
         Assert.Equal(EnglishLearningContent.FirstLesson, lesson.Content);
         Assert.Null(lesson.ExpectedAnswer);
-        Assert.Equal(DialogueExpectedResponse.LessonAnswer, (await db.Set<DialogueContext>().SingleAsync()).ExpectedResponse);
+        Assert.True(lesson.ExercisePending);
+        Assert.Equal(DialogueExpectedResponse.None, (await db.Set<DialogueContext>().SingleAsync()).ExpectedResponse);
         Assert.Empty(await db.InboxItems.ToListAsync());
         Assert.Empty(await db.Projects.ToListAsync());
         Assert.Empty(await db.Actions.ToListAsync());
@@ -86,8 +87,9 @@ public sealed partial class PostgresLearningProviderTests
         {
             await SendEnglishAsync(client, 8, "Продолжим");
             await SendEnglishAsync(client, 9, "пропустим");
-            await SendEnglishAsync(client, 10, "объясни could");
-            await SendEnglishAsync(client, 11, "/answer Kim asks for the updated agenda. Yes, I can send it on Thursday.");
+            await SendEnglishAsync(client, 10, "К упражнению");
+            await SendEnglishAsync(client, 11, "объясни could");
+            await SendEnglishAsync(client, 12, "/answer Kim asks for the updated agenda. Yes, I can send it on Thursday.");
         }
         await using var db = Open();
         var diagnostic = (await db.Set<LearningProgram>().SingleAsync()).EnglishDiagnostic!;

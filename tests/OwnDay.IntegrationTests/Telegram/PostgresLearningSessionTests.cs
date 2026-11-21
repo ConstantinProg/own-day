@@ -14,7 +14,8 @@ public sealed partial class PostgresLearningProviderTests
         using (var host = ConsultationHost(probe))
         using (var client = host.CreateClient())
         {
-            string[] turns = ["Хочу изучить TypeScript", "Типизировать ответы API", "Начинаю с нуля", "Продолжим", "/learn_end_session"];
+            string[] turns = ["Хочу изучить TypeScript", "Типизировать ответы API", "Начинаю с нуля", "Продолжим",
+                "К упражнению", "/learn_end_session"];
             for (var index = 0; index < turns.Length; index++) await SendEnglishAsync(client, index + 1, turns[index]);
             await using var db = Open();
             var lesson = await db.Set<Lesson>().SingleAsync();
@@ -27,7 +28,7 @@ public sealed partial class PostgresLearningProviderTests
 
         using var restarted = ConsultationHost(probe);
         using var restartedClient = restarted.CreateClient();
-        await SendEnglishAsync(restartedClient, 6, "Продолжим");
+        await SendEnglishAsync(restartedClient, 7, "Продолжим");
         await using var result = Open();
         var backdated = DateTimeOffset.UtcNow.AddHours(-3);
         var reopened = await result.Set<LearningSession>().AsNoTracking().SingleAsync(session => session.EndedAt == null);
@@ -44,7 +45,7 @@ public sealed partial class PostgresLearningProviderTests
         var evidence = LearningEvidence.FromAnswer(previousExercise, _now.AddDays(-10), "test");
         result.AddRange(skill, previousExercise, evidence, ReviewSchedule.FromAnswer(evidence));
         await result.SaveChangesAsync();
-        await SendEnglishAsync(restartedClient, 7, "/answer stale answer");
+        await SendEnglishAsync(restartedClient, 8, "/answer stale answer");
 
         var closed = await result.Set<LearningSession>().AsNoTracking().SingleAsync(session => session.Id == reopened.Id);
         Assert.Equal(LearningSessionEnd.Idle, closed.EndReason);
@@ -59,7 +60,7 @@ public sealed partial class PostgresLearningProviderTests
         Assert.Contains(messages, message => message.Contains(skill.Title, StringComparison.Ordinal) &&
             message.Contains("что повторить", StringComparison.Ordinal));
 
-        await SendEnglishAsync(restartedClient, 8, "/answer new answer");
+        await SendEnglishAsync(restartedClient, 9, "/answer new answer");
         Assert.Equal("new answer", Assert.Single(probe.AssessedAnswers));
         Assert.False(result.Database.HasPendingModelChanges());
     }

@@ -10,7 +10,7 @@ public sealed record ChoicePrompt(Guid LessonId, int Version, int Revision, Choi
     public const string LatinLabels = "ABCDEF";
     public const string CyrillicLabels = "АБВГДЕ";
 
-    public static ChoicePrompt? From(Lesson lesson) => lesson.Choice is { } state && lesson.Status == LessonStatus.AwaitingAnswer
+    public static ChoicePrompt? From(Lesson lesson) => lesson.Choice is { } state && lesson.AcceptsAnswer
         ? new(lesson.Id, state.Exercise.Version, state.Revision, state.Exercise.Format, state.Exercise.Question,
             state.Exercise.Options, state.Draft, MarketLearningContent.InRussian(lesson.Theory))
         : null;
