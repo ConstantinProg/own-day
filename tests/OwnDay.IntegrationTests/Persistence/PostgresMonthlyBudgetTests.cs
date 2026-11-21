@@ -144,8 +144,13 @@ public sealed partial class PostgresObservabilityTests
         var second = (await ledger.AdmitAsync(Request(), new("fake", "inbox-v1", "test"), default))!.Value;
         await ledger.FinishAsync(first, "provider_failure", null, default);
         await using (var db = new OwnDayDbContext(_options))
-            await Assert.ThrowsAsync<Npgsql.PostgresException>(() => db.GetService<IMigrator>()
+        {
+            var error = await Assert.ThrowsAsync<Npgsql.PostgresException>(() => db.GetService<IMigrator>()
                 .MigrateAsync("20261112150000_AddLearningProviderAttempts"));
+            Assert.Contains("outstanding reservations", error.MessageText, StringComparison.Ordinal);
+            // Earlier Down migrations can commit before the financial guard rejects the target.
+            await db.Database.MigrateAsync();
+        }
         Assert.Null(await ledger.AdmitAsync(Request(), new("fake", "inbox-v1", "test"), default));
         await ledger.FinishAsync(second, "response", new("", "fake", "provider-id", 10, 10, 0), default);
         await ledger.FinishAsync(second, "response", new("", "fake", "provider-id", 0, 0, 0), default);

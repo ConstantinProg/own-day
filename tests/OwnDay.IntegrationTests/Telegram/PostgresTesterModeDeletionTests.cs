@@ -1,6 +1,9 @@
 using System.Net;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.DependencyInjection;
+using Npgsql;
 using OwnDay.Application.Inbox.Analysis;
 using OwnDay.Application.Inbox.Observability;
 using OwnDay.Application.Learning.Requests;
@@ -137,6 +140,9 @@ public sealed partial class PostgresTesterModeTests
         Assert.Equal(1, await saved.Database.SqlQuery<long>($"""
             SELECT call_count AS "Value" FROM openai_budget_carryover WHERE user_id = {Tester.Value}
             """).SingleAsync());
+        var downgrade = await Assert.ThrowsAsync<PostgresException>(() => saved.GetService<IMigrator>()
+            .MigrateAsync("20261120130000_AddTesterMode"));
+        Assert.Contains("retained charges", downgrade.MessageText, StringComparison.Ordinal);
     }
 
     private async Task SeedPersonalRecordsAsync()
