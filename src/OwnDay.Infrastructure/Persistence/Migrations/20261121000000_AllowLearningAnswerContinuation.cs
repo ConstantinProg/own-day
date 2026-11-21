@@ -19,6 +19,16 @@ public sealed class AllowLearningAnswerContinuation : Migration
 
     protected override void Down(MigrationBuilder migrationBuilder)
     {
+        migrationBuilder.Sql($"""
+            LOCK TABLE {Table} IN ACCESS EXCLUSIVE MODE;
+            DO $$
+            BEGIN
+                IF EXISTS (SELECT 1 FROM {Table} WHERE ordinal = 2) THEN
+                    RAISE EXCEPTION 'Cannot downgrade the Learning schema while third provider steps are stored. Keep the additive schema when rolling back the application.';
+                END IF;
+            END;
+            $$;
+            """);
         migrationBuilder.DropCheckConstraint(Constraint, Table);
         migrationBuilder.AddCheckConstraint(Constraint, Table, "ordinal BETWEEN 0 AND 1 AND version > 0");
     }

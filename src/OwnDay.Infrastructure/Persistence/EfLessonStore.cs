@@ -14,6 +14,7 @@ public sealed class EfLessonStore(OwnDayDbContext db) : ILessonStore
             lesson.Status is LessonStatus.AwaitingAnswer or LessonStatus.Paused);
         if (local is not null) return local;
         var stored = await db.Set<Lesson>().Include(l => l.Interactions.OrderByDescending(i => i.Kind == LessonInteractionKind.FullAnswer)
+            .ThenBy(i => i.Kind == LessonInteractionKind.ConceptExplanation)
             .ThenByDescending(i => i.Id).Take(10)).SingleOrDefaultAsync(l => l.UserId == user &&
             (l.Status == LessonStatus.AwaitingAnswer || l.Status == LessonStatus.Paused), token);
         return stored?.Status is LessonStatus.AwaitingAnswer or LessonStatus.Paused ? stored : null;

@@ -67,10 +67,11 @@ public static class TelegramLearningPresenter
     {
         var next = followUp switch
         {
-            { Practice: { } practice } => TelegramPracticePresenter.Render(practice, compact: true),
-            { Route: { } route } => TelegramCurriculumPresenter.Render(route, russian),
-            { Lesson: { } lesson } => Render(lesson, russian),
-            _ => null
+            LearningAnswerFollowUp.Practice practice => TelegramPracticePresenter.Render(practice.Value, compact: true),
+            LearningAnswerFollowUp.Route route => TelegramCurriculumPresenter.Render(route.Value, russian),
+            LearningAnswerFollowUp.Lesson lesson => Render(lesson.Value, russian),
+            LearningAnswerFollowUp.None => null,
+            _ => throw new ArgumentOutOfRangeException(nameof(followUp))
         };
         if (next is null) return Render(result, russian);
         var feedback = result switch

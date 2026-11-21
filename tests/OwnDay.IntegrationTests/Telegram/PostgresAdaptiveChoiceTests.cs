@@ -408,7 +408,7 @@ public sealed partial class PostgresLearningProviderTests
     }
 
     [Fact]
-    public async Task Post_RepeatedClearingErrorsAcrossRestarts_ExplainsThenChecksUnderstandingOnANewCase()
+    public async Task Post_RepeatedClearingErrorsAcrossRestarts_WaitsForExplicitNextAfterExplaining()
     {
         const string check = "Инвестор купил облигацию. Объясните, зачем фиксировать обязательства сторон до расчётов.";
         var generation = new ConcurrentQueue<LessonRequest>();
@@ -473,10 +473,17 @@ public sealed partial class PostgresLearningProviderTests
                 Assert.Equal(SkillMastery.NeedsPractice, state.Mastery);
                 Assert.Equal(0, state.PositiveAssessments);
                 Assert.Empty(await new EfCurriculumStore(db).CompletedTopicsAsync(_user, lesson.ProgramId!.Value, lesson.RouteVersion!.Value, default));
-                Assert.True((await db.Set<Lesson>().SingleAsync(item => item.Choice == null)).AcceptsAnswer);
+                Assert.Single(await db.Set<Lesson>().ToListAsync());
+                Assert.Single(generation);
             }
             await SendChoiceTextAsync(client, 6, "дальше");
             await DrainChoiceRequestsAsync(host.Services, 1);
+            await using (var db = Open())
+            {
+                var next = await db.Set<Lesson>().SingleAsync(item => item.Choice == null);
+                Assert.True(next.AcceptsAnswer);
+                Assert.Equal(check, next.Question);
+            }
             await SendChoiceTextAsync(client, 7, "/answer Сначала фиксируют, кто должен деньги и кто должен облигацию. Потом исполняют эти обязательства.");
             await DrainChoiceRequestsAsync(host.Services, 1);
         }

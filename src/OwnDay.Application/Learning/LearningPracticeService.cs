@@ -11,45 +11,54 @@ public sealed record LearningPracticeResult(PracticeReplyKind Kind, LearningPrac
     public Guid? RetryLessonId { get; init; }
 }
 
-public sealed record LearningAnswerFollowUp(LearningResult? Lesson = null, CurriculumResult? Route = null, LearningPracticeResult? Practice = null);
+public abstract record LearningAnswerFollowUp
+{
+    private LearningAnswerFollowUp() { }
+
+    public sealed record None : LearningAnswerFollowUp;
+    public sealed record Lesson(LearningResult.Material Value) : LearningAnswerFollowUp;
+    public sealed record Route(CurriculumResult Value) : LearningAnswerFollowUp;
+    public sealed record Practice(LearningPracticeResult Value) : LearningAnswerFollowUp;
+}
 
 public sealed class LearningPracticeService(ICurriculumStore programs, ILessonStore lessons, LearningService learning, CurriculumService curriculum)
 {
     public async Task<LearningAnswerFollowUp> AfterAnswerAsync(Lesson? answered, LearningResult result,
         LearningProviderSession provider, CancellationToken token)
     {
-        if (answered is not { Status: LessonStatus.Completed }) return new();
+        if (answered is not { Status: LessonStatus.Completed }) return new LearningAnswerFollowUp.None();
         var practice = await SynchronizeAsync(answered.UserId, DialogueOperationKind.Answer, token);
-        var continuation = result switch
+        var (correct, continuation) = result switch
         {
-            LearningResult.ChoiceReply choice => choice.Continuation,
-            LearningResult.Assessment { IsCorrect: true } assessment => assessment.Continuation,
-            LearningResult.Assessment assessment when answered.AssessmentContent?.StructuredRubric is not null => assessment.Continuation,
-            _ => null
+            LearningResult.ChoiceReply choice => (choice.IsCorrect, choice.Continuation),
+            LearningResult.Assessment assessment => (assessment.IsCorrect, assessment.Continuation),
+            _ => (false, null)
         };
-        var correct = result is LearningResult.Assessment { IsCorrect: true } or LearningResult.ChoiceReply { IsCorrect: true };
         if (practice is not null)
         {
             if (practice is not { Kind: PracticeReplyKind.ReadyNext, Practice.Status: LearningPracticeStatus.Running } || !correct)
-                return new(Practice: practice);
+                return new LearningAnswerFollowUp.Practice(practice);
             provider.BeginContinuation();
             var next = await ExecuteAsync(answered.UserId, DialogueOperationKind.NextPractice, "", token, answered);
-            return new(Practice: next);
+            return new LearningAnswerFollowUp.Practice(next);
         }
-        if (continuation is not (LearningContinuation.NextTopic or LearningContinuation.Practice)) return new();
+        if (!correct || continuation is not (LearningContinuation.NextTopic or LearningContinuation.Practice))
+            return new LearningAnswerFollowUp.None();
         if (answered.ProgramId is { } routeProgram &&
             answered.RouteVersion != (await programs.FindAsync(answered.UserId, routeProgram, token))?.CurrentRoute.Version)
-            return new();
+            return new LearningAnswerFollowUp.None();
 
         provider.BeginContinuation();
         if (continuation == LearningContinuation.NextTopic && answered.ProgramId is { } programId)
         {
             var route = await curriculum.NextAsync(answered.UserId, programId, token, answered.Question);
-            return route is CurriculumResult.Lesson or CurriculumResult.Adapted or CurriculumResult.RouteCompleted ? new(Route: route) : new();
+            return route is CurriculumResult.Lesson or CurriculumResult.Adapted or CurriculumResult.RouteCompleted
+                ? new LearningAnswerFollowUp.Route(route) : new LearningAnswerFollowUp.None();
         }
-        if (answered.SkillId is not { } skillId) return new();
+        if (answered.SkillId is not { } skillId) return new LearningAnswerFollowUp.None();
         var lesson = await learning.PracticeAfterAnswerAsync(answered, skillId, token);
-        return lesson is LearningResult.Material ? new(Lesson: lesson) : new();
+        return lesson is LearningResult.Material material
+            ? new LearningAnswerFollowUp.Lesson(material) : new LearningAnswerFollowUp.None();
     }
 
     public async Task<LearningPracticeResult> ExecuteAsync(UserId user, DialogueOperationKind operation, string arguments, CancellationToken token,

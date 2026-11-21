@@ -57,7 +57,8 @@ public sealed partial class Lesson
     public int CorrectionCount => RubricEvaluation is { Corrections.IsDefault: false } evaluation ? evaluation.Corrections.Length : 0;
     public bool CanOfferMoreHelp => !ExercisePending && Choice is { } choice
         ? !choice.SolutionSeen && choice.HintsUsed < MaxHelpSteps
-        : Content?.StructuredRubric is null || CorrectionCount + _interactions.Count < MaxHelpSteps;
+        : Content?.StructuredRubric is null ||
+            CorrectionCount + _interactions.Count(interaction => interaction.Kind != LessonInteractionKind.ConceptExplanation) < MaxHelpSteps;
     public string? SavedGuidance => SavedExplanation?.Explanation ?? PendingCorrection?.Proposal.Guidance;
     public LessonProvenance? SavedGuidanceProvenance => SavedExplanation?.Provenance;
     private ExerciseCorrection? PendingCorrection => !HasPendingLegacyAssessment &&

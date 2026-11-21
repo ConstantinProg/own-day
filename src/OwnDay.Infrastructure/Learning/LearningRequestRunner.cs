@@ -234,10 +234,11 @@ public sealed partial class LearningRequestRunner(IServiceScopeFactory scopes, I
         var reply = action is not null && !isCurrent && application.Reply is LearningResult.ChoiceReply stale
             ? stale with { Prompt = null } : application.Reply;
         var followUp = application.AttemptRecorded
-            ? await CreatePractice(services, session).AfterAnswerAsync(lesson, reply, session, token) : new();
+            ? await CreatePractice(services, session).AfterAnswerAsync(lesson, reply, session, token)
+            : new LearningAnswerFollowUp.None();
         var replies = TelegramLearningPresenter.RenderAnswerWithFollowUp(reply, followUp,
             lesson is not null && MarketLearningContent.InRussian(lesson.Theory));
-        if (followUp is { Lesson: not null } or { Route: not null } or { Practice.Lesson: not null })
+        if (followUp is LearningAnswerFollowUp.Lesson or LearningAnswerFollowUp.Route or LearningAnswerFollowUp.Practice { Value.Lesson: not null })
         {
             var context = await services.GetRequiredService<IDialogueStore>().FindAsync(request.UserId, token);
             context!.Synchronize(await lessons.FindActiveAsync(request.UserId, token), now, turn.SourceOrder);

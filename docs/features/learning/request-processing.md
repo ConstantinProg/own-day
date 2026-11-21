@@ -180,12 +180,15 @@ branch or row stamp yields `stale_target`, with no use-case effects; the user ge
 an explicit instruction to inspect the current lesson or repeat the command.
 Only the final complete invocation commits effects/replies/completion.
 
-An answer can use one additional `generate_followup` step to prepare the next
+A correct answer can use one additional `generate_followup` step to prepare the next
 exercise. It has the same user lock, provider admission and replay checks. The
 `AllowLearningAnswerContinuation` migration permits this step at ordinal 2.
 If the optional generation fails or its outcome is unknown, the worker commits
-the assessed answer and offers an explicit retry for the next exercise. Drain
-requests with this step using a compatible worker before reverting code.
+the assessed answer and offers an explicit retry for the next exercise. Before
+rolling back the application, drain requests with this step using a compatible
+worker and keep the additive schema. Completed requests retain their provider
+steps and attempt history. The schema downgrade is available only when no
+steps with ordinal 2 exist.
 
 Lease renewal uses the current token, attempt and database-clock expiry. Public
 ingress remains synchronous and the hosted lane remains disabled by default.

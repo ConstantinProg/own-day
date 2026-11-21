@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
+using OwnDay.Application.Learning.Requests;
 using OwnDay.Domain;
 using OwnDay.Domain.Learning;
 using OwnDay.Infrastructure.Persistence;
@@ -10,6 +11,54 @@ namespace OwnDay.IntegrationTests.Persistence;
 
 public sealed class PostgresLearningTests
 {
+    [Fact]
+    [Trait("Requires", "PostgreSQL via OWNDAY_TEST_POSTGRES_CONNECTION")]
+    public async Task Migrate_ThirdProviderStepStored_RejectsDowngradeAndPreservesHistory()
+    {
+        var connection = Environment.GetEnvironmentVariable("OWNDAY_TEST_POSTGRES_CONNECTION") ??
+            throw new InvalidOperationException("OWNDAY_TEST_POSTGRES_CONNECTION is required.");
+        var schema = "ownday_test_" + Guid.NewGuid().ToString("N");
+        await using var admin = new OwnDayDbContext(new DbContextOptionsBuilder<OwnDayDbContext>().UseNpgsql(connection).Options);
+#pragma warning disable EF1003 // Schema name is generated from a GUID.
+        await admin.Database.ExecuteSqlRawAsync("CREATE SCHEMA " + schema);
+#pragma warning restore EF1003
+        try
+        {
+            var options = new DbContextOptionsBuilder<OwnDayDbContext>().UseNpgsql(connection + ";Search Path=" + schema).Options;
+            await using var db = new OwnDayDbContext(options);
+            const string migration = "20261121000000_AllowLearningAnswerContinuation";
+            var previous = db.Database.GetMigrations().TakeWhile(id => id != migration).Last();
+            var migrator = db.GetService<IMigrator>();
+            await migrator.MigrateAsync(migration);
+            var now = DateTime.UnixEpoch;
+            var request = new LearningRequest
+            {
+                UserId = new UserId(101), Sequence = 1, SourceKey = "rollback", NormalizedInput = "{}",
+                ReceivedAt = now, CompletedAt = now, AvailableAt = now
+            };
+            var step = new LearningProviderStep { RequestId = request.Id, Ordinal = 2, Kind = LearningProviderSession.ContinuationStep };
+            var attempt = new LearningProviderAttempt
+            {
+                RequestId = request.Id, Ordinal = step.Ordinal, Number = 1, LeaseToken = Guid.NewGuid(),
+                StartedAt = now, FinishedAt = now, Outcome = "succeeded"
+            };
+            db.AddRange(request, step, attempt);
+            await db.SaveChangesAsync();
+
+            var exception = await Assert.ThrowsAsync<Npgsql.PostgresException>(() => migrator.MigrateAsync(previous));
+            Assert.Contains("Keep the additive schema", exception.MessageText, StringComparison.Ordinal);
+            Assert.Contains(migration, await db.Database.GetAppliedMigrationsAsync());
+            Assert.Equal(step.Ordinal, (await db.Set<LearningProviderStep>().AsNoTracking().SingleAsync()).Ordinal);
+            Assert.Equal(attempt.Id, (await db.Set<LearningProviderAttempt>().AsNoTracking().SingleAsync()).Id);
+        }
+        finally
+        {
+#pragma warning disable EF1003 // Same GUID-derived schema name.
+            await admin.Database.ExecuteSqlRawAsync("DROP SCHEMA " + schema + " CASCADE");
+#pragma warning restore EF1003
+        }
+    }
+
     [Fact]
     [Trait("Requires", "PostgreSQL via OWNDAY_TEST_POSTGRES_CONNECTION")]
     public async Task Migrate_StoredPresentation_PreservesLessonDataAndRebuildsContextOnDowngrade()

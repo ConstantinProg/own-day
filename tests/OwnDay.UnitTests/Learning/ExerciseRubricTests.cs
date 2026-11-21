@@ -43,6 +43,24 @@ public sealed class ExerciseRubricTests
     }
 
     [Fact]
+    public void AddExplanation_ConceptHelpWhilePaused_PreservesOpenQuestionHintBudget()
+    {
+        var lesson = Lesson.Start(new UserId(1), "Types", "Theory", "Compare these types.",
+            content: Content(ExerciseEvidenceKind.Understanding));
+        lesson.Pause();
+        lesson.AddExplanation(LessonInteractionKind.ConceptExplanation, "Explain the principle", "Concept explanation");
+        lesson.AddExplanation(LessonInteractionKind.ConceptExplanation, "Give an example", "Concept example");
+        lesson.Resume();
+
+        Assert.Equal(AnswerAssistance.Assisted, lesson.Assistance);
+        Assert.True(lesson.CanOfferMoreHelp);
+        lesson.AddExplanation(LessonInteractionKind.Clarification, "First hint", "First clue");
+        Assert.True(lesson.CanOfferMoreHelp);
+        lesson.AddExplanation(LessonInteractionKind.Clarification, "Second hint", "Second clue");
+        Assert.False(lesson.CanOfferMoreHelp);
+    }
+
+    [Fact]
     public void ApplyRubricAssessment_UnclearThenUnclear_PreservesBothResponsesWithoutCredit()
     {
         var owner = new UserId(1);
