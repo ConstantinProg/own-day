@@ -18,51 +18,55 @@ public static class ReleaseChangelog
 
     public static string? FindNotes(string markdown, string version, string locale)
     {
-        if (string.Equals(version, "Unreleased", StringComparison.OrdinalIgnoreCase))
+        using var reader = new StringReader(markdown);
+        if (string.Equals(version, "Unreleased", StringComparison.OrdinalIgnoreCase) || !MoveToRelease(reader, version))
         {
             return null;
         }
 
-        using var reader = new StringReader(markdown);
-        var releasePrefix = $"## [{version}] - ";
-        var inRelease = false;
-        string? category = null;
-        string? shownCategory = null;
         List<string> notes = [];
-
-        while (reader.ReadLine()?.Trim() is { } line)
+        string? category = null;
+        var hasBullets = false;
+        while (reader.ReadLine()?.Trim() is { } line && !line.StartsWith("## ", StringComparison.Ordinal))
         {
-            if (line.StartsWith("## ", StringComparison.Ordinal))
+            if (line.StartsWith("### ", StringComparison.Ordinal))
             {
-                if (inRelease)
-                {
-                    break;
-                }
-
-                inRelease = line.StartsWith(releasePrefix, StringComparison.Ordinal) &&
-                    DateOnly.TryParseExact(line.AsSpan(releasePrefix.Length), "yyyy-MM-dd",
-                        CultureInfo.InvariantCulture, DateTimeStyles.None, out _);
+                var heading = line[4..];
+                category = IsLocalizedCategory(heading, locale) ? heading : null;
+                hasBullets = false;
             }
-            else if (inRelease && line.StartsWith("### ", StringComparison.Ordinal))
+            else if (category is not null && line.StartsWith("- ", StringComparison.Ordinal))
             {
-                category = (locale, line[4..]) switch
-                {
-                    ("ru", "Добавлено" or "Изменено" or "Исправлено" or "Удалено") => line[4..],
-                    ("en", "Added" or "Changed" or "Fixed" or "Removed") => line[4..],
-                    _ => null
-                };
-            }
-            else if (inRelease && category is not null && line.StartsWith("- ", StringComparison.Ordinal))
-            {
-                if (shownCategory != category)
+                if (!hasBullets)
                 {
                     notes.Add(category);
-                    shownCategory = category;
+                    hasBullets = true;
                 }
+
                 notes.Add("• " + line[2..].Replace("`", string.Empty, StringComparison.Ordinal));
             }
         }
 
         return notes.Count == 0 ? null : string.Join('\n', notes);
     }
+
+    private static bool MoveToRelease(StringReader reader, string version)
+    {
+        var prefix = $"## [{version}] - ";
+        while (reader.ReadLine()?.Trim() is { } line)
+        {
+            if (line.StartsWith(prefix, StringComparison.Ordinal) &&
+                DateOnly.TryParseExact(line.AsSpan(prefix.Length), "yyyy-MM-dd",
+                    CultureInfo.InvariantCulture, DateTimeStyles.None, out _))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsLocalizedCategory(string heading, string locale) => (locale, heading) is
+        ("ru", "Добавлено" or "Изменено" or "Исправлено" or "Удалено") or
+        ("en", "Added" or "Changed" or "Fixed" or "Removed");
 }

@@ -129,13 +129,6 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
             !(update.Message is { From.Id: > 0 } input && input.Chat.Id == input.From.Id))
             return;
 
-        if (!containsSecret && route is TelegramUpdateRouteResult.Dispatch { Command.Name: "changes" } changes)
-        {
-            var locale = TelegramTexts.ResolveLocale(update.Message?.From?.LanguageCode);
-            await _changes.HandleAsync(changes.ChatId, locale, cancellationToken);
-            return;
-        }
-
         await using var transaction = _dbContext.Database.IsNpgsql()
             ? await _dbContext.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken)
             : await _dbContext.Database.BeginTransactionAsync(cancellationToken);
@@ -157,10 +150,13 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
             return;
         }
 
-        if (!containsSecret && route is TelegramUpdateRouteResult.Dispatch { Command.Name: "version" } version)
+        if (!containsSecret && route is TelegramUpdateRouteResult.Dispatch { Command.Name: "version" or "changes" } release)
         {
-            await CommitRepliesAsync(update, version.ChatId, [$"OwnDay {_applicationVersion.Version}"],
-                now, transaction, cancellationToken);
+            var reply = release.Command.Name == "changes"
+                ? await _changes.RenderAsync(TelegramTexts.ResolveLocale(update.Message?.From?.LanguageCode), cancellationToken)
+                : $"OwnDay {_applicationVersion.Version}";
+            await CommitRepliesAsync(update, release.ChatId, [reply], now, transaction, cancellationToken,
+                deleteCommand: release.Command.Name == "version");
             return;
         }
 
@@ -270,7 +266,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
             }
             // Old commands and buttons explain the current dialogue without executing legacy actions.
             var releaseCommandsLocale = command.Name == "help"
-                ? TelegramTexts.ResolveLocale(update.Message?.From?.LanguageCode)
+                ? TelegramTexts.ResolveLocale(update.Message?.From?.LanguageCode ?? update.CallbackQuery?.From.LanguageCode)
                 : null;
             var help = TelegramDialoguePresenter.Help(false, true, dialogue, selectedProgramForHelp, releaseCommandsLocale);
             replies = [.. help.Select(text => new TelegramLearningReply(text))];
@@ -334,7 +330,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
     }
 
     private async Task CommitRepliesAsync(Update update, long chatId, IReadOnlyList<TelegramLearningReply> replies, DateTime now,
-        IDbContextTransaction transaction, CancellationToken cancellationToken)
+        IDbContextTransaction transaction, CancellationToken cancellationToken, bool deleteCommand = true)
     {
         for (var index = 0; index < replies.Count; index++)
         {
@@ -364,7 +360,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         {
             await AcknowledgeAsync(update, cancellationToken);
         }
-        else if (update.Message is { } message)
+        else if (deleteCommand && update.Message is { } message)
         {
             // Delete commands and Tester Mode input after committing their reply.
             await DeleteProcessedMessageAsync(message, cancellationToken);

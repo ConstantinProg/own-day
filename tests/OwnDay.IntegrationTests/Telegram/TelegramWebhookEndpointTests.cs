@@ -88,15 +88,17 @@ public sealed class TelegramWebhookEndpointTests : IClassFixture<OwnDayHostFacto
     }
 
     [Theory]
-    [InlineData("ru-RU", "Учебный диалог", "The Telegram learning chat")]
-    [InlineData("en", "The Telegram learning chat", "Учебный диалог")]
-    public async Task Post_ChangesWithValidSecret_SendsNotesForBuildVersionAndClientLanguage(
-        string language, string expectedNotes, string otherLanguageNotes)
+    [InlineData("ru-RU", "Учебный диалог", "The Telegram learning chat", "режим тестировщика")]
+    [InlineData("en", "The Telegram learning chat", "Учебный диалог", "Tester Mode")]
+    public async Task Post_RepeatedChangesWithValidSecret_QueuesOneLocalizedReplyForBuildVersion(
+        string language, string expectedNotes, string otherLanguageNotes, string otherVersionNotes)
     {
         var sender = new RecordingTelegramMessageSender();
-        using var senderFactory = CreateFactoryWithMessageSender(sender);
-        using var factory = senderFactory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
+        using var isolatedFactory = new OwnDayHostFactory();
+        using var factory = isolatedFactory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
         {
+            services.RemoveAll<ITelegramMessageSender>();
+            services.AddSingleton<ITelegramMessageSender>(sender);
             services.RemoveAll<ApplicationVersion>();
             services.AddSingleton(new ApplicationVersion("0.1.0", null));
         }));
@@ -117,15 +119,23 @@ public sealed class TelegramWebhookEndpointTests : IClassFixture<OwnDayHostFacto
             """, Encoding.UTF8, "application/json");
 
         using var response = await client.PostAsync("/telegram/webhook", content);
+        using var retry = await client.PostAsync("/telegram/webhook", content);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var reply = Assert.Single(sender.Messages);
+        Assert.Equal(HttpStatusCode.OK, retry.StatusCode);
+        Assert.Empty(sender.Messages);
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
+        var reply = Assert.Single(await db.TelegramOutboxMessages.ToListAsync());
         Assert.Equal(101, reply.ChatId);
         Assert.StartsWith("OwnDay 0.1.0\n", reply.Text);
         Assert.Contains(expectedNotes, reply.Text);
         Assert.DoesNotContain(otherLanguageNotes, reply.Text);
-        Assert.DoesNotContain("режим тестировщика", reply.Text);
+        Assert.DoesNotContain(otherVersionNotes, reply.Text);
         Assert.EndsWith("https://github.com/ConstantinProg/own-day/blob/main/CHANGELOG.md", reply.Text);
+        var processed = Assert.Single(await db.ProcessedTelegramUpdates.ToListAsync());
+        Assert.Equal(101, processed.UpdateId);
+        Assert.NotNull(processed.ProcessedAt);
     }
 
     [Fact]

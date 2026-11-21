@@ -18,6 +18,8 @@ in `/help`. The command leaves the learning dialogue untouched.
 [full changelog](../../../CHANGELOG.md). It is listed in `/help` and leaves the learning dialogue untouched.
 The release notes and release command descriptions use the Telegram client language from the update.
 Russian clients receive Russian text. Other clients receive English text.
+Both release commands use the transactional outbox. A retry of the same
+webhook update does not queue a second reply.
 
 Learning processing, durable ingress, dialogue and first-goal consultation are
 enabled by default. The production Compose application explicitly enables these

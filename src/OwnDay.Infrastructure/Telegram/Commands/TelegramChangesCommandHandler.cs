@@ -1,18 +1,17 @@
 using OwnDay.Infrastructure.Changelog;
-using OwnDay.Infrastructure.Telegram.Delivery;
 using OwnDay.Infrastructure.Telegram.Localization;
 
 namespace OwnDay.Infrastructure.Telegram.Commands;
 
-public sealed class TelegramChangesCommandHandler(ApplicationVersion version, ITelegramMessageSender sender)
+public sealed class TelegramChangesCommandHandler(ApplicationVersion version)
 {
     private const int MessageLimit = 4096;
     private const string HistoryUrl = "https://github.com/ConstantinProg/own-day/blob/main/CHANGELOG.md";
 
-    public async Task HandleAsync(long chatId, string locale, CancellationToken cancellationToken)
+    public async Task<string> RenderAsync(string locale, CancellationToken cancellationToken)
     {
         var notes = await ReleaseChangelog.ReadNotesAsync(version.Version, locale, cancellationToken);
-        await sender.SendMessageAsync(chatId, Render(version.Version, notes, locale), null, cancellationToken);
+        return Render(version.Version, notes, locale);
     }
 
     public static string Render(string version, string? notes, string locale)

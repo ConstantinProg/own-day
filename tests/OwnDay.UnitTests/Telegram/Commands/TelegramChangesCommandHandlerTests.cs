@@ -41,6 +41,24 @@ public sealed class TelegramChangesCommandHandlerTests
         Assert.Null(ReleaseChangelog.FindNotes(markdown, "Unreleased", "ru"));
     }
 
+    [Fact]
+    public void FindNotes_WithEmptyAndUnrecognizedCategories_ReturnsOnlyPopulatedCategoriesForLocale()
+    {
+        const string markdown = """
+            ## [1.2.0] - 2026-11-20
+            ### Added
+            ### Changed
+            - Updated documentation at https://example.com/guide
+            ### Other
+            - Internal note
+            ### Исправлено
+            - Исправление
+            """;
+
+        Assert.Equal("Changed\n• Updated documentation at https://example.com/guide",
+            ReleaseChangelog.FindNotes(markdown, "1.2.0", "en"));
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("## [2.0.0] - yesterday\n### Добавлено\n- Новая команда")]

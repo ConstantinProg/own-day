@@ -13,7 +13,6 @@ using OwnDay.Infrastructure.Persistence;
 using OwnDay.Infrastructure.Telegram.Cleanup;
 using OwnDay.Infrastructure.Telegram.Commands;
 using OwnDay.Infrastructure.Telegram.Configuration;
-using OwnDay.Infrastructure.Telegram.Delivery;
 using OwnDay.Infrastructure.Telegram.Handling;
 using OwnDay.Infrastructure.Telegram.Routing;
 using Telegram.Bot.Types;
@@ -84,21 +83,21 @@ public sealed class TelegramUpdateHandlerTests
     [Theory]
     [InlineData("en-US", "No release notes are available", "Full changelog")]
     [InlineData("ru", "нет записи", "Полная история изменений")]
-    public async Task HandleAsync_ChangesWithNoReleaseNotes_SendsReplyWithoutDatabaseAccess(string locale, string missingText, string historyText)
+    public async Task HandleAsync_ChangesWithNoReleaseNotes_QueuesReplyWithoutChangingDialogue(string locale, string missingText, string historyText)
     {
-        var sender = new RecordingMessageSender();
-        await using var fixture = await HandlerFixture.CreateAsync(sender: sender);
-        using var cancellation = new CancellationTokenSource();
+        await using var fixture = await HandlerFixture.CreateAsync();
 
-        await fixture.Handler.HandleAsync(CreateTextMessageUpdate("/changes", languageCode: locale), cancellation.Token);
+        await fixture.Handler.HandleAsync(CreateTextMessageUpdate("/changes", languageCode: locale));
 
-        Assert.Empty(fixture.DatabaseCommands);
-        var reply = Assert.Single(sender.Messages);
+        Assert.Empty(fixture.DbContext.Set<DialogueContext>());
+        Assert.Empty(fixture.DbContext.Set<LearningRequest>());
+        var reply = Assert.Single(fixture.DbContext.TelegramOutboxMessages);
         Assert.Equal(1, reply.ChatId);
         Assert.StartsWith("OwnDay 0.0.0-dev", reply.Text);
         Assert.Contains(missingText, reply.Text);
         Assert.Contains(historyText, reply.Text);
-        Assert.Equal(cancellation.Token, reply.Token);
+        Assert.NotNull(Assert.Single(fixture.DbContext.ProcessedTelegramUpdates).ProcessedAt);
+        Assert.Empty(fixture.Cleaner.Deletions);
     }
 
     [Fact]
@@ -141,8 +140,10 @@ public sealed class TelegramUpdateHandlerTests
         Assert.Single(fixture.DbContext.Set<DialogueContext>());
     }
 
-    [Fact]
-    public async Task HandleAsync_OutboxSaveFails_RollsBackDialogueAndAllowsRedelivery()
+    [Theory]
+    [InlineData("/start", 2)]
+    [InlineData("/changes", 1)]
+    public async Task HandleAsync_OutboxSaveFails_RollsBackUpdateAndAllowsRedelivery(string command, int replyCount)
     {
         await using var fixture = await HandlerFixture.CreateAsync();
         await fixture.DbContext.Database.ExecuteSqlRawAsync(
@@ -151,7 +152,8 @@ public sealed class TelegramUpdateHandlerTests
             BEGIN SELECT RAISE(ABORT, 'Simulated storage failure'); END;
             """);
 
-        await Assert.ThrowsAsync<DbUpdateException>(() => fixture.Handler.HandleAsync(CreateTextMessageUpdate("/start")));
+        var update = CreateTextMessageUpdate(command);
+        await Assert.ThrowsAsync<DbUpdateException>(() => fixture.Handler.HandleAsync(update));
 
         fixture.DbContext.ChangeTracker.Clear();
         Assert.Empty(fixture.DbContext.ProcessedTelegramUpdates);
@@ -159,9 +161,9 @@ public sealed class TelegramUpdateHandlerTests
         Assert.Empty(fixture.DbContext.Set<DialogueContext>());
         Assert.Empty(fixture.Cleaner.Deletions);
         await fixture.DbContext.Database.ExecuteSqlRawAsync("DROP TRIGGER reject_outbox");
-        await fixture.Handler.HandleAsync(CreateTextMessageUpdate("/start"));
+        await fixture.Handler.HandleAsync(update);
         Assert.Single(fixture.DbContext.ProcessedTelegramUpdates);
-        Assert.Equal(2, await fixture.DbContext.TelegramOutboxMessages.CountAsync());
+        Assert.Equal(replyCount, await fixture.DbContext.TelegramOutboxMessages.CountAsync());
     }
 
     [Theory]
@@ -277,11 +279,15 @@ public sealed class TelegramUpdateHandlerTests
         Assert.Empty(fixture.Cleaner.Deletions);
     }
 
-    [Fact]
-    public async Task HandleAsync_NavigationCallback_PreservesBotMessage()
+    [Theory]
+    [InlineData("nav:list", null, null)]
+    [InlineData("nav:help", "ru-RU", "/changes — изменения в этой версии.")]
+    [InlineData("nav:help", "en", "/changes — show changes in this version.")]
+    public async Task HandleAsync_NavigationCallback_QueuesHelpAndPreservesBotMessage(
+        string action, string? locale, string? releaseDescription)
     {
         await using var fixture = await HandlerFixture.CreateAsync();
-        var source = CreateTextMessageUpdate("Menu").Message!;
+        var source = CreateTextMessageUpdate("Menu", languageCode: locale).Message!;
         var sender = source.From!;
         source.From = new User { Id = 123, IsBot = true, FirstName = "OwnDay" };
         var update = new Update
@@ -292,7 +298,7 @@ public sealed class TelegramUpdateHandlerTests
                 Id = "navigation-callback",
                 From = sender,
                 Message = source,
-                Data = "nav:list"
+                Data = action
             }
         };
 
@@ -300,7 +306,12 @@ public sealed class TelegramUpdateHandlerTests
 
         Assert.Empty(fixture.Cleaner.Deletions);
         Assert.NotNull(Assert.Single(fixture.DbContext.ProcessedTelegramUpdates).ProcessedAt);
-        Assert.Equal(2, await fixture.DbContext.TelegramOutboxMessages.CountAsync());
+        var replies = await fixture.DbContext.TelegramOutboxMessages.ToListAsync();
+        Assert.Equal(2, replies.Count);
+        if (releaseDescription is not null)
+        {
+            Assert.Single(replies, reply => reply.Text.Contains(releaseDescription, StringComparison.Ordinal));
+        }
     }
 
     private static Update CreateTextMessageUpdate(string text, long chatId = 1, int updateId = 1, string? languageCode = null) =>
@@ -343,7 +354,7 @@ public sealed class TelegramUpdateHandlerTests
 
         public List<string> DatabaseCommands { get; }
 
-        public static async Task<HandlerFixture> CreateAsync(TimeProvider? clock = null, ITelegramMessageSender? sender = null)
+        public static async Task<HandlerFixture> CreateAsync(TimeProvider? clock = null)
         {
             var timeProvider = clock ?? new FixedTimeProvider(Now);
             var connection = new SqliteConnection("Data Source=:memory:");
@@ -384,7 +395,7 @@ public sealed class TelegramUpdateHandlerTests
                     new EfStudyScheduleStore(dbContext), new EfLessonStore(dbContext), new EfCurriculumStore(dbContext),
                     new EfKnowledgeStore(dbContext), learning, curriculum, timeProvider)),
                 ApplicationVersion.FromAssembly(typeof(Program).Assembly),
-                new TelegramChangesCommandHandler(new ApplicationVersion("0.0.0-dev", null), sender ?? new RecordingMessageSender()));
+                new TelegramChangesCommandHandler(new ApplicationVersion("0.0.0-dev", null)));
 
             databaseCommands.Clear();
             return new HandlerFixture(connection, dbContext, handler, cleaner, databaseCommands);
@@ -394,17 +405,6 @@ public sealed class TelegramUpdateHandlerTests
         {
             await DbContext.DisposeAsync();
             await _connection.DisposeAsync();
-        }
-    }
-
-    private sealed class RecordingMessageSender : ITelegramMessageSender
-    {
-        public List<(long ChatId, string Text, CancellationToken Token)> Messages { get; } = [];
-
-        public Task SendMessageAsync(long chatId, string text, string? replyMarkupJson, CancellationToken cancellationToken)
-        {
-            Messages.Add((chatId, text, cancellationToken));
-            return Task.CompletedTask;
         }
     }
 
