@@ -14,6 +14,10 @@ outbox messages still drain through the shared deliverer.
 
 `/version` reports the running bot version, for example `OwnDay 0.7.0`. Find it
 in `/help`. The command leaves the learning dialogue untouched.
+`/changes` shows release notes for the running bot version and links to the
+[full changelog](../../../CHANGELOG.md). It is listed in `/help` and leaves the learning dialogue untouched.
+The release notes and release command descriptions use the Telegram client language from the update.
+Russian clients receive Russian text. Other clients receive English text.
 
 Learning processing, durable ingress, dialogue and first-goal consultation are
 enabled by default. The production Compose application explicitly enables these
@@ -215,28 +219,24 @@ There is no existing command registration worker. Use BotFather `/setcommands` f
 replacing the old menu (also remove obsolete per-language/scope overrides). Register these EN entries:
 
 ```text
-list - Browse tasks and records
-inbox - Review saved entries
-stats - View statistics
-settings - Language and settings
 help - How to use OwnDay
-cancel - Cancel current selection
+cancel - Cancel the current action
+version - Show the running version
+changes - Show changes in this version
 ```
 
 The corresponding Russian menu text is:
 
 ```text
-list - Задачи и записи
-inbox - Входящие записи
-stats - Статистика
-settings - Язык и настройки
 help - Как пользоваться OwnDay
-cancel - Отменить текущий выбор
+cancel - Отменить текущее действие
+version - Версия OwnDay
+changes - Изменения в этой версии
 ```
 
 Registration is an operator deployment step, not performed against a live bot by repository tests.
 For language-specific menus, call `setMyCommands` with `language_code` `en` and `ru`, plus the same
-English commands for the default language (omit `language_code`). Use the six command/description
+English commands for the default language (omit `language_code`). Use the command/description
 pairs above in the `commands` array and the private-chat scope:
 
 ```json
@@ -244,12 +244,10 @@ pairs above in the `commands` array and the private-chat scope:
   "scope": { "type": "all_private_chats" },
   "language_code": "ru",
   "commands": [
-    { "command": "list", "description": "Задачи и записи" },
-    { "command": "inbox", "description": "Входящие записи" },
-    { "command": "stats", "description": "Статистика" },
-    { "command": "settings", "description": "Язык и настройки" },
     { "command": "help", "description": "Как пользоваться OwnDay" },
-    { "command": "cancel", "description": "Отменить текущий выбор" }
+    { "command": "cancel", "description": "Отменить текущее действие" },
+    { "command": "version", "description": "Версия OwnDay" },
+    { "command": "changes", "description": "Изменения в этой версии" }
   ]
 }
 ```
@@ -265,7 +263,7 @@ Invoke-RestMethod -Method Post -ContentType 'application/json; charset=utf-8' `
 
 Verify default/EN/RU menus with `getMyCommands` for the same scopes. Clear obsolete narrower chat
 overrides using `deleteMyCommands`, otherwise Telegram can continue showing a more specific old menu.
-Telegram uses its client language for these menus; OwnDay's explicit `/language` setting controls replies.
+Telegram uses its client language for these menus.
 
 ### Russian dialog example
 

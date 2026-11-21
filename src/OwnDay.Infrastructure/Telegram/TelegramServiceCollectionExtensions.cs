@@ -91,6 +91,7 @@ public static class TelegramServiceCollectionExtensions
         services.AddSingleton<ITelegramCallbackResponder, TelegramCallbackResponder>();
 
         services.AddSingleton<TelegramCommandParser>();
+        services.AddScoped<TelegramChangesCommandHandler>();
         services.AddSingleton<TelegramActionCodec>();
         services.AddSingleton<TelegramActionKeyboard>();
         services.AddScoped<TelegramActionCommandHandler>();

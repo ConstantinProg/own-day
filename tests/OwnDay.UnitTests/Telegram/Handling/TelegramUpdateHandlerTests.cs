@@ -13,6 +13,7 @@ using OwnDay.Infrastructure.Persistence;
 using OwnDay.Infrastructure.Telegram.Cleanup;
 using OwnDay.Infrastructure.Telegram.Commands;
 using OwnDay.Infrastructure.Telegram.Configuration;
+using OwnDay.Infrastructure.Telegram.Delivery;
 using OwnDay.Infrastructure.Telegram.Handling;
 using OwnDay.Infrastructure.Telegram.Routing;
 using Telegram.Bot.Types;
@@ -62,19 +63,42 @@ public sealed class TelegramUpdateHandlerTests
         Assert.Empty(fixture.DbContext.Set<LearningRequest>());
     }
 
-    [Fact]
-    public async Task HandleAsync_HelpAfterStart_ListsVersionWithoutRepeatingIntroduction()
+    [Theory]
+    [InlineData("en", "/changes — show changes in this version.")]
+    [InlineData("ru", "/changes — изменения в этой версии.")]
+    public async Task HandleAsync_HelpAfterStart_ListsReleaseCommandsWithoutRepeatingIntroduction(string locale, string description)
     {
         await using var fixture = await HandlerFixture.CreateAsync();
         await fixture.Handler.HandleAsync(CreateTextMessageUpdate("/start"));
 
-        await fixture.Handler.HandleAsync(CreateTextMessageUpdate("/help", updateId: 2));
+        await fixture.Handler.HandleAsync(CreateTextMessageUpdate("/help", languageCode: locale, updateId: 2));
 
         var replies = await fixture.DbContext.TelegramOutboxMessages.ToListAsync();
         Assert.Equal(3, replies.Count);
         Assert.Single(replies, reply => reply.Text == TelegramDialoguePresenter.Introduction);
         Assert.Single(replies, reply => reply.Text.Contains("/version", StringComparison.Ordinal));
+        Assert.Single(replies, reply => reply.Text.Contains(description, StringComparison.Ordinal));
         Assert.Single(fixture.DbContext.Set<DialogueContext>());
+    }
+
+    [Theory]
+    [InlineData("en-US", "No release notes are available", "Full changelog")]
+    [InlineData("ru", "нет записи", "Полная история изменений")]
+    public async Task HandleAsync_ChangesWithNoReleaseNotes_SendsReplyWithoutDatabaseAccess(string locale, string missingText, string historyText)
+    {
+        var sender = new RecordingMessageSender();
+        await using var fixture = await HandlerFixture.CreateAsync(sender: sender);
+        using var cancellation = new CancellationTokenSource();
+
+        await fixture.Handler.HandleAsync(CreateTextMessageUpdate("/changes", languageCode: locale), cancellation.Token);
+
+        Assert.Empty(fixture.DatabaseCommands);
+        var reply = Assert.Single(sender.Messages);
+        Assert.Equal(1, reply.ChatId);
+        Assert.StartsWith("OwnDay 0.0.0-dev", reply.Text);
+        Assert.Contains(missingText, reply.Text);
+        Assert.Contains(historyText, reply.Text);
+        Assert.Equal(cancellation.Token, reply.Token);
     }
 
     [Fact]
@@ -319,7 +343,7 @@ public sealed class TelegramUpdateHandlerTests
 
         public List<string> DatabaseCommands { get; }
 
-        public static async Task<HandlerFixture> CreateAsync(TimeProvider? clock = null)
+        public static async Task<HandlerFixture> CreateAsync(TimeProvider? clock = null, ITelegramMessageSender? sender = null)
         {
             var timeProvider = clock ?? new FixedTimeProvider(Now);
             var connection = new SqliteConnection("Data Source=:memory:");
@@ -359,7 +383,8 @@ public sealed class TelegramUpdateHandlerTests
                 new TelegramStudyCommandHandler(new OwnDay.Application.Learning.StudyService(
                     new EfStudyScheduleStore(dbContext), new EfLessonStore(dbContext), new EfCurriculumStore(dbContext),
                     new EfKnowledgeStore(dbContext), learning, curriculum, timeProvider)),
-                ApplicationVersion.FromAssembly(typeof(Program).Assembly));
+                ApplicationVersion.FromAssembly(typeof(Program).Assembly),
+                new TelegramChangesCommandHandler(new ApplicationVersion("0.0.0-dev", null), sender ?? new RecordingMessageSender()));
 
             databaseCommands.Clear();
             return new HandlerFixture(connection, dbContext, handler, cleaner, databaseCommands);
@@ -369,6 +394,17 @@ public sealed class TelegramUpdateHandlerTests
         {
             await DbContext.DisposeAsync();
             await _connection.DisposeAsync();
+        }
+    }
+
+    private sealed class RecordingMessageSender : ITelegramMessageSender
+    {
+        public List<(long ChatId, string Text, CancellationToken Token)> Messages { get; } = [];
+
+        public Task SendMessageAsync(long chatId, string text, string? replyMarkupJson, CancellationToken cancellationToken)
+        {
+            Messages.Add((chatId, text, cancellationToken));
+            return Task.CompletedTask;
         }
     }
 

@@ -1,5 +1,6 @@
 using OwnDay.Application.Dialogue;
 using OwnDay.Application.Learning;
+using OwnDay.Infrastructure.Telegram.Localization;
 
 namespace OwnDay.Infrastructure.Telegram.Commands;
 
@@ -9,11 +10,11 @@ public static class TelegramDialoguePresenter
     public const string EnglishIntroduction = "Tell me what you'd like to learn, answer an exercise, or ask a question in your own words.";
 
     public static IReadOnlyList<string> Help(bool introduce, bool consultation = false, OwnDay.Domain.Dialogue.DialogueContext? context = null,
-        Guid? selectedProgramId = null, bool showVersionCommand = false)
+        Guid? selectedProgramId = null, string? releaseCommandsLocale = null)
     {
         var replies = RenderHelp(introduce, consultation, context, selectedProgramId);
-        return showVersionCommand && replies.Count > 0
-            ? [.. replies.SkipLast(1), replies[^1] + "\n\n/version — версия OwnDay."]
+        return releaseCommandsLocale is not null && replies.Count > 0
+            ? [.. replies.SkipLast(1), replies[^1] + "\n\n" + TelegramTexts.Get(releaseCommandsLocale, "help.releaseCommands")]
             : replies;
     }
 

@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using OwnDay.Infrastructure;
 using OwnDay.Infrastructure.Persistence;
 using OwnDay.Infrastructure.Telegram.Delivery;
 using OwnDay.Infrastructure.Telegram.Handling;
@@ -84,6 +85,47 @@ public sealed class TelegramWebhookEndpointTests : IClassFixture<OwnDayHostFacto
 
         var call = Assert.Single(handler.Calls);
         Assert.Equal(42, call.Update.Id);
+    }
+
+    [Theory]
+    [InlineData("ru-RU", "Учебный диалог", "The Telegram learning chat")]
+    [InlineData("en", "The Telegram learning chat", "Учебный диалог")]
+    public async Task Post_ChangesWithValidSecret_SendsNotesForBuildVersionAndClientLanguage(
+        string language, string expectedNotes, string otherLanguageNotes)
+    {
+        var sender = new RecordingTelegramMessageSender();
+        using var senderFactory = CreateFactoryWithMessageSender(sender);
+        using var factory = senderFactory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
+        {
+            services.RemoveAll<ApplicationVersion>();
+            services.AddSingleton(new ApplicationVersion("0.1.0", null));
+        }));
+        using var client = factory.CreateClient();
+        AddValidSecret(client);
+        using var content = new StringContent($$"""
+            {
+              "update_id": 101,
+              "message": {
+                "message_id": 41,
+                "from": { "id": 101, "is_bot": false, "first_name": "User", "language_code": "{{language}}" },
+                "chat": { "id": 101, "type": "private" },
+                "date": 1795248000,
+                "text": "/changes@OwnDayBot",
+                "entities": [{ "offset": 0, "length": 18, "type": "bot_command" }]
+              }
+            }
+            """, Encoding.UTF8, "application/json");
+
+        using var response = await client.PostAsync("/telegram/webhook", content);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var reply = Assert.Single(sender.Messages);
+        Assert.Equal(101, reply.ChatId);
+        Assert.StartsWith("OwnDay 0.1.0\n", reply.Text);
+        Assert.Contains(expectedNotes, reply.Text);
+        Assert.DoesNotContain(otherLanguageNotes, reply.Text);
+        Assert.DoesNotContain("режим тестировщика", reply.Text);
+        Assert.EndsWith("https://github.com/ConstantinProg/own-day/blob/main/CHANGELOG.md", reply.Text);
     }
 
     [Fact]

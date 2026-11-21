@@ -320,4 +320,9 @@
   <data name="nav.settings" xml:space="preserve"><value>Настройки</value></data>
   <data name="nav.help" xml:space="preserve"><value>Помощь</value></data>
   <data name="nav.result" xml:space="preserve"><value>Подробнее</value></data>
+  <data name="changes.history" xml:space="preserve"><value>Полная история изменений</value></data>
+  <data name="changes.missing" xml:space="preserve"><value>Для этой версии пока нет записи в истории изменений.</value></data>
+  <data name="changes.truncated" xml:space="preserve"><value>Остальные изменения доступны по ссылке.</value></data>
+  <data name="help.releaseCommands" xml:space="preserve"><value>/version — версия OwnDay.
+/changes — изменения в этой версии.</value></data>
 </root>

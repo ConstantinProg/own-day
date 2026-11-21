@@ -5,6 +5,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="OpenAIAnalysis/Prompts/*.txt" />
+    <EmbeddedResource Include="../../CHANGELOG.md" LogicalName="OwnDay.CHANGELOG.md" />
     <ProjectReference Include="..\OwnDay.Application\OwnDay.Application.csproj" />
   </ItemGroup>
 

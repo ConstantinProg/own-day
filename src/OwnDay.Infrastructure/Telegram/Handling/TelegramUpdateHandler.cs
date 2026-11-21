@@ -19,6 +19,7 @@ using OwnDay.Infrastructure.Telegram.Actions;
 using OwnDay.Infrastructure.Telegram.Cleanup;
 using OwnDay.Infrastructure.Telegram.Commands;
 using OwnDay.Infrastructure.Telegram.Delivery;
+using OwnDay.Infrastructure.Telegram.Localization;
 using OwnDay.Infrastructure.Telegram.Routing;
 using Telegram.Bot.Types;
 
@@ -35,6 +36,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
     private readonly ITelegramMessageCleaner _messageCleaner;
     private readonly ILogger<TelegramUpdateHandler> _logger;
     private readonly ApplicationVersion _applicationVersion;
+    private readonly TelegramChangesCommandHandler _changes;
     private readonly ITelegramCallbackResponder? _callbackResponder;
     private readonly LearningRequestProcessingOptions _processing;
     private readonly TelegramActionKeyboard? _keyboard;
@@ -53,6 +55,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         TelegramKnowledgeCommandHandler knowledge,
         TelegramStudyCommandHandler study,
         ApplicationVersion applicationVersion,
+        TelegramChangesCommandHandler changes,
         ITelegramCallbackResponder? callbackResponder = null,
         IOptions<LearningRequestProcessingOptions>? processing = null,
         TelegramActionKeyboard? keyboard = null,
@@ -75,6 +78,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         _messageCleaner = messageCleaner;
         _logger = logger;
         _applicationVersion = applicationVersion;
+        _changes = changes;
         _callbackResponder = callbackResponder;
         _processing = processing?.Value ?? new();
         _keyboard = keyboard;
@@ -124,6 +128,13 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         if ((containsSecret || TesterModeService.IsTesterCommand(commandName)) &&
             !(update.Message is { From.Id: > 0 } input && input.Chat.Id == input.From.Id))
             return;
+
+        if (!containsSecret && route is TelegramUpdateRouteResult.Dispatch { Command.Name: "changes" } changes)
+        {
+            var locale = TelegramTexts.ResolveLocale(update.Message?.From?.LanguageCode);
+            await _changes.HandleAsync(changes.ChatId, locale, cancellationToken);
+            return;
+        }
 
         await using var transaction = _dbContext.Database.IsNpgsql()
             ? await _dbContext.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken)
@@ -258,7 +269,10 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
                 introduceDialogue = true;
             }
             // Old commands and buttons explain the current dialogue without executing legacy actions.
-            var help = TelegramDialoguePresenter.Help(false, true, dialogue, selectedProgramForHelp, showVersionCommand: command.Name == "help");
+            var releaseCommandsLocale = command.Name == "help"
+                ? TelegramTexts.ResolveLocale(update.Message?.From?.LanguageCode)
+                : null;
+            var help = TelegramDialoguePresenter.Help(false, true, dialogue, selectedProgramForHelp, releaseCommandsLocale);
             replies = [.. help.Select(text => new TelegramLearningReply(text))];
             if (command.Name is "start" or "help" && help.Count > 0 &&
                 (selectedProgramForHelp is not null || dialogue.TargetLessonId is not null || dialogue.Consultation is not null))
