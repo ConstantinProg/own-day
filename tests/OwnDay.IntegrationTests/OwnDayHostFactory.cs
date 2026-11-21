@@ -66,8 +66,10 @@ public sealed class OwnDayHostFactory : WebApplicationFactory<Program>
         var host = base.CreateHost(builder);
 
         using var scope = host.Services.CreateScope();
-        scope.ServiceProvider.GetRequiredService<OwnDayDbContext>()
-            .Database.EnsureCreated();
+        var database = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>().Database;
+        // PostgreSQL fixtures create their own schemas and apply the real migrations.
+        if (database.IsSqlite())
+            database.EnsureCreated();
 
         return host;
     }
