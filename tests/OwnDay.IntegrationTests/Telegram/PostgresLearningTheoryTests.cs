@@ -42,6 +42,7 @@ public sealed partial class PostgresLearningProviderTests
                 var program = Assert.IsType<LessonProgramContext>(request.Program);
                 Assert.Equal(goal, program.Goal);
                 Assert.Contains(use, program.Experience);
+                Assert.Equal(use, program.PracticalUse);
                 Assert.Equal(DiagnosticStartingLevel.Foundation, program.StartingLevel);
                 return new(theory, question)
                 {

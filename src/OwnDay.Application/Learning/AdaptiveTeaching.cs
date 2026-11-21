@@ -26,6 +26,33 @@ public interface ITeachingPlanner
 
 public static class AdaptiveTeaching
 {
+    internal static bool NeedsOpenCheck(LearningEvidence? evidence) => evidence?.ChoiceEvidence is not null ||
+        evidence is { Content.Id: LearningContent.GeneratedExerciseId,
+            Content.StructuredRubric.Version: ExerciseRubric.QuestionScopedVersion, RubricEvidence: not null } &&
+        (!evidence.EffectiveCorrect || evidence.Assistance == AnswerAssistance.Assisted);
+
+    internal static bool IsValidFollowUp(LessonMaterial material, IEnumerable<string> previousQuestions, ExerciseEvidenceKind requiredKind)
+    {
+        if (material.Choice is not null || material.Content?.StructuredRubric is not { Version: ExerciseRubric.QuestionScopedVersion } rubric ||
+            rubric.Kind != requiredKind || string.IsNullOrWhiteSpace(material.Question)) return false;
+        var fingerprint = RubricEvidence.FingerprintQuestion(material.Question);
+        return previousQuestions.All(question => RubricEvidence.FingerprintQuestion(question) != fingerprint);
+    }
+
+    internal static ExerciseCorrectionProposal? DistinctCorrection(Lesson lesson, ExerciseCorrectionProposal? proposal)
+    {
+        if (!lesson.CanOfferMoreHelp ||
+            lesson.RubricEvaluation is not { Final: false, Corrections.IsDefaultOrEmpty: false } evaluation)
+            return proposal;
+        if (proposal is { IsInstructional: true } && evaluation.Corrections.All(attempt =>
+                !string.Equals(attempt.Proposal.Guidance.Trim(), proposal.Guidance.Trim(), StringComparison.OrdinalIgnoreCase)))
+            return proposal;
+
+        return new(ExerciseCorrectionKind.Simplify, MarketLearningContent.InRussian(lesson.Theory)
+            ? "Разберите один случай из объяснения. Сначала назовите, что в нём дано, затем свяжите это с тем, о чём спрашивает задание."
+            : "Work through one case from the lesson. First identify what is given, then connect it to what the question asks.");
+    }
+
     public static PedagogicalStrategy StrategyFor(TeachingAction action) => action switch
     {
         TeachingAction.Hint => PedagogicalStrategy.Hint,

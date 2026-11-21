@@ -222,7 +222,8 @@ public sealed partial class LearningRequestRunner(IServiceScopeFactory scopes, I
     {
         var lessons = services.GetRequiredService<ILessonStore>();
         var lesson = await lessons.FindActiveAsync(request.UserId, token);
-        var learning = new LearningService(lessons, session, services.GetRequiredService<KnowledgeService>(), request.Id);
+        var learning = new LearningService(lessons, session, services.GetRequiredService<KnowledgeService>(), request.Id,
+            services.GetRequiredService<ICurriculumStore>());
         var dialogue = new LearningDialogueService(services.GetRequiredService<IDialogueStore>(), session,
             sessions: services.GetRequiredService<LearningSessionService>());
         var turn = new DialogueTurn(request.Id, request.UserId, null, "", input.LessonId, null,
@@ -460,10 +461,13 @@ public sealed partial class LearningRequestRunner(IServiceScopeFactory scopes, I
         {
             var result = await handler.ExecuteLessonAsync(new(CommandName(operation), decision.Arguments, request.UserId), token);
             session.EnsureComplete();
-            var consumed = result is LearningResult.Explanation or LearningResult.ChoiceReply { Prompt: not null };
-            if (consumed) decision.Context.Synchronize(lesson, now, turn.SourceOrder);
+            var consumed = result is LearningResult.Explanation or LearningResult.ChoiceReply;
+            if (consumed) decision.Context.Synchronize(lesson is { AcceptsAnswer: true } ? lesson : null, now, turn.SourceOrder);
             var russian = MarketLearningContent.InRussian(lesson?.Theory ?? program?.Goal ?? turn.Text);
             var helpReplies = TelegramLearningPresenter.Render(result, russian);
+            if (operation == DialogueOperationKind.RevealSolution && lesson?.Status == LessonStatus.Completed &&
+                await CreatePractice(services, session).SynchronizeAsync(request.UserId, operation, token) is { } completedPractice)
+                helpReplies = [.. helpReplies, .. TelegramPracticePresenter.Render(completedPractice)];
             if (result is LearningResult.ProviderUnavailable && decision.Context.Revision != help.Revision)
                 helpReplies = [helpReplies.Single() with { Actions = [new(help.Kind)], InRussian = russian }];
             return new("reply_committed", Introduce(introduce, helpReplies)) { RemoveSourceKeyboard = consumed };

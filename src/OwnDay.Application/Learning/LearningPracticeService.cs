@@ -46,6 +46,19 @@ public sealed class LearningPracticeService(ICurriculumStore programs, ILessonSt
         {
             if (practice.LessonIds.Length > 0 && practice.LessonIds[^1] != active.Id)
                 return new(PracticeReplyKind.Unavailable, context.Practice, LearningService.Session(active));
+            if (active is { AcceptsAnswer: true, Choice.SolutionSeen: true } &&
+                operation == DialogueOperationKind.NextPractice && !practice.LessonIds.IsEmpty)
+            {
+                var replacement = active.ProgramId is { } programId
+                    ? (await curriculum.NextAsync(user, programId, token) as CurriculumResult.Lesson)?.Value
+                    : await learning.PracticeAsync(user, practice.SkillId!.Value, token);
+                if (replacement is not (LearningResult.Material or LearningResult.Session { PendingExerciseId: not null }))
+                    return new(PracticeReplyKind.ProviderUnavailable, context.Practice);
+                var fresh = await lessons.FindActiveAsync(user, token)
+                    ?? throw new InvalidOperationException("A fresh practice exercise is required.");
+                context.ReplaceRevealedPracticeLesson(active, fresh);
+                return new(PracticeReplyKind.Current, context.Practice, replacement);
+            }
             return new(PracticeReplyKind.Current, context.Practice, operation == DialogueOperationKind.ResumePractice
                 ? await learning.ResumeAsync(user, token) : LearningService.Session(active));
         }
@@ -80,7 +93,8 @@ public sealed class LearningPracticeService(ICurriculumStore programs, ILessonSt
 
     public async Task<LearningPracticeResult?> SynchronizeAsync(UserId user, DialogueOperationKind operation, CancellationToken token)
     {
-        if (operation is not (DialogueOperationKind.Answer or DialogueOperationKind.Finish or DialogueOperationKind.Pause or DialogueOperationKind.Resume)) return null;
+        if (operation is not (DialogueOperationKind.Answer or DialogueOperationKind.Finish or DialogueOperationKind.Pause or
+            DialogueOperationKind.Resume or DialogueOperationKind.RevealSolution)) return null;
         var context = await programs.FindContextAsync(user, token);
         if (context?.Practice is not { Supported: true, Active: true } practice || practice.LessonIds.Length == 0) return null;
         var last = await programs.FindPracticeLessonAsync(user, practice.LessonIds[^1], token);

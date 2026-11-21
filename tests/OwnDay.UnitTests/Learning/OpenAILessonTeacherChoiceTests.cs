@@ -21,6 +21,8 @@ public sealed partial class OpenAILessonTeacherTests
     [InlineData("disputed", false)]
     [InlineData("different-key", false)]
     [InlineData("wrong-format", false)]
+    [InlineData("missing-guidance", false)]
+    [InlineData("spoiler", false)]
     public async Task GenerateAsync_ChoiceProposalAndReview_PublishesOnlyUsableProposalOrOpenFallback(string scenario, bool publishes)
     {
         const string theory = "Сложение объединяет количества. Если в коробках два и три карандаша, вместе их пять.";
@@ -35,9 +37,13 @@ public sealed partial class OpenAILessonTeacherTests
             {
                 Format = scenario == "wrong-format" ? "TrueFalse" : "SingleChoice",
                 Question = "Сколько будет два плюс два?",
-                Options = new[] { new { Id = 4, Text = "четыре" }, new { Id = 2, Text = scenario == "duplicate" ? "ЧЕТЫРЕ." : "пять" } },
+                Options = new[] { new { Id = 4, Text = scenario == "spoiler" ? "ровно четыре карандаша" : "четыре" },
+                    new { Id = 2, Text = scenario == "duplicate" ? "ЧЕТЫРЕ." : "пять" } },
                 CorrectOptions = new[] { 4 },
                 Explanation = "Два плюс два равно четырём.",
+                Guidance = scenario == "missing-guidance" ? Array.Empty<ChoiceGuidance>() :
+                    new[] { new ChoiceGuidance(2, "Проверьте, добавляли ли ещё один предмет.", scenario == "spoiler"
+                        ? "Получится ровно четыре карандаша." : "Представьте две коробки с двумя предметами в каждой.") },
                 Review = new
                 {
                     SelfContained = true, Unambiguous = scenario != "ambiguous",
@@ -58,7 +64,8 @@ public sealed partial class OpenAILessonTeacherTests
             Options.Create(new OpenAIInboxAnalysisOptions { Enabled = true, ApiKey = "dummy" }), new RecordingLogger(), usage: usage);
 
         var program = new LessonProgramContext("Математика", "Научиться считать покупки",
-            "Применение: подсчёт товаров в корзине\nОпыт: С нуля", null, null) { StartingLevel = DiagnosticStartingLevel.Foundation };
+            "Применение: подсчёт товаров в корзине\nОпыт: С нуля", null, null)
+        { StartingLevel = DiagnosticStartingLevel.Foundation, PracticalUse = "подсчёт товаров в корзине" };
         var material = await teacher.GenerateAsync(new LessonRequest("Сложение", program) { PreferredChoice = ChoiceFormat.SingleChoice }, default);
 
         Assert.Equal(1, handler.Requests);
@@ -68,7 +75,10 @@ public sealed partial class OpenAILessonTeacherTests
             Assert.NotNull(material.Choice);
             Assert.Null(material.Content);
             Assert.Equal(new[] { 4 }, material.Choice.CorrectOptions.ToArray());
-            Assert.DoesNotContain("четыр", Assert.Single(material.Choice.Hints));
+            var guidance = Assert.Single(material.Choice.Guidance);
+            Assert.Equal(2, guidance.OptionId);
+            Assert.NotEqual(guidance.Hint, guidance.Example);
+            Assert.DoesNotContain("четыр", guidance.Hint);
         }
         else
         {
@@ -88,6 +98,7 @@ public sealed partial class OpenAILessonTeacherTests
         Assert.Equal("Foundation", context.GetProperty("StartingLevel").GetString());
         Assert.Equal(program.Goal, context.GetProperty("Goal").GetString());
         Assert.Equal(program.Experience, context.GetProperty("Experience").GetString());
+        Assert.Equal(program.PracticalUse, context.GetProperty("PracticalUse").GetString());
         var schema = body.RootElement.GetProperty("response_format").GetProperty("json_schema").GetProperty("schema");
         Assert.Contains(schema.GetProperty("required").EnumerateArray(), property => property.GetString() == "Choice");
     }

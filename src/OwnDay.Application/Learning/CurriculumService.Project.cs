@@ -61,7 +61,7 @@ public sealed partial class CurriculumService
             var shared = sharedLink is not null && status is not null ? knowledge.SharedContext(status, sharedLink) : null;
             var personalization = await knowledge.PersonalizationAsync(user, token, program.Discipline);
             var material = await teacher.GenerateAsync(new(topic.Title,
-                new(program.Discipline, program.Goal, program.Experience, program.DiagnosticQuestion, program.DiagnosticAnswer),
+                LessonProgramContext.From(program),
                 new(TeachingAction.Practice, "User selected practice related to a project task; this is educational work only.",
                     shared?.State ?? status?.State ?? LearnerSkillState.Evaluate([]), []), SharedSkill: shared,
                 ProjectPractice: new(project.Id, project.Title, action.Id, action.Title), Personalization: personalization.ForGeneration()), token);

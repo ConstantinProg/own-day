@@ -37,6 +37,17 @@ public sealed partial class LearningContext
             Status = lesson.Status == LessonStatus.Paused ? LearningPracticeStatus.Paused : LearningPracticeStatus.Running };
     }
 
+    public void ReplaceRevealedPracticeLesson(Lesson previous, Lesson lesson)
+    {
+        if (Practice is not { Supported: true, Status: LearningPracticeStatus.Running, LessonIds.IsEmpty: false } practice ||
+            previous.UserId != UserId || previous.Id != practice.LessonIds[^1] ||
+            previous is not { Status: LessonStatus.Finished, Choice.SolutionSeen: true } ||
+            lesson.UserId != UserId || lesson.Status != LessonStatus.AwaitingAnswer || lesson.SkillId != practice.SkillId ||
+            practice.LessonIds.Contains(lesson.Id))
+            throw new InvalidOperationException("Practice can only replace its last revealed exercise with a fresh check of the same skill.");
+        Practice = practice with { LessonIds = practice.LessonIds.SetItem(practice.LessonIds.Length - 1, lesson.Id) };
+    }
+
     public void PausePractice()
     {
         if (Practice is not { Supported: true, Active: true }) throw new InvalidOperationException("No active practice.");

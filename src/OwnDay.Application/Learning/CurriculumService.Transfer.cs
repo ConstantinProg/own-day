@@ -34,7 +34,7 @@ public sealed partial class CurriculumService
             var relation = InterdisciplinaryPractice.Create(program, source, sourceCode, link);
             var shared = knowledge.SharedContext(sourceStatus, link);
             var material = await teacher.GenerateAsync(new(topic.Title,
-                new(program.Discipline, program.Goal, program.Experience, program.DiagnosticQuestion, program.DiagnosticAnswer),
+                LessonProgramContext.From(program),
                 SharedSkill: shared, Personalization: personalization.ForGeneration(),
                 Transfer: new(sourceTopic.Title, relation)), token);
             token.ThrowIfCancellationRequested();

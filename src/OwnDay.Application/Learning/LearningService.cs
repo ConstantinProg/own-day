@@ -19,6 +19,27 @@ public sealed record LessonProgramContext(string Discipline, string Goal, string
 {
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public DiagnosticStartingLevel? StartingLevel { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? PracticalUse { get; init; }
+
+    internal static LessonProgramContext From(LearningProgram program, bool includeDiagnostic = true)
+    {
+        var diagnostic = includeDiagnostic ? program.SubjectDiagnostic : null;
+        DiagnosticStartingLevel? level = diagnostic switch
+        {
+            { Supported: true } when diagnostic.Observations.LastOrDefault()?.Kind == DiagnosticAnswerKind.StartWithFoundations
+                => DiagnosticStartingLevel.Foundation,
+            { Supported: true, StartingLevel: not DiagnosticStartingLevel.Unknown } => diagnostic.StartingLevel,
+            _ when LearnerExperience.IsBeginner(LearnerExperience.ReadSelfReport(program.Experience)) => DiagnosticStartingLevel.Foundation,
+            _ => null
+        };
+        return new(program.Discipline, program.Goal, program.Experience,
+            includeDiagnostic ? program.DiagnosticQuestion : null, includeDiagnostic ? program.DiagnosticAnswer : null)
+        {
+            StartingLevel = level,
+            PracticalUse = LearnerExperience.ReadPracticalUse(program.Experience)
+        };
+    }
 }
 public sealed record LessonRequest(string Topic, LessonProgramContext? Program = null, TeachingContext? Teaching = null,
     bool IsReview = false, SharedSkillContext? SharedSkill = null, ProjectPracticeContext? ProjectPractice = null,
@@ -68,6 +89,8 @@ public sealed record LessonAssessment(string Feedback, bool IsCorrect)
     public string Source { get; init; } = "LLM (unspecified model)";
     public RubricAssessment? Rubric { get; init; }
     public ExerciseCorrectionProposal? Correction { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public int[]? SelectedOptions { get; init; }
 }
 public sealed record LessonExplanation(string Explanation)
 {
@@ -189,7 +212,8 @@ public sealed partial class LearningService(ILessonStore store, ILessonTeacher t
             var program = curriculum is null ? null : await curriculum.FindAsync(user, token);
             var personalization = await knowledge.PersonalizationAsync(user, token);
             var previousChoice = await store.FindPreviousChoiceQuestionAsync(user, program?.Id, topic, token);
-            var request = new LessonRequest(topic, Personalization: personalization.ForGeneration())
+            var request = new LessonRequest(topic, Program: program is null ? null : LessonProgramContext.From(program),
+                Personalization: personalization.ForGeneration())
             {
                 PreviousQuestions = previousChoice is null ? null : [previousChoice],
                 PracticeEvidenceKind = previousChoice is null ? null : ExerciseEvidenceKind.Understanding
@@ -197,7 +221,7 @@ public sealed partial class LearningService(ILessonStore store, ILessonTeacher t
             var material = await teacher.GenerateAsync(request with { PreferredChoice = ChoiceTeaching.Prefer(request) }, token);
             token.ThrowIfCancellationRequested();
             if (previousChoice is not null &&
-                !ChoiceTeaching.IsValidFollowUp(material, [previousChoice], ExerciseEvidenceKind.Understanding))
+                !AdaptiveTeaching.IsValidFollowUp(material, [previousChoice], ExerciseEvidenceKind.Understanding))
                 return new LearningResult.ProviderUnavailable();
             var lesson = await CreateWithChoiceHistoryAsync(user, topic, material, token);
             if (program is not null) lesson.LinkPracticeToProgram(program);
@@ -230,13 +254,7 @@ public sealed partial class LearningService(ILessonStore store, ILessonTeacher t
         {
             return new LearningResult.InvalidTransition();
         }
-        if (active.Choice is { } choice)
-        {
-            var selection = ChoiceAnswerText.Parse(choice.Exercise, answer);
-            return choice.Exercise.IsValidSelection(selection)
-                ? await SubmitChoiceAsync(active, selection, token)
-                : InvalidChoice(active);
-        }
+        if (active.Choice is { }) return await AnswerChoiceAsync(active, answer, token);
 
         var assessmentContent = active.AssessmentContent;
         LessonAssessment result;
@@ -267,7 +285,8 @@ public sealed partial class LearningService(ILessonStore store, ILessonTeacher t
         // State/evidence failures must escape so the caller rolls back the entire update transaction.
         if (assessmentContent?.StructuredRubric is not null)
         {
-            active.ApplyRubricAssessment(answer, result.Feedback, result.Rubric!, operationId, result.Correction);
+            active.ApplyRubricAssessment(answer, result.Feedback, result.Rubric!, operationId,
+                AdaptiveTeaching.DistinctCorrection(active, result.Correction));
             if (active.RubricEvaluation is { Final: false, AwaitingCorrection: true } correction)
                 return new LearningResult.AssessmentCorrection(correction.Corrections[^1].Proposal.Guidance,
                     active.ResponseQuestion, active.CanOfferMoreHelp);
@@ -293,6 +312,8 @@ public sealed partial class LearningService(ILessonStore store, ILessonTeacher t
                 not null => LearningContinuation.Practice,
                 null when evidence.AssessedCorrect && active.ProgramId is not null => LearningContinuation.NextTopic,
                 null when evidence.AssessedCorrect => LearningContinuation.Practice,
+                null when AdaptiveTeaching.NeedsOpenCheck(evidence) && active.ProgramId is not null => LearningContinuation.NextTopic,
+                null when AdaptiveTeaching.NeedsOpenCheck(evidence) => LearningContinuation.Practice,
                 _ => null
             },
             LessonId = active.Id,
@@ -323,6 +344,10 @@ public sealed partial class LearningService(ILessonStore store, ILessonTeacher t
     public async Task<LearningResult> PracticeLastAsync(UserId user, Guid? programId, CancellationToken token)
     {
         ValidateUser(user, token);
+        var active = await store.FindActiveAsync(user, token);
+        if (active is { AcceptsAnswer: true, Choice.SolutionSeen: true, SkillId: { } exposedSkill } &&
+            (active.ProgramId ?? active.PracticeProgramId) == programId)
+            return await PracticeAsync(user, exposedSkill, token);
         var latest = await store.FindLatestAssessedAsync(user, programId, token);
         return latest?.SkillId is Guid skillId
             ? await PracticeAsync(user, skillId, token)
@@ -358,7 +383,9 @@ public sealed partial class LearningService(ILessonStore store, ILessonTeacher t
         if (status is null) return new LearningResult.SkillNotFound();
         var skill = status.Skill;
         var active = await store.FindActiveAsync(user, token);
-        if (active is not null) return Session(active);
+        var replacesRevealedChoice = kind == SkillLessonKind.Practice &&
+            active is { AcceptsAnswer: true, Choice.SolutionSeen: true } && active.SkillId == skill.Id;
+        if (active is not null && !replacesRevealedChoice) return Session(active);
         if (kind == SkillLessonKind.Review)
         {
             var schedule = await knowledge.ReviewAsync(user, skillId, token);
@@ -375,16 +402,18 @@ public sealed partial class LearningService(ILessonStore store, ILessonTeacher t
             }
             var strategy = teaching is null ? PedagogicalStrategy.Review : AdaptiveTeaching.StrategyFor(teaching.Action);
             var personalization = await knowledge.PersonalizationAsync(user, token);
-            var followsChoice = status.Evidence.LastOrDefault()?.ChoiceEvidence is not null;
-            var recent = status.State.EvidenceSummary is not null || followsChoice
+            var needsOpenCheck = replacesRevealedChoice || AdaptiveTeaching.NeedsOpenCheck(status.Evidence.LastOrDefault());
+            var recent = status.State.EvidenceSummary is not null || needsOpenCheck
                 ? await store.RecentQuestionsAsync(user, skill.Id, token) : [];
-            var request = new LessonRequest(skill.Description, IsReview: kind == SkillLessonKind.Review,
+            if (replacesRevealedChoice) recent = [active!.Question, .. recent];
+            var request = new LessonRequest(skill.Description, Program: program is null ? null : LessonProgramContext.From(program),
+                IsReview: kind == SkillLessonKind.Review,
                 Teaching: teaching, Personalization: personalization.ForGeneration())
             {
                 PreviousQuestions = recent.Length == 0 ? null : recent,
-                PracticeEvidenceKind = kind == SkillLessonKind.Practice && followsChoice ? ExerciseEvidenceKind.Understanding
-                    : kind == SkillLessonKind.Practice && status.State.EvidenceSummary is { } summary
+                PracticeEvidenceKind = kind == SkillLessonKind.Practice && status.State.EvidenceSummary is { } summary
                     ? summary.Understanding ? ExerciseEvidenceKind.Application : ExerciseEvidenceKind.Understanding
+                    : kind == SkillLessonKind.Practice && needsOpenCheck ? ExerciseEvidenceKind.Understanding
                     : null
             };
             var material = await teacher.GenerateAsync(request with
@@ -392,8 +421,8 @@ public sealed partial class LearningService(ILessonStore store, ILessonTeacher t
                 PreferredChoice = ChoiceTeaching.Prefer(request, status.Evidence)
             }, token);
             token.ThrowIfCancellationRequested();
-            if (followsChoice && !ChoiceTeaching.IsValidFollowUp(material, recent,
-                    request.IsReview ? ExerciseEvidenceKind.Retrieval : ExerciseEvidenceKind.Understanding))
+            if (needsOpenCheck && !AdaptiveTeaching.IsValidFollowUp(material, recent,
+                    request.IsReview ? ExerciseEvidenceKind.Retrieval : request.PracticeEvidenceKind!.Value))
                 return new LearningResult.ProviderUnavailable();
             var lesson = await CreateWithChoiceHistoryAsync(user, skill.Title, material, token);
             if (lesson.Content?.StructuredRubric?.Version == ExerciseRubric.QuestionScopedVersion)
@@ -406,6 +435,7 @@ public sealed partial class LearningService(ILessonStore store, ILessonTeacher t
             lesson.LinkToSkill(skill);
             if (program is not null) lesson.LinkPracticeToProgram(program);
             if (kind == SkillLessonKind.Review) lesson.MarkAsReview();
+            if (replacesRevealedChoice) active!.Finish();
             store.Add(lesson);
             return Material(lesson);
         }
@@ -451,7 +481,7 @@ public sealed partial class LearningService(ILessonStore store, ILessonTeacher t
         if (lesson is null) return new LearningResult.NoActiveLesson();
         if (lesson.Status != LessonStatus.AwaitingAnswer || lesson.ExercisePending && kind == LessonInteractionKind.FullAnswer)
             return new LearningResult.InvalidTransition();
-        if (lesson.AcceptsAnswer && lesson.Choice is not null) return ExplainChoice(lesson, kind);
+        if (lesson.AcceptsAnswer && lesson.Choice is not null) return await ExplainChoiceAsync(lesson, request, kind, token);
         if (kind == LessonInteractionKind.FullAnswer)
         {
             if (lesson.Interactions.FirstOrDefault(interaction => interaction.Kind == LessonInteractionKind.FullAnswer) is { } solution)

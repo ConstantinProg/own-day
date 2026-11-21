@@ -383,6 +383,289 @@ public sealed partial class PostgresLearningProviderTests
         Assert.Equal(1, probe.Calls);
     }
 
+    [Theory]
+    [InlineData("В", "заключена ли сделка", "момент исполнения")]
+    [InlineData("Г", "момент исполнения", "заключена ли сделка")]
+    public async Task Post_WrongClearingSelection_TargetsTheSelectedDistinction(string answer, string distinction, string otherDistinction)
+    {
+        var probe = new Probe("") { Material = ClearingChoiceMaterial() };
+        using var host = ChoiceHost(probe, new());
+        using var client = host.CreateClient();
+        await SendChoiceTextAsync(client, 1, "/learn Клиринг");
+        await DrainChoiceRequestsAsync(host.Services, 1);
+        await SendChoiceTextAsync(client, 2, answer);
+        await DrainChoiceRequestsAsync(host.Services, 1);
+
+        await using var db = Open();
+        var lesson = await db.Set<Lesson>().SingleAsync();
+        var attempt = Assert.Single(lesson.Choice!.Attempts);
+        Assert.Equal(ChoiceOutcome.Incorrect, attempt.Outcome);
+        Assert.False(lesson.Choice.SolutionSeen);
+        Assert.Empty(await db.Set<LearningEvidence>().ToListAsync());
+        var replies = await db.TelegramOutboxMessages.Select(reply => reply.Text).ToListAsync();
+        Assert.Contains(replies, reply => reply.Contains(distinction, StringComparison.Ordinal));
+        Assert.DoesNotContain(replies, reply => reply.Contains(otherDistinction, StringComparison.Ordinal));
+        Assert.DoesNotContain(replies, reply => reply.Contains("Правильный выбор", StringComparison.Ordinal));
+        Assert.Equal(1, probe.Calls);
+    }
+
+    [Fact]
+    public async Task Post_RepeatedClearingErrorsAcrossRestarts_ExplainsThenChecksUnderstandingOnANewCase()
+    {
+        const string check = "Инвестор купил облигацию. Объясните, зачем фиксировать обязательства сторон до расчётов.";
+        var generation = new ConcurrentQueue<LessonRequest>();
+        var probe = new Probe("")
+        {
+            Generate = request =>
+            {
+                generation.Enqueue(request);
+                return request.PreferredChoice is null
+                    ? OpenChoiceFollowUp(ExerciseEvidenceKind.Understanding, check) : ClearingChoiceMaterial();
+            },
+            Assessment = (_, _) => new("Вы объяснили, зачем отделять обязательства от расчётов.", true)
+            {
+                Rubric = new([new("sum", RubricCriterionResult.Met, "Объяснено различие этапов.")])
+            }
+        };
+        await using (var seed = Open())
+        {
+            var program = LearningProgram.Create(_user, "Разобраться в устройстве Московской биржи",
+                "Применение: Инвестиции\nОпыт: Начинаю с нуля", null, "Финансы", [new("clearing", "Клиринг", [])], null);
+            seed.AddRange(program, LearningContext.Create(program));
+            await seed.SaveChangesAsync();
+        }
+        using (var host = ChoiceHost(probe, new()))
+        using (var client = host.CreateClient())
+        {
+            await SendChoiceTextAsync(client, 1, "/learn_next");
+            await DrainChoiceRequestsAsync(host.Services, 1);
+            await SendChoiceTextAsync(client, 2, "к упражнению");
+            await DrainChoiceRequestsAsync(host.Services, 1);
+            var prompt = await ChoiceKeyboardAsync();
+            await PostChoiceCallbackAsync(client, 3, prompt.Buttons[2].CallbackData!);
+            await DrainChoiceRequestsAsync(host.Services, 1);
+        }
+
+        using (var host = ChoiceHost(probe, new()))
+        using (var client = host.CreateClient())
+        {
+            await SendChoiceTextAsync(client, 4, "Г");
+            await DrainChoiceRequestsAsync(host.Services, 1);
+            await using (var db = Open())
+            {
+                var saved = await db.Set<Lesson>().SingleAsync();
+                Assert.Equal(new[] { 3, 4 }, saved.Choice!.Attempts.Select(attempt => Assert.Single(attempt.Selected)).ToArray());
+                var guidance = await db.Set<LessonInteraction>().OrderBy(item => item.Id).Select(item => item.Explanation).ToListAsync();
+                Assert.Equal(2, guidance.Count);
+                Assert.Contains("заключена ли сделка", guidance[0]);
+                Assert.Contains("накладной", guidance[1]);
+                Assert.Empty(await db.Set<LearningEvidence>().ToListAsync());
+            }
+            await SendChoiceTextAsync(client, 5, "Г");
+            await DrainChoiceRequestsAsync(host.Services, 1);
+            await using (var db = Open())
+            {
+                var lesson = await db.Set<Lesson>().SingleAsync();
+                Assert.Equal(3, lesson.Choice!.Attempts.Length);
+                Assert.True(lesson.Choice.SolutionSeen);
+                Assert.Contains("обязательства", (await db.Set<LessonInteraction>().SingleAsync(item =>
+                    item.Kind == LessonInteractionKind.FullAnswer)).Explanation);
+                var evidence = await db.Set<LearningEvidence>().SingleAsync();
+                var state = LearnerSkillState.Evaluate([evidence]);
+                Assert.Equal(SkillMastery.NeedsPractice, state.Mastery);
+                Assert.Equal(0, state.PositiveAssessments);
+                Assert.Empty(await new EfCurriculumStore(db).CompletedTopicsAsync(_user, lesson.ProgramId!.Value, lesson.RouteVersion!.Value, default));
+            }
+            await SendChoiceTextAsync(client, 6, "дальше");
+            await DrainChoiceRequestsAsync(host.Services, 1);
+            await SendChoiceTextAsync(client, 7, "/answer Сначала фиксируют, кто должен деньги и кто должен облигацию. Потом исполняют эти обязательства.");
+            await DrainChoiceRequestsAsync(host.Services, 1);
+        }
+
+        await using var final = Open();
+        var fresh = await final.Set<Lesson>().SingleAsync(lesson => lesson.Choice == null);
+        Assert.Equal(check, fresh.Question);
+        Assert.True(fresh.IsCorrect);
+        Assert.Equal(AnswerAssistance.Independent, fresh.Assistance);
+        var observations = await final.Set<LearningEvidence>().ToListAsync();
+        Assert.Equal(1, LearnerSkillState.Evaluate(observations).PositiveAssessments);
+        Assert.Contains("clearing", await new EfCurriculumStore(final).CompletedTopicsAsync(_user, fresh.ProgramId!.Value, fresh.RouteVersion!.Value, default));
+        Assert.Equal(2, generation.Count);
+        Assert.All(generation, request =>
+        {
+            Assert.Equal("Инвестиции", request.Program?.PracticalUse);
+            Assert.Equal(DiagnosticStartingLevel.Foundation, request.Program?.StartingLevel);
+        });
+        Assert.Contains(ClearingChoiceMaterial().Question, generation.Last().PreviousQuestions!);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Post_ExplicitChoiceSolutionBeforeAttempt_OpensIndependentQuestionAndRecordsNoChoiceEvidence(bool bounded)
+    {
+        const string use = "Checking a purchase total";
+        await SeedChoiceProgramAsync($"Application: {use}\nExperience: Starting from scratch");
+        var probe = new Probe("")
+        {
+            Generate = request =>
+            {
+                Assert.Equal(use, request.Program?.PracticalUse);
+                return request.PreferredChoice is null
+                    ? OpenChoiceFollowUp(ExerciseEvidenceKind.Understanding, "Как проверить сумму на новом примере?")
+                    : ChoiceMaterial(request.PreferredChoice.Value);
+            }
+        };
+        using var host = ChoiceHost(probe, new()).WithWebHostBuilder(builder =>
+            builder.UseSetting("Learning:Processing:PracticeEnabled", "true"));
+        using var client = host.CreateClient();
+        await SendChoiceTextAsync(client, 1, bounded ? "давай два упражнения" : "/learn_next");
+        await DrainChoiceRequestsAsync(host.Services, 1);
+        await SendChoiceTextAsync(client, 2, "к упражнению");
+        await DrainChoiceRequestsAsync(host.Services, 1);
+        await SendChoiceTextAsync(client, 3, "покажи решение");
+        await DrainChoiceRequestsAsync(host.Services, 1);
+        await SendChoiceTextAsync(client, 4, "дальше");
+        await DrainChoiceRequestsAsync(host.Services, 1);
+
+        await using var db = Open();
+        var shown = await db.Set<Lesson>().SingleAsync(lesson => lesson.Choice != null);
+        Assert.Equal(LessonStatus.Finished, shown.Status);
+        Assert.True(shown.Choice!.SolutionSeen);
+        Assert.Empty(shown.Choice.Attempts);
+        Assert.Empty(await db.Set<LearningEvidence>().ToListAsync());
+        var fresh = await db.Set<Lesson>().SingleAsync(lesson => lesson.Choice == null && lesson.Status == LessonStatus.AwaitingAnswer);
+        Assert.True(fresh.AcceptsAnswer);
+        if (bounded)
+        {
+            var practice = (await db.Set<LearningContext>().SingleAsync()).Practice!;
+            Assert.Equal(fresh.Id, Assert.Single(practice.LessonIds));
+            Assert.Equal(LearningPracticeStatus.Running, practice.Status);
+        }
+        Assert.Equal(2, probe.Calls);
+    }
+
+    [Fact]
+    public async Task Post_ExplicitChoiceExample_GivesRequestedExplanationWithoutAnAttempt()
+    {
+        var probe = new Probe("")
+        {
+            Material = ClearingChoiceMaterial(),
+            Recognize = _ => LearningIntent.Clarify,
+            Explanation = new("На складе сначала записывают, сколько коробок должен передать каждый участник.")
+        };
+        using var host = ChoiceHost(probe, new());
+        using var client = host.CreateClient();
+        await SendChoiceTextAsync(client, 1, "/learn Клиринг");
+        await DrainChoiceRequestsAsync(host.Services, 1);
+        await SendChoiceTextAsync(client, 2, "Приведи ещё один пример и объясни подробнее");
+        await DrainChoiceRequestsAsync(host.Services, 1);
+
+        await using var db = Open();
+        Assert.Equal(1, probe.KindCalls["explain"]);
+        Assert.Empty((await db.Set<Lesson>().SingleAsync()).Choice!.Attempts);
+        var explanation = await db.Set<LessonInteraction>().SingleAsync();
+        Assert.Contains("коробок", explanation.Explanation);
+    }
+
+    [Fact]
+    public async Task Post_ChoiceAnswerInOwnWords_ClarifiesAmbiguityAndGradesOnlyTheInterpretedSelection()
+    {
+        const string ambiguous = "Клиринг как-то обрабатывает сделку";
+        const string answer = "Посчитать, кто сколько должен после сделки";
+        var probe = new Probe("")
+        {
+            Material = ClearingChoiceMaterial(),
+            Assessment = (lesson, text) =>
+            {
+                Assert.NotNull(lesson.ChoiceResponse);
+                Assert.Equal(4, lesson.ChoiceResponse.Options.Count);
+                return new("This verdict is ignored for a published choice.", false)
+                {
+                    SelectedOptions = text == answer ? [1] : null
+                };
+            }
+        };
+        using var host = ChoiceHost(probe, new());
+        using var client = host.CreateClient();
+        await SendChoiceTextAsync(client, 1, "/learn Клиринг");
+        await DrainChoiceRequestsAsync(host.Services, 1);
+        await SendChoiceTextAsync(client, 2, ambiguous);
+        await DrainChoiceRequestsAsync(host.Services, 1);
+        await using (var db = Open())
+        {
+            Assert.Empty((await db.Set<Lesson>().SingleAsync()).Choice!.Attempts);
+            Assert.Empty(await db.Set<LearningEvidence>().ToListAsync());
+            Assert.Contains(await db.TelegramOutboxMessages.Select(reply => reply.Text).ToListAsync(),
+                text => text.Contains("Уточните", StringComparison.Ordinal));
+        }
+        await SendChoiceTextAsync(client, 3, answer);
+        await DrainChoiceRequestsAsync(host.Services, 1);
+
+        await using var final = Open();
+        var assessment = Assert.Single((await final.Set<Lesson>().SingleAsync()).Choice!.Attempts);
+        Assert.Equal(answer, assessment.Answer);
+        Assert.Equal(ChoiceOutcome.Correct, assessment.Outcome);
+        Assert.True((await final.Set<LearningEvidence>().SingleAsync()).DeterministicIsCorrect);
+        Assert.Equal(new[] { ambiguous, answer }, probe.AssessedAnswers.ToArray());
+    }
+
+    [Fact]
+    public async Task Post_RepeatedOpenAnswer_ChangesGuidanceAndExplainsWithoutCredit()
+    {
+        const string explanation = "Клиринг фиксирует обязательства сторон до того, как расчёты их исполняют.";
+        const string hint = "Посмотрите, что уже известно до передачи актива.";
+        var probe = new Probe("")
+        {
+            Material = OpenChoiceFollowUp(ExerciseEvidenceKind.Understanding, "Объясните, чем клиринг отличается от расчётов."),
+            Assessment = (lesson, _) => new(lesson.AnswerHelp == TeachingAction.Explain ? explanation : hint, false)
+            {
+                Rubric = new([new("sum", RubricCriterionResult.NotMet, "Разница между этапами не показана.")]),
+                Correction = new(ExerciseCorrectionKind.Hint, hint)
+            }
+        };
+        using var host = ChoiceHost(probe, new());
+        using var client = host.CreateClient();
+        await SendChoiceTextAsync(client, 1, "/learn Клиринг");
+        await DrainChoiceRequestsAsync(host.Services, 1);
+        for (var id = 2; id <= 4; id++)
+        {
+            await SendChoiceTextAsync(client, id, "/answer Это сопоставление заявок.");
+            await DrainChoiceRequestsAsync(host.Services, 1);
+        }
+
+        await using var db = Open();
+        var lesson = await db.Set<Lesson>().SingleAsync();
+        Assert.Equal(new TeachingAction?[] { TeachingAction.Hint, TeachingAction.Simplify, TeachingAction.Explain },
+            probe.AssessedLessons.Select(input => input.AnswerHelp).ToArray());
+        var corrections = lesson.RubricEvaluation!.Corrections;
+        Assert.Equal(2, corrections.Length);
+        Assert.NotEqual(corrections[0].Proposal.Guidance, corrections[1].Proposal.Guidance);
+        Assert.Equal(ExerciseCorrectionKind.Simplify, corrections[1].Proposal.Kind);
+        Assert.Contains(explanation, lesson.Feedback);
+        Assert.False((await db.Set<LearningEvidence>().SingleAsync()).AssessedCorrect);
+    }
+
+    private static LessonMaterial ClearingChoiceMaterial()
+    {
+        const string question = "Заявки на бирже совпали. Какое действие лучше всего описывает клиринг?";
+        return new("Сделка, клиринг и расчёты происходят на разных этапах.", question)
+        {
+            Choice = new(ChoiceExercise.CurrentVersion, ChoiceFormat.SingleChoice, question,
+                [new(1, "Определить обязательства по сделке"), new(2, "Подобрать инвестицию с гарантированной прибылью"),
+                 new(3, "Сопоставить заявки"), new(4, "Перевести деньги и передать актив")], [1],
+                "Клиринг определяет обязательства по уже заключённой сделке. Расчёты исполняют их.", [])
+            {
+                Guidance =
+                [
+                    new(2, "Проверьте, спрашивают ли о выборе инвестиции или об обработке сделки.", "Представьте, что покупку уже согласовали."),
+                    new(3, "Проверьте, заключена ли сделка к моменту действия, о котором спрашивают.", "Сравните момент согласования заказа и обработку уже принятого заказа."),
+                    new(4, "Сравните запись о том, что нужно передать, и момент исполнения договорённости.", "Сравните список товаров в накладной и их фактическую доставку.")
+                ]
+            }
+        };
+    }
+
     [Fact]
     public async Task Post_ReusedPublishedChoice_RecordsRecognitionWithAssistance()
     {
@@ -440,10 +723,10 @@ public sealed partial class PostgresLearningProviderTests
         Host(probe, worker: false, publicIngress: true).WithWebHostBuilder(builder => builder.ConfigureServices(services =>
             services.Replace(ServiceDescriptor.Singleton<ITelegramCallbackResponder>(acknowledgements))));
 
-    private async Task<Guid> SeedChoiceProgramAsync()
+    private async Task<Guid> SeedChoiceProgramAsync(string experience = "Начинаю")
     {
         await using var seed = Open();
-        var program = LearningProgram.Create(_user, "Понять сложение", "Начинаю", null, "Математика",
+        var program = LearningProgram.Create(_user, "Понять сложение", experience, null, "Математика",
             [new("sum", "Сложение", [])], null);
         seed.AddRange(program, LearningContext.Create(program));
         await seed.SaveChangesAsync();

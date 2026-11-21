@@ -383,7 +383,9 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
         if (program.EnglishDiagnostic is { Supported: false }) return new CurriculumResult.ProviderUnavailable();
         if (program.DiagnosticPending) return new CurriculumResult.Program(program);
         var active = await lessons.FindActiveAsync(user, token);
-        if (active is not null)
+        var replacesRevealedChoice = selection == LessonSelection.Next && active?.ProgramId == program.Id &&
+            active is { AcceptsAnswer: true, Choice.SolutionSeen: true };
+        if (active is not null && !replacesRevealedChoice)
         {
             if (selection == LessonSelection.Next && active.ProgramId == program.Id &&
                 active is { Status: LessonStatus.AwaitingAnswer, ExercisePending: true })
@@ -393,7 +395,7 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
             }
             return new CurriculumResult.Lesson(LearningService.Session(active));
         }
-        var suspended = await store.FindSuspendedLessonAsync(user, program.Id, token);
+        var suspended = active is null ? await store.FindSuspendedLessonAsync(user, program.Id, token) : null;
         if (suspended is not null)
         {
             suspended.RestoreForProgram(program);
@@ -402,7 +404,9 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
         }
         var completed = await store.CompletedTopicsAsync(user, program.Id, program.CurrentRoute.Version, token);
         var route = program.CurrentRoute;
-        var topic = program.NextTopic(completed);
+        var topic = replacesRevealedChoice
+            ? route.Topics.SingleOrDefault(item => item.Code == active!.TopicCode)
+            : program.NextTopic(completed);
         if (selection == LessonSelection.Focus)
         {
             topic = program.CurrentRoute.Topics.SingleOrDefault(t => t.Code == focus);
@@ -423,7 +427,7 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
             {
                 revision = program.ProposeAdaptation(topic.Code, $"User selected topic {topic.Code}; goal and prerequisites preserved.");
             }
-            else if (selection == LessonSelection.Adapt || state.RepeatedDifficulty)
+            else if (selection == LessonSelection.Adapt || state.RepeatedDifficulty && !replacesRevealedChoice)
             {
                 var feedback = shared is not null ? [] : status?.Evidence.TakeLast(3)
                     .Select(e => e.AssessmentFeedback[..Math.Min(e.AssessmentFeedback.Length, 500)]).ToArray() ?? [];
@@ -454,26 +458,30 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
                 topic.Code == EnglishLearningContent.FirstTopicCode;
             var scaffold = authored && program.EnglishDiagnostic!.Results.Any(result =>
                 !result.AssessedCorrect || result.Assistance != AnswerAssistance.Independent);
-            var previouslySelected = status?.Evidence.LastOrDefault()?.ChoiceEvidence is not null;
-            var recent = previouslySelected && status is not null ? await lessons.RecentQuestionsAsync(user, status.Skill.Id, token) : [];
-            var request = new LessonRequest(topic.Title,
-                new LessonProgramContext(program.Discipline, program.Goal, program.Experience,
-                    diagnosticApplies ? program.DiagnosticQuestion : null, diagnosticApplies ? program.DiagnosticAnswer : null)
-                {
-                    StartingLevel = StartingLevel(program.Experience, diagnosticApplies ? program.SubjectDiagnostic : null)
-                }, teaching, SharedSkill: shared,
+            var needsOpenCheck = replacesRevealedChoice || AdaptiveTeaching.NeedsOpenCheck(status?.Evidence.LastOrDefault());
+            var recent = needsOpenCheck && status is not null ? await lessons.RecentQuestionsAsync(user, status.Skill.Id, token) : [];
+            if (replacesRevealedChoice) recent = [active!.Question, .. recent];
+            if (needsOpenCheck && teaching is null)
+            {
+                var feedback = replacesRevealedChoice ? active!.SavedGuidance : status?.Evidence.LastOrDefault()?.AssessmentFeedback;
+                teaching = new(TeachingAction.Practice, "Check the same principle on a new example.",
+                    status?.State ?? LearnerSkillState.Evaluate([]), feedback is null ? [] : [feedback[..Math.Min(feedback.Length, 500)]]);
+            }
+            var checkKind = depth == CurriculumDepth.Detailed || status?.State.EvidenceSummary?.Understanding == true
+                ? ExerciseEvidenceKind.Application : ExerciseEvidenceKind.Understanding;
+            var request = new LessonRequest(topic.Title, LessonProgramContext.From(program, diagnosticApplies), teaching, SharedSkill: shared,
                 Personalization: personalization.ForGeneration())
             {
                 RouteDepth = depth == CurriculumDepth.Standard ? null : depth,
                 PreviousQuestions = recent.Length == 0 ? null : recent,
-                PracticeEvidenceKind = previouslySelected ? ExerciseEvidenceKind.Understanding : null
+                PracticeEvidenceKind = needsOpenCheck ? checkKind : null
             };
             var material = authored ? new LessonMaterial(EnglishLearningContent.LessonTheory, EnglishLearningContent.LessonQuestion)
                 : await teacher.GenerateAsync(request with
                 {
                     PreferredChoice = ChoiceTeaching.Prefer(request, status?.Evidence)
                 }, token);
-            if (previouslySelected && !ChoiceTeaching.IsValidFollowUp(material, recent, ExerciseEvidenceKind.Understanding))
+            if (needsOpenCheck && !AdaptiveTeaching.IsValidFollowUp(material, recent, checkKind))
                 return new CurriculumResult.ProviderUnavailable();
             if (scaffold) material = material with { Theory = material.Theory + "\n\n" + EnglishLearningContent.LessonScaffold };
             token.ThrowIfCancellationRequested();
@@ -491,8 +499,9 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
             var demonstrated = (shared?.State ?? status?.State)?.Mastery == SkillMastery.Demonstrated &&
                 shared?.NeedsVerification != true;
             if (demonstrated) lesson.SkipTheory();
-            else if (status?.Evidence.Count is not > 0 || shared?.NeedsVerification == true)
+            else if ((!replacesRevealedChoice && status?.Evidence.Count is not > 0) || shared?.NeedsVerification == true)
                 lesson.PresentTheoryFirst();
+            if (replacesRevealedChoice) active!.Finish();
             lessons.Add(lesson);
             LearningResult result = lesson.ExercisePending ? LearningService.Session(lesson)
                 : LearningService.Material(lesson);
@@ -503,19 +512,6 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
         {
             return new CurriculumResult.ProviderUnavailable();
         }
-    }
-
-    private static DiagnosticStartingLevel? StartingLevel(string experience, SubjectDiagnostic? diagnostic)
-    {
-        if (diagnostic is { Supported: true })
-        {
-            if (diagnostic.Observations.LastOrDefault()?.Kind == DiagnosticAnswerKind.StartWithFoundations)
-                return DiagnosticStartingLevel.Foundation;
-            if (diagnostic.StartingLevel != DiagnosticStartingLevel.Unknown)
-                return diagnostic.StartingLevel;
-        }
-
-        return LearnerExperience.IsBeginner(LearnerExperience.ReadSelfReport(experience)) ? DiagnosticStartingLevel.Foundation : null;
     }
 
     private static void ValidateUser(UserId user, CancellationToken token)

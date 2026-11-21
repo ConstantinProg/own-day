@@ -30,33 +30,37 @@ public sealed partial class Lesson
     }
 
     public bool MatchesChoice(int version, int revision) => AcceptsAnswer &&
-        version == ChoiceExercise.CurrentVersion && Choice is { } state && state.Exercise.Version == version && state.Revision == revision;
+        version == ChoiceExercise.CurrentVersion && Choice is { SolutionSeen: false } state &&
+        state.Exercise.Version == version && state.Revision == revision;
 
     public void RefreshChoicePrompt()
     {
         if (AcceptsAnswer) InvalidateChoiceButtons();
     }
 
-    public ChoiceAttempt SubmitChoice(ImmutableArray<int> selected, Guid? operationId)
+    public ChoiceAttempt SubmitChoice(ImmutableArray<int> selected, Guid? operationId, string? answer = null)
     {
         RequireAwaitingAnswer();
         var state = Choice ?? throw new InvalidOperationException("A choice exercise is required.");
-        if (state.Attempts.Length >= ChoiceExerciseState.MaxAttempts || state.Attempts.LastOrDefault()?.Outcome == ChoiceOutcome.Correct ||
+        if (state.SolutionSeen || state.Attempts.Length >= ChoiceExerciseState.MaxAttempts ||
+            state.Attempts.LastOrDefault()?.Outcome == ChoiceOutcome.Correct ||
             operationId is { } id && (id == Guid.Empty || state.Attempts.Any(attempt => attempt.OperationId == id)))
-            throw new InvalidOperationException("Choice attempt already applied or exhausted.");
+            throw new InvalidOperationException("Choice attempt already applied, exhausted or revealed.");
+        if (answer is not null) Validate(answer, 3000);
         var attempt = new ChoiceAttempt(operationId, [.. selected.Order()], state.Exercise.Grade(selected),
-            state.HintsUsed, state.Attempts.Length == 0 ? Assistance : AnswerAssistance.Assisted, state.SolutionSeen, state.Reused);
+            state.HintsUsed, state.Attempts.Length == 0 ? Assistance : AnswerAssistance.Assisted, state.SolutionSeen, state.Reused, answer);
         Choice = state with { Revision = checked(state.Revision + 1), Draft = [], Attempts = state.Attempts.Add(attempt) };
         return attempt;
     }
 
-    public string? GiveChoiceHint()
+    public string GiveChoiceHelp(string hint, bool simplified)
     {
         RequireAwaitingAnswer();
         var state = Choice ?? throw new InvalidOperationException("A choice exercise is required.");
-        if (state.SolutionSeen || state.HintsUsed >= state.Exercise.Hints.Length) return null;
-        var hint = state.Exercise.Hints[state.HintsUsed];
-        AddExplanation(LessonInteractionKind.Clarification, "Choice hint", hint);
+        if (state.SolutionSeen || state.HintsUsed >= MaxHelpSteps)
+            throw new InvalidOperationException("The exercise has reached its hint limit or its solution is already available.");
+        AddExplanation(simplified ? LessonInteractionKind.AlternativeExplanation : LessonInteractionKind.Clarification,
+            "Choice hint", hint);
         Choice = state with { HintsUsed = state.HintsUsed + 1, Revision = checked(state.Revision + 1) };
         return hint;
     }

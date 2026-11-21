@@ -58,14 +58,16 @@ public static class LearningActionProvider
     public static bool CanOffer(LearningAction action, Lesson? lesson) => action.Kind switch
     {
         LearningActionKind.Hint => lesson is { AcceptsAnswer: true } &&
-            (lesson.Choice is { } choice ? !choice.SolutionSeen && choice.HintsUsed < choice.Exercise.Hints.Length : lesson.CanOfferMoreHelp),
+            (lesson.Choice is { } choice ? !choice.SolutionSeen && choice.HintsUsed < Lesson.MaxHelpSteps : lesson.CanOfferMoreHelp),
         LearningActionKind.Solution => lesson is { AcceptsAnswer: true } &&
             (lesson.Choice is { } choice ? !choice.SolutionSeen : lesson.Interactions.All(interaction => interaction.Kind != LessonInteractionKind.FullAnswer)),
         LearningActionKind.Criteria => lesson is { AcceptsAnswer: true, AssessmentContent.StructuredRubric: not null },
         LearningActionKind.Next => lesson is null
             ? action.TargetId == Guid.Empty
-            : lesson is { Status: LessonStatus.AwaitingAnswer, ExercisePending: true } && action.TargetId == lesson.Id,
-        LearningActionKind.AnotherExercise or LearningActionKind.ProjectPractice or
+            : lesson is { Status: LessonStatus.AwaitingAnswer } &&
+                (lesson.ExercisePending || lesson.Choice?.SolutionSeen == true) && action.TargetId == lesson.Id,
+        LearningActionKind.AnotherExercise => lesson is null or { AcceptsAnswer: true, Choice.SolutionSeen: true },
+        LearningActionKind.ProjectPractice or
             LearningActionKind.FocusTopic or LearningActionKind.StartReview or LearningActionKind.SkillPractice => lesson is null,
         _ => true
     };
@@ -90,6 +92,10 @@ public static class LearningActionProvider
 
     public static IReadOnlyList<LearningAction> ForChoice(ChoicePrompt prompt)
     {
+        if (prompt.AfterSolution is { } next)
+            return next == LearningContinuation.NextTopic
+                ? [new(LearningActionKind.Next, prompt.LessonId)]
+                : [new(LearningActionKind.AnotherExercise)];
         var multiple = prompt.Format == ChoiceFormat.MultipleChoice;
         var kind = multiple ? LearningActionKind.ToggleChoice : LearningActionKind.SelectChoice;
         var actions = prompt.Options.Select(option => LearningAction.ForChoice(prompt, kind, checked((byte)option.Id))).ToList();

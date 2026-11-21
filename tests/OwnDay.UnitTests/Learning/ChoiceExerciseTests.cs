@@ -35,10 +35,15 @@ public sealed class ChoiceExerciseTests
             Assert.Null(evidence.AiAssessedCorrect);
             Assert.Equal(SkillMastery.Unknown, LearnerSkillState.Evaluate([evidence]).Mastery);
         }
-        else
+        else if (format != ChoiceFormat.TrueFalse)
         {
             Assert.Empty(knowledge.Evidence);
             Assert.Equal(LessonStatus.AwaitingAnswer, lesson.Status);
+        }
+        else
+        {
+            Assert.Equal(LessonStatus.Completed, lesson.Status);
+            Assert.Single(knowledge.Evidence);
         }
     }
 
@@ -50,7 +55,7 @@ public sealed class ChoiceExerciseTests
         Assert.Contains("частично", first.Message);
         Assert.Contains("Сопоставьте", first.Message);
         Assert.DoesNotContain("Правильный выбор", first.Message);
-        Assert.IsType<LearningResult.HelpLimit>(await learning.ExplainAsync(lesson.UserId, default));
+        Assert.NotNull(first.Prompt);
 
         var second = Assert.IsType<LearningResult.ChoiceReply>(await learning.AnswerAsync(lesson.UserId, "А, Б", default));
         Assert.Contains("с помощью", second.Message);
@@ -65,20 +70,31 @@ public sealed class ChoiceExerciseTests
         Assert.Equal(SkillMastery.NeedsPractice, LearnerSkillState.Evaluate([evidence]).Mastery);
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task AnswerAsync_RevealedOrReusedQuestion_RecordsAssistanceWithoutIndependentCredit(bool reused)
+    [Fact]
+    public async Task AnswerAsync_ReusedQuestion_RecordsAssistanceWithoutIndependentCredit()
     {
-        var (lesson, learning, knowledge) = Create(ChoiceFormat.SingleChoice, reused: reused);
-        if (!reused) await learning.RevealAsync(lesson.UserId, default);
+        var (lesson, learning, knowledge) = Create(ChoiceFormat.SingleChoice, reused: true);
         await learning.AnswerAsync(lesson.UserId, "A", default);
 
         var attempt = Assert.Single(lesson.Choice!.Attempts);
-        Assert.Equal(!reused, attempt.SolutionSeen);
-        Assert.Equal(reused, attempt.Reused);
+        Assert.False(attempt.SolutionSeen);
+        Assert.True(attempt.Reused);
         Assert.Equal(AnswerAssistance.Assisted, attempt.Assistance);
         Assert.Equal(0, LearnerSkillState.Evaluate(knowledge.Evidence).PositiveAssessments);
+    }
+
+    [Fact]
+    public async Task RevealAsync_BeforeAnAttempt_OffersFreshCheckAndDoesNotCreditReproduction()
+    {
+        var (lesson, learning, knowledge) = Create(ChoiceFormat.SingleChoice);
+        var reveal = Assert.IsType<LearningResult.ChoiceReply>(await learning.RevealAsync(lesson.UserId, default));
+        Assert.Equal(LearningContinuation.Practice, reveal.Prompt?.AfterSolution);
+        Assert.Contains(lesson.Choice!.Exercise.Explanation, reveal.Message);
+
+        await learning.AnswerAsync(lesson.UserId, "A", default);
+
+        Assert.Empty(lesson.Choice.Attempts);
+        Assert.Empty(knowledge.Evidence);
     }
 
     [Fact]
@@ -103,7 +119,7 @@ public sealed class ChoiceExerciseTests
         var (wrong, otherLearning, otherKnowledge) = Create(ChoiceFormat.SingleChoice, review: true);
         var wrongReply = Assert.IsType<LearningResult.ChoiceReply>(await otherLearning.AnswerAsync(wrong.UserId, "B", default));
         Assert.Null(wrongReply.Prompt);
-        Assert.Empty(wrong.Interactions);
+        Assert.Equal(LessonInteractionKind.FullAnswer, Assert.Single(wrong.Interactions).Kind);
         Assert.Single(otherKnowledge.Evidence);
     }
 

@@ -16,14 +16,23 @@ public sealed record LessonSnapshot(Guid Id, UserId UserId, string Topic, string
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] LessonRubricEvaluation? RubricEvaluation = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] AssessmentReviewContext? Review = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] LearningPreferenceValues? ExplanationPreferences = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? FactCheckDiscipline = null)
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? FactCheckDiscipline = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ChoiceResponseContext? ChoiceResponse = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] TeachingAction? AnswerHelp = null)
 {
     public static LessonSnapshot From(Lesson lesson) => new(lesson.Id, lesson.UserId, lesson.Topic,
         lesson.Theory, lesson.Question, lesson.Status, lesson.Teaching, lesson.Transfer, lesson.Content, lesson.RubricEvaluation);
 
     public static LessonSnapshot ForAssessment(Lesson lesson)
     {
-        var snapshot = From(lesson) with { Content = lesson.AssessmentContent };
+        var snapshot = From(lesson) with
+        {
+            Content = lesson.AssessmentContent,
+            AnswerHelp = lesson.AssessmentContent?.StructuredRubric is null ? null
+                : !lesson.CanOfferMoreHelp ? TeachingAction.Explain
+                : lesson.CorrectionCount > 0 || lesson.Teaching?.Strategy is PedagogicalStrategy.Simplify or PedagogicalStrategy.ReviewPrerequisite
+                    ? TeachingAction.Simplify : TeachingAction.Hint
+        };
         if (lesson.HasPendingLegacyAssessment)
             snapshot = snapshot with
             {
@@ -31,6 +40,13 @@ public sealed record LessonSnapshot(Guid Id, UserId UserId, string Topic, string
             };
         return snapshot;
     }
+}
+
+public sealed record ChoiceResponseContext(ChoiceFormat Format, IReadOnlyList<ChoiceOption> Options,
+    ChoiceAttempt? LastAttempt)
+{
+    public static ChoiceResponseContext From(ChoiceExerciseState choice) =>
+        new(choice.Exercise.Format, choice.Exercise.Options, choice.Attempts.LastOrDefault());
 }
 
 public sealed record AssessmentReviewContext(string Argument, string Stage);

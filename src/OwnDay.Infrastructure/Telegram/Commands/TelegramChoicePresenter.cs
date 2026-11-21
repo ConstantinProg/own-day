@@ -7,6 +7,17 @@ internal static class TelegramChoicePresenter
 {
     public static TelegramLearningReply Render(ChoicePrompt prompt)
     {
+        if (prompt.AfterSolution is { } next)
+        {
+            var invitation = (next, prompt.InRussian) switch
+            {
+                (LearningContinuation.NextTopic, true) => "Для проверки на новом примере напишите «дальше».",
+                (LearningContinuation.NextTopic, false) => "Write “next” to check your understanding on a new example.",
+                (_, true) => "Для проверки на новом примере напишите «ещё задание».",
+                _ => "Write “another exercise” to check your understanding on a new example."
+            };
+            return TelegramLearningReply.WithActions(invitation, LearningActionProvider.ForChoice(prompt), prompt.InRussian);
+        }
         var labels = prompt.InRussian ? ChoicePrompt.CyrillicLabels : ChoicePrompt.LatinLabels;
         var lines = prompt.Options.Select((option, index) =>
             $"{labels[index]}. {LearningService.ChoiceLabel(option, prompt.Format, prompt.InRussian)}");

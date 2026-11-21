@@ -313,7 +313,7 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
         if (lesson is null && program is { PendingDiagnosticQuestion: { } question } && command is null)
             return DecideDiagnostic(context, turn, normalized, program, question);
         if (anotherExercise)
-            return lesson is not null ? Recap(context, lesson)
+            return lesson is not null and not { AcceptsAnswer: true, Choice.SolutionSeen: true } ? Recap(context, lesson)
                 : PracticeAction(context, turn, DialogueOperationKind.PracticeLastSkill);
         if (lesson is null && program is not null && (command ?? naturalAction) == DialogueOperationKind.Resume)
             return new(context, DialogueOperationKind.Next, "") { SuggestReviewsOnReturn = returning && program.PendingDiagnosticQuestion is null };
@@ -614,7 +614,8 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
         if (text is "прогресс" or "мой прогресс" or "покажи прогресс" or "progress") return DialogueOperationKind.Progress;
         if (text is "дальше" or "следующее упражнение" or "next") return DialogueOperationKind.Next;
         if (text is "завершить упражнение" or "закончу занятие" or "finish") return DialogueOperationKind.Finish;
-        if (text is "покажи решение" or "покажи полное решение" or "дай полный ответ" or "show the solution")
+        if (text is "покажи решение" or "покажи полное решение" or "дай полный ответ" or "покажи правильный ответ" or
+            "дай правильный ответ" or "show the solution" or "show the correct answer" or "give me the answer")
             return DialogueOperationKind.RevealSolution;
         if (text is "дай подсказку" or "подскажи" or "подсказка" or "hint") return DialogueOperationKind.Clarify;
         if (text.StartsWith("хочу другую цель", StringComparison.Ordinal) || text.StartsWith("сменить цель", StringComparison.Ordinal)) return DialogueOperationKind.ChangeGoal;

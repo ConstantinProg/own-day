@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 
 namespace OwnDay.Domain.Learning;
@@ -7,12 +8,15 @@ public enum ChoiceFormat { SingleChoice, MultipleChoice, TrueFalse }
 public enum ChoiceOutcome { Incorrect, Partial, Correct }
 
 public sealed record ChoiceOption(int Id, string Text);
+public sealed record ChoiceGuidance(int OptionId, string Hint, string Example);
 
 public sealed record ChoiceExercise(int Version, ChoiceFormat Format, string Question, ImmutableArray<ChoiceOption> Options,
     ImmutableArray<int> CorrectOptions, string Explanation, ImmutableArray<string> Hints)
 {
     public const int CurrentVersion = 1;
     public const int MaxOptions = 6;
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public ImmutableArray<ChoiceGuidance> Guidance { get; init; }
 
     public void Validate()
     {
@@ -30,6 +34,11 @@ public sealed record ChoiceExercise(int Version, ChoiceFormat Format, string Que
             (Format == ChoiceFormat.TrueFalse && !Options.Select(option => option.Text).SequenceEqual(["True", "False"])) ||
             Hints.IsDefault || Hints.Length > 1 || Hints.Any(hint => !ValidText(hint, 400)))
             throw new ArgumentException("Invalid published choice exercise.");
+        if (!Guidance.IsDefault && (Guidance.Any(item => item is null || !Options.Any(option => option.Id == item.OptionId) ||
+                CorrectOptions.Contains(item.OptionId) || !ValidText(item.Hint, 400) || !ValidText(item.Example, 600) ||
+                Normalize(item.Hint).Equals(Normalize(item.Example), StringComparison.OrdinalIgnoreCase)) ||
+            Guidance.Select(item => item.OptionId).Distinct().Count() != Guidance.Length))
+            throw new ArgumentException("Invalid choice guidance.");
     }
 
     public bool IsValidSelection(ImmutableArray<int> selection) =>
@@ -49,12 +58,13 @@ public sealed record ChoiceExercise(int Version, ChoiceFormat Format, string Que
 }
 
 public sealed record ChoiceAttempt(Guid? OperationId, ImmutableArray<int> Selected, ChoiceOutcome Outcome,
-    int HintsUsed, AnswerAssistance Assistance, bool SolutionSeen, bool Reused);
+    int HintsUsed, AnswerAssistance Assistance, bool SolutionSeen, bool Reused,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Answer = null);
 
 public sealed record ChoiceExerciseState(ChoiceExercise Exercise, int Revision, ImmutableArray<int> Draft,
     ImmutableArray<ChoiceAttempt> Attempts, int HintsUsed, bool SolutionSeen, bool Reused)
 {
-    public const int MaxAttempts = 2;
+    public const int MaxAttempts = 3;
 }
 
 public sealed record ChoiceEvidence(int Version, ChoiceFormat Format, string QuestionFingerprint,
