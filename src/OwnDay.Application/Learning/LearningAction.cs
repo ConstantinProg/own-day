@@ -52,7 +52,9 @@ public enum LearningActionKind : byte
     ProgramsPage = 43,
     ReviewsPage = 44,
     NoPriorExperience = 45,
-    Progress = 46
+    Progress = 46,
+    ExplainMaterial = 47,
+    ShowExample = 48
 }
 
 public sealed record LearningAction(LearningActionKind Kind, Guid TargetId = default, long Revision = 0, byte Option = 0)

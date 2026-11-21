@@ -53,7 +53,10 @@ public sealed record LessonRequest(string Topic, LessonProgramContext? Program =
     public string[]? PreviousQuestions { get; init; }
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public ChoiceFormat? PreferredChoice { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public ExerciseResponseFormat? RequestedFormat { get; init; }
 }
+public enum ExerciseResponseFormat { ShortText, SingleChoice, MultipleChoice }
 public sealed record TransferPracticeContext(string SourceTopic, InterdisciplinaryPractice Relation);
 public sealed record ProjectPracticeContext(long ProjectId, string ProjectTitle, long ActionId, string ActionTitle);
 public sealed record SharedSkillContext(string Description, LearnerSkillState State)
@@ -169,6 +172,7 @@ public abstract record LearningResult
         public bool IsClarifyingAnswer { get; init; }
         public ChoicePrompt? Choice { get; init; }
         public Guid? PendingExerciseId { get; init; }
+        public bool TheoryExpanded { get; init; }
     }
     public sealed record Explanation(string Text, string Topic, string Question, LessonProvenance? Provenance = null) : LearningResult
     {
@@ -180,12 +184,15 @@ public abstract record LearningResult
     public sealed record HelpLimit : LearningResult;
     public sealed record InvalidClarification : LearningResult;
     public sealed record InvalidTransition : LearningResult;
+    public sealed record FormatUnavailable : LearningResult;
+    public sealed record ConceptReply(string Text, LessonProvenance? Provenance) : LearningResult;
     public sealed record Finished : LearningResult;
     public sealed record SkillNotFound : LearningResult;
     public sealed record ReviewNotDue : LearningResult;
     public sealed record ReviewDeferred(DateTimeOffset DueAt) : LearningResult;
     public sealed record ChoiceReply(string Message, ChoicePrompt? Prompt = null, LearningContinuation? Continuation = null) : LearningResult
     {
+        public bool IsCorrect { get; init; }
         public Guid? AssessedLessonId { get; init; }
         public LessonProvenance? Provenance { get; init; }
     }
@@ -343,6 +350,9 @@ public sealed partial class LearningService(ILessonStore store, ILessonTeacher t
     public Task<LearningResult> PracticeAsync(UserId user, Guid skillId, CancellationToken token) =>
         StartSkillLessonAsync(user, skillId, SkillLessonKind.Practice, token);
 
+    internal Task<LearningResult> PracticeAfterAnswerAsync(Lesson answered, Guid skillId, CancellationToken token) =>
+        StartSkillLessonAsync(answered.UserId, skillId, SkillLessonKind.Practice, token, answered.Question);
+
     public async Task<LearningResult> PracticeLastAsync(UserId user, Guid? programId, CancellationToken token)
     {
         ValidateUser(user, token);
@@ -378,7 +388,8 @@ public sealed partial class LearningService(ILessonStore store, ILessonTeacher t
         Review
     }
 
-    private async Task<LearningResult> StartSkillLessonAsync(UserId user, Guid skillId, SkillLessonKind kind, CancellationToken token)
+    private async Task<LearningResult> StartSkillLessonAsync(UserId user, Guid skillId, SkillLessonKind kind, CancellationToken token,
+        string? answeredQuestion = null)
     {
         ValidateUser(user, token);
         var status = await knowledge.StatusAsync(user, skillId, token);
@@ -408,6 +419,8 @@ public sealed partial class LearningService(ILessonStore store, ILessonTeacher t
             var recent = status.State.EvidenceSummary is not null || needsOpenCheck
                 ? await store.RecentQuestionsAsync(user, skill.Id, token) : [];
             if (replacesRevealedChoice) recent = [active!.Question, .. recent];
+            if (answeredQuestion is not null && !recent.Contains(answeredQuestion, StringComparer.Ordinal))
+                recent = [answeredQuestion, .. recent];
             var request = new LessonRequest(skill.Description, Program: program is null ? null : LessonProgramContext.From(program),
                 IsReview: kind == SkillLessonKind.Review,
                 Teaching: teaching, Personalization: personalization.ForGeneration())
@@ -423,8 +436,10 @@ public sealed partial class LearningService(ILessonStore store, ILessonTeacher t
                 PreferredChoice = ChoiceTeaching.Prefer(request, status.Evidence)
             }, token);
             token.ThrowIfCancellationRequested();
-            if (needsOpenCheck && !AdaptiveTeaching.IsValidFollowUp(material, recent,
-                    request.IsReview ? ExerciseEvidenceKind.Retrieval : request.PracticeEvidenceKind!.Value))
+            var requiredKind = needsOpenCheck && request.IsReview ? ExerciseEvidenceKind.Retrieval : request.PracticeEvidenceKind;
+            if ((needsOpenCheck || answeredQuestion is not null) && requiredKind is { } required &&
+                !AdaptiveTeaching.IsValidFollowUp(material, recent, required) ||
+                answeredQuestion is not null && AdaptiveTeaching.RepeatsQuestion(material.Question, recent))
                 return new LearningResult.ProviderUnavailable();
             var lesson = await CreateWithChoiceHistoryAsync(user, skill.Title, material, token);
             if (lesson.Content?.StructuredRubric?.Version == ExerciseRubric.QuestionScopedVersion)
@@ -474,6 +489,32 @@ public sealed partial class LearningService(ILessonStore store, ILessonTeacher t
     public Task<LearningResult> ExplainAsync(UserId user, CancellationToken token) =>
         ExplainAsync(user, "Explain the current material differently.", LessonInteractionKind.AlternativeExplanation, token);
 
+    public async Task<LearningResult> ExplainContextAsync(UserId user, string request, CancellationToken token)
+    {
+        ValidateUser(user, token);
+        request = request.Trim();
+        if (request.Length == 0) request = "Explain the recent material differently.";
+        if (request.Length > 1000) return new LearningResult.InvalidClarification();
+        var lesson = await store.FindActiveAsync(user, token);
+        if (lesson is null && curriculum is not null && await curriculum.FindAsync(user, token) is { } program)
+            lesson = await store.FindLatestAssessedAsync(user, program.Id, token);
+        if (lesson is not { Status: LessonStatus.Paused or LessonStatus.Completed }) return new LearningResult.NoActiveLesson();
+        try
+        {
+            var result = await teacher.ExplainAsync(Requests.LessonSnapshot.From(lesson) with
+                { Question = "", Content = null, RubricEvaluation = null }, request, LessonInteractionKind.ConceptExplanation, token);
+            token.ThrowIfCancellationRequested();
+            if (string.IsNullOrWhiteSpace(result.Explanation) || result.Explanation.Length > 2500) return new LearningResult.ProviderUnavailable();
+            if (lesson.Status == LessonStatus.Paused)
+                lesson.AddExplanation(LessonInteractionKind.ConceptExplanation, request, result.Explanation, provenance: result.Provenance);
+            return new LearningResult.ConceptReply(result.Explanation, result.Provenance);
+        }
+        catch (Exception exception) when (exception is LessonProviderException or ArgumentException)
+        {
+            return new LearningResult.ProviderUnavailable();
+        }
+    }
+
     private async Task<LearningResult> ExplainAsync(UserId user, string request, LessonInteractionKind kind, CancellationToken token)
     {
         ValidateUser(user, token);
@@ -489,7 +530,11 @@ public sealed partial class LearningService(ILessonStore store, ILessonTeacher t
             if (lesson.Interactions.FirstOrDefault(interaction => interaction.Kind == LessonInteractionKind.FullAnswer) is { } solution)
                 return Explanation(lesson, solution.Explanation, solution.Provenance);
         }
-        else if (!lesson.CanOfferMoreHelp) return new LearningResult.HelpLimit();
+        else if (!lesson.CanOfferMoreHelp)
+        {
+            if (IsHintRequest(request)) return new LearningResult.HelpLimit();
+            kind = LessonInteractionKind.ConceptExplanation;
+        }
         try
         {
             LearningPreferenceValues? preferences = null;
@@ -507,14 +552,15 @@ public sealed partial class LearningService(ILessonStore store, ILessonTeacher t
                 ? values : null;
             var snapshot = Requests.LessonSnapshot.From(lesson) with
                 { ExplanationPreferences = preferenceSnapshot, FactCheckDiscipline = factDiscipline };
-            if (lesson.ExercisePending) snapshot = snapshot with { Question = "", Content = null, RubricEvaluation = null };
-            var result = !lesson.ExercisePending && preferenceSnapshot is null && factDiscipline is null
+            var conceptOnly = lesson.ExercisePending || kind == LessonInteractionKind.ConceptExplanation;
+            if (conceptOnly) snapshot = snapshot with { Question = "", Content = null, RubricEvaluation = null };
+            var result = !conceptOnly && preferenceSnapshot is null && factDiscipline is null
                 ? await teacher.ExplainAsync(lesson, request, kind, token)
                 : await teacher.ExplainAsync(snapshot, request, kind, token);
             token.ThrowIfCancellationRequested();
             lesson.AddExplanation(kind, request, result.Explanation, preferenceSnapshot, result.Provenance);
             return lesson.ExercisePending
-                ? Session(lesson) with { Theory = result.Explanation, Provenance = result.Provenance, LastExplanation = null }
+                ? Session(lesson) with { Theory = result.Explanation, Provenance = result.Provenance, LastExplanation = null, TheoryExpanded = true }
                 : Explanation(lesson, result.Explanation, result.Provenance);
         }
         catch (Exception exception) when (exception is LessonProviderException or ArgumentException)

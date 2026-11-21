@@ -355,12 +355,12 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
             : "Let's start the lesson. We'll adjust the difficulty as we go." };
     }
 
-    internal async Task<CurriculumResult> NextAsync(UserId user, Guid programId, CancellationToken token)
+    internal async Task<CurriculumResult> NextAsync(UserId user, Guid programId, CancellationToken token, string? answeredQuestion = null)
     {
         ValidateUser(user, token);
         var program = await store.FindAsync(user, programId, token);
         return program is null ? new CurriculumResult.ProgramNotFound()
-            : await StartLessonAsync(user, LessonSelection.Next, null, token, program);
+            : await StartLessonAsync(user, LessonSelection.Next, null, token, program, answeredQuestion);
     }
 
     public Task<CurriculumResult> AdaptAsync(UserId user, CancellationToken token) => StartLessonAsync(user, LessonSelection.Adapt, null, token);
@@ -375,7 +375,7 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
     }
 
     private async Task<CurriculumResult> StartLessonAsync(UserId user, LessonSelection selection, string? focus, CancellationToken token,
-        LearningProgram? target = null)
+        LearningProgram? target = null, string? answeredQuestion = null)
     {
         ValidateUser(user, token);
         var program = target ?? await store.FindAsync(user, token);
@@ -461,6 +461,8 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
             var needsOpenCheck = replacesRevealedChoice || AdaptiveTeaching.NeedsOpenCheck(status?.Evidence.LastOrDefault());
             var recent = needsOpenCheck && status is not null ? await lessons.RecentQuestionsAsync(user, status.Skill.Id, token) : [];
             if (replacesRevealedChoice) recent = [active!.Question, .. recent];
+            if (answeredQuestion is not null && !recent.Contains(answeredQuestion, StringComparer.Ordinal))
+                recent = [answeredQuestion, .. recent];
             if (needsOpenCheck && teaching is null)
             {
                 var feedback = replacesRevealedChoice ? active!.SavedGuidance : status?.Evidence.LastOrDefault()?.AssessmentFeedback;
@@ -481,7 +483,8 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
                 {
                     PreferredChoice = ChoiceTeaching.Prefer(request, status?.Evidence)
                 }, token);
-            if (needsOpenCheck && !AdaptiveTeaching.IsValidFollowUp(material, recent, checkKind))
+            if (needsOpenCheck && !AdaptiveTeaching.IsValidFollowUp(material, recent, checkKind) ||
+                answeredQuestion is not null && AdaptiveTeaching.RepeatsQuestion(material.Question, recent))
                 return new CurriculumResult.ProviderUnavailable();
             if (scaffold) material = material with { Theory = material.Theory + "\n\n" + EnglishLearningContent.LessonScaffold };
             token.ThrowIfCancellationRequested();

@@ -28,24 +28,27 @@ public sealed class LearningSessionService(ILearningSessionStore store)
         return session?.ProgramId == programId && (lesson is null || lesson.ProgramId == programId);
     }
 
-    public async Task EndAsync(DialogueTurn turn, Guid? programId, Lesson? lesson, CancellationToken token)
+    public async Task<LearningSessionSummary?> EndAsync(DialogueTurn turn, Guid? programId, Lesson? lesson, CancellationToken token)
     {
         var session = await store.FindLatestAsync(turn.UserId, token);
         if (session is not { EndedAt: null })
         {
-            if (session?.ProgramId == programId || programId is not { } selected || lesson?.ProgramId != selected) return;
+            if (session?.ProgramId == programId) return session?.Summary;
+            if (programId is not { } selected || lesson?.ProgramId != selected) return null;
             var closed = LearningSession.Start(turn.UserId, selected, turn.ReceivedAt, turn.SessionSourceOrder, lesson);
             closed.End(turn.ReceivedAt, LearningSessionEnd.Explicit);
             store.Add(closed);
-            return;
+            return closed.Summary;
         }
+        var summary = session.Summary;
         var at = turn.ReceivedAt < session.LastActivityAt ? session.LastActivityAt : turn.ReceivedAt;
         if (session.IsIdle(at))
         {
             session.End(at, LearningSessionEnd.Idle, lesson);
-            return;
+            return summary ?? session.Summary;
         }
         session.RecordActivity(at, lesson);
         session.End(at, LearningSessionEnd.Explicit);
+        return summary ?? session.Summary;
     }
 }

@@ -20,7 +20,8 @@ public sealed partial class LearningRequestRunner
         var lessonId = lesson?.Id;
         var id = action.TargetId.ToString("D");
         var (number, routeVersion, topicIndex) = (action.Number, action.RouteVersion, action.TopicIndex);
-        if (action.Kind is LearningActionKind.Hint or LearningActionKind.Solution or LearningActionKind.Criteria && action.TargetId != lesson?.Id)
+        if (action.Kind is LearningActionKind.Hint or LearningActionKind.Solution or LearningActionKind.Criteria or
+            LearningActionKind.ExplainMaterial or LearningActionKind.ShowExample && action.TargetId != lesson?.Id)
             return default;
 
         var phrase = action.Kind switch
@@ -46,6 +47,10 @@ public sealed partial class LearningRequestRunner
             LearningActionKind.Hint => ("learn_ask", input.InRussian ? "Дай короткую подсказку." : "Give me a short hint."),
             LearningActionKind.Solution => ("learn_solution", ""),
             LearningActionKind.Criteria => ("learn_explain", ""),
+            LearningActionKind.ExplainMaterial when lesson?.ExercisePending == true => ("learn_ask",
+                input.InRussian ? "Объясни этот принцип подробнее." : "Explain this idea in more detail."),
+            LearningActionKind.ExplainMaterial => ("learn_explain", ""),
+            LearningActionKind.ShowExample => ("learn_ask", input.InRussian ? "Покажи пример." : "Show me an example."),
             LearningActionKind.ExplainAssessment when action.TargetId != Guid.Empty => ("learn_assessment", id),
             LearningActionKind.ReviewSuggestions => ("learn_recommend_reviews", ""),
             LearningActionKind.Confirm or LearningActionKind.Reject => ("learn_confirm", dialogue!.PendingConfirmation!.Code),

@@ -4,7 +4,8 @@ public enum LessonInteractionKind
 {
     Clarification,
     AlternativeExplanation,
-    FullAnswer
+    FullAnswer,
+    ConceptExplanation
 }
 
 public sealed class LessonInteraction

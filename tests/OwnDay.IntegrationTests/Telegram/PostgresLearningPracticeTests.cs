@@ -14,7 +14,7 @@ namespace OwnDay.IntegrationTests.Telegram;
 public sealed partial class PostgresLearningProviderTests
 {
     [Fact]
-    public async Task Post_TwoExercisesAcrossRestart_RequiresExplicitNextAndStopsAtRequestedCount()
+    public async Task Post_TwoExercisesAcrossRestart_ContinuesAutomaticallyAndStopsAtRequestedCount()
     {
         var probe = new Probe("")
         {
@@ -36,7 +36,7 @@ public sealed partial class PostgresLearningProviderTests
             await SendEnglishAsync(client, 6, "К упражнению");
             await SendEnglishAsync(client, 7, "Kim asks for the updated agenda. I can send it tomorrow.");
             await using var db = Open();
-            Assert.Single(await db.Set<Lesson>().ToListAsync());
+            Assert.Equal(2, await db.Set<Lesson>().CountAsync());
             Assert.Single(await db.Set<LearningEvidence>().ToListAsync());
         }
         using (var restarted = PracticeHost(probe))
@@ -46,7 +46,7 @@ public sealed partial class PostgresLearningProviderTests
             await SendEnglishAsync(client, 9, "Можем перейти к следующему?");
             await using (var db = Open())
             {
-                Assert.Single(await db.Set<Lesson>().ToListAsync());
+                Assert.Equal(2, await db.Set<Lesson>().CountAsync());
                 Assert.Equal(LearningPracticeStatus.Paused, (await db.Set<LearningContext>().SingleAsync()).Practice!.Status);
             }
             await SendEnglishAsync(client, 10, "Готов снова заниматься");
@@ -137,7 +137,7 @@ public sealed partial class PostgresLearningProviderTests
         builder.UseSetting("Learning:Processing:PracticeEnabled", "true"));
 
     [Fact]
-    public async Task Post_LateNextOlderThanCompletedAnswer_DoesNotGenerateUntilFreshRequest()
+    public async Task Post_LateNextOlderThanCompletedAnswer_DoesNotGenerateAnotherExercise()
     {
         var probe = new Probe("");
         using var host = PracticeHost(probe);
@@ -156,10 +156,10 @@ public sealed partial class PostgresLearningProviderTests
         await WaitAllPublicAsync(8);
         await using (var db = Open())
         {
-            Assert.Single(await db.Set<Lesson>().ToListAsync());
-            Assert.Single((await db.Set<LearningContext>().SingleAsync()).Practice!.LessonIds);
+            Assert.Equal(2, await db.Set<Lesson>().CountAsync());
+            Assert.Equal(2, (await db.Set<LearningContext>().SingleAsync()).Practice!.LessonIds.Length);
         }
-        Assert.Equal(0, probe.KindCalls.GetValueOrDefault("generate"));
+        Assert.Equal(1, probe.KindCalls.GetValueOrDefault("generate"));
         using var fresh = await PostPublicAsync(client, 102, "дальше");
         fresh.EnsureSuccessStatusCode();
         await WaitAllPublicAsync(9);
@@ -169,7 +169,7 @@ public sealed partial class PostgresLearningProviderTests
     }
 
     [Fact]
-    public async Task Post_OtherLessonOrInvalidVolumeBetweenExercises_DoesNotReplaceBoundedSkill()
+    public async Task Post_OtherLessonOrInvalidVolumeDuringPractice_DoesNotReplaceBoundedSkill()
     {
         var probe = new Probe("");
         using var host = PracticeHost(probe);
@@ -185,12 +185,12 @@ public sealed partial class PostgresLearningProviderTests
         await SendEnglishAsync(client, 9, "практика 4");
         await SendEnglishAsync(client, 10, "помощь");
         await using var result = Open();
-        Assert.Single(await result.Set<Lesson>().ToListAsync());
+        Assert.Equal(2, await result.Set<Lesson>().CountAsync());
         var practice = (await result.Set<LearningContext>().SingleAsync()).Practice!;
-        Assert.Single(practice.LessonIds);
+        Assert.Equal(2, practice.LessonIds.Length);
         Assert.Equal(2, practice.RequestedCount);
         Assert.Equal(LearningPracticeStatus.Running, practice.Status);
-        Assert.Equal(0, probe.KindCalls.GetValueOrDefault("generate"));
+        Assert.Equal(1, probe.KindCalls.GetValueOrDefault("generate"));
     }
 
     [Fact]
@@ -271,7 +271,7 @@ public sealed partial class PostgresLearningProviderTests
     }
 
     [Fact]
-    public async Task Process_NextPracticeApplyFails_ReplaysSavedGenerationAndAssociatesOneExercise()
+    public async Task Process_AnswerAndFollowUpApplyFails_ReplaysSavedAssessmentAndAssociatesOneExercise()
     {
         var probe = new Probe("");
         using (var host = PracticeHost(probe))
@@ -283,13 +283,12 @@ public sealed partial class PostgresLearningProviderTests
             await SendEnglishAsync(client, 4, "пропустим");
             await SendEnglishAsync(client, 5, "давай два упражнения");
             await SendEnglishAsync(client, 6, "К упражнению");
-            await SendEnglishAsync(client, 7, "Kim asks for the agenda. I can send it tomorrow.");
         }
         using (var host = Host(probe, worker: false, publicIngress: true, interceptor: new RejectBoundary("apply"),
             configure: options => { options.Enabled = true; options.DialogueEnabled = true; }))
         using (var client = host.CreateClient())
         {
-            using var receipt = await PostPublicAsync(client, 8, "дальше");
+            using var receipt = await PostPublicAsync(client, 7, "Kim asks for the agenda. I can send it tomorrow.");
             receipt.EnsureSuccessStatusCode();
             using var scope = host.Services.CreateScope();
             var lease = (await scope.ServiceProvider.GetRequiredService<ILearningRequestStore>().ClaimAsync(TimeSpan.FromMinutes(1), default))!;
@@ -299,13 +298,16 @@ public sealed partial class PostgresLearningProviderTests
         {
             Assert.Single(await db.Set<Lesson>().ToListAsync());
             Assert.Single((await db.Set<LearningContext>().SingleAsync()).Practice!.LessonIds);
+            Assert.Empty(await db.Set<LearningEvidence>().ToListAsync());
             await db.Database.ExecuteSqlRawAsync("UPDATE learning_requests SET lease_until = clock_timestamp() - interval '1 second' WHERE status = 2");
         }
         using (var host = PracticeHost(probe))
-        using (var client = host.CreateClient()) await WaitAllPublicAsync(8);
+        using (var client = host.CreateClient()) await WaitAllPublicAsync(7);
         await using var result = Open();
         Assert.Equal(2, await result.Set<Lesson>().CountAsync());
         Assert.Equal(2, (await result.Set<LearningContext>().SingleAsync()).Practice!.LessonIds.Length);
+        Assert.Single(await result.Set<LearningEvidence>().ToListAsync());
+        Assert.Single(probe.AssessedAnswers);
         Assert.Equal(1, probe.KindCalls.GetValueOrDefault("generate"));
     }
 }

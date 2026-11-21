@@ -13,10 +13,10 @@ Otherwise the existing program Next supplies the first exercise. After a complet
 route, a fresh exercise practices the actual last owned program skill instead of
 reopening or inventing route topics.
 
-Every additional exercise needs “дальше”/“next” or compatible `/learn_next`.
-Generation never runs automatically after an answer. The subsequent exercises use
-the existing PracticeAsync on that same owned skill, without extra route credit or
-a retention claim. At most three associations can be issued. The common answer
+After a correct answer, a running plan opens one more exercise within its requested
+count. After an unsuccessful final attempt or a generation failure, use “дальше”,
+“next” or `/learn_next` to proceed. Subsequent exercises use the existing PracticeAsync
+on the same owned skill. At most three exercises can be issued. The common answer
 path creates one evidence record and closes the plan on its last completed exercise.
 Repeated next/source redelivery cannot exceed the count.
 

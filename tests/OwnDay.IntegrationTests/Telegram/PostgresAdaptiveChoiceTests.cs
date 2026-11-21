@@ -110,7 +110,7 @@ public sealed partial class PostgresLearningProviderTests
         var skillState = LearnerSkillState.Evaluate([evidence]);
         Assert.Equal(SkillMastery.Unknown, skillState.Mastery);
         Assert.Equal(0, skillState.PositiveAssessments);
-        Assert.Equal(1, probe.Calls);
+        Assert.Equal(2, probe.Calls);
         Assert.Equal(2, acknowledgements.Ids.Count(id => id == "choice-3"));
         Assert.Equal(await saved.Set<LearningRequest>().CountAsync(), await saved.Set<LearningAppliedOperation>().CountAsync());
     }
@@ -146,7 +146,8 @@ public sealed partial class PostgresLearningProviderTests
         await using var saved = Open();
         Assert.Single((await saved.Set<Lesson>().SingleAsync()).Choice!.Attempts);
         Assert.Single(await saved.Set<LearningEvidence>().ToListAsync());
-        Assert.Equal(1, probe.Calls);
+        Assert.Equal(2, probe.Calls);
+        Assert.Empty(probe.AssessedAnswers);
         Assert.Equal(2, acknowledgements.Ids.Count(id => id == "choice-3"));
     }
 
@@ -251,7 +252,7 @@ public sealed partial class PostgresLearningProviderTests
     }
 
     [Fact]
-    public async Task Post_ChoiceTextThenNext_PublishesOneNewOpenQuestionAndKeepsRouteEvidenceSeparate()
+    public async Task Post_CorrectChoiceText_PublishesOneNewOpenQuestionAndKeepsRouteEvidenceSeparate()
     {
         await SeedChoiceProgramAsync();
         var generation = new ConcurrentQueue<LessonRequest>();
@@ -275,7 +276,6 @@ public sealed partial class PostgresLearningProviderTests
         Assert.Equal(1, probe.Calls);
         await SendChoiceTextAsync(client, 3, "А");
         await DrainChoiceRequestsAsync(host.Services, 1);
-        Assert.Equal(1, probe.Calls);
         await SendChoiceTextAsync(client, 4, "дальше");
         await DrainChoiceRequestsAsync(host.Services, 1);
 
@@ -310,8 +310,6 @@ public sealed partial class PostgresLearningProviderTests
         await SendChoiceTextAsync(client, 2, "/learn_next");
         await DrainChoiceRequestsAsync(host.Services, 1);
         await SendChoiceTextAsync(client, 3, "А");
-        await DrainChoiceRequestsAsync(host.Services, 1);
-        await SendChoiceTextAsync(client, 4, "/learn_next");
         await DrainChoiceRequestsAsync(host.Services, 1);
 
         await using var observer = Open();
@@ -380,7 +378,7 @@ public sealed partial class PostgresLearningProviderTests
         Assert.Equal([AnswerAssistance.Independent, AnswerAssistance.Assisted], saved.Attempts.Select(attempt => attempt.Assistance));
         Assert.Contains(await db.TelegramOutboxMessages.ToListAsync(), message => message.Text.Contains("Сопоставьте", StringComparison.Ordinal));
         Assert.Single(await db.Set<LearningEvidence>().ToListAsync());
-        Assert.Equal(1, probe.Calls);
+        Assert.Equal(2, probe.Calls);
     }
 
     [Theory]
@@ -465,7 +463,7 @@ public sealed partial class PostgresLearningProviderTests
             await DrainChoiceRequestsAsync(host.Services, 1);
             await using (var db = Open())
             {
-                var lesson = await db.Set<Lesson>().SingleAsync();
+                var lesson = await db.Set<Lesson>().SingleAsync(item => item.Choice != null);
                 Assert.Equal(3, lesson.Choice!.Attempts.Length);
                 Assert.True(lesson.Choice.SolutionSeen);
                 Assert.Contains("обязательства", (await db.Set<LessonInteraction>().SingleAsync(item =>
@@ -475,6 +473,7 @@ public sealed partial class PostgresLearningProviderTests
                 Assert.Equal(SkillMastery.NeedsPractice, state.Mastery);
                 Assert.Equal(0, state.PositiveAssessments);
                 Assert.Empty(await new EfCurriculumStore(db).CompletedTopicsAsync(_user, lesson.ProgramId!.Value, lesson.RouteVersion!.Value, default));
+                Assert.True((await db.Set<Lesson>().SingleAsync(item => item.Choice == null)).AcceptsAnswer);
             }
             await SendChoiceTextAsync(client, 6, "дальше");
             await DrainChoiceRequestsAsync(host.Services, 1);
@@ -490,13 +489,13 @@ public sealed partial class PostgresLearningProviderTests
         var observations = await final.Set<LearningEvidence>().ToListAsync();
         Assert.Equal(1, LearnerSkillState.Evaluate(observations).PositiveAssessments);
         Assert.Contains("clearing", await new EfCurriculumStore(final).CompletedTopicsAsync(_user, fresh.ProgramId!.Value, fresh.RouteVersion!.Value, default));
-        Assert.Equal(2, generation.Count);
+        Assert.Equal(3, generation.Count);
         Assert.All(generation, request =>
         {
             Assert.Equal("Инвестиции", request.Program?.PracticalUse);
             Assert.Equal(DiagnosticStartingLevel.Foundation, request.Program?.StartingLevel);
         });
-        Assert.Contains(ClearingChoiceMaterial().Question, generation.Last().PreviousQuestions!);
+        Assert.Contains(ClearingChoiceMaterial().Question, generation.ElementAt(1).PreviousQuestions!);
     }
 
     [Theory]

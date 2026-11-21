@@ -24,7 +24,7 @@ public sealed partial class LearningRequestRunner(IServiceScopeFactory scopes, I
 {
     public async Task<bool> RunAsync(LearningRequestLease lease, int maxAttempts, CancellationToken token)
     {
-        // At most planner + generator followed by apply. Each iteration disposes all
+        // Up to two required steps and one optional continuation, followed by apply. Each iteration disposes all
         // tracked state before any external I/O; a provider is never available in apply.
         for (var phase = 0; phase <= LearningProviderSession.MaxSteps; phase++)
         {
@@ -66,7 +66,7 @@ public sealed partial class LearningRequestRunner(IServiceScopeFactory scopes, I
             }
             var execution = await provider.ExecuteAsync(lease, pending, token);
             if (execution.OwnershipLost) return false;
-            if (execution.Unknown)
+            if (execution.Unknown && pending.Kind != LearningProviderSession.ContinuationStep)
             {
                 await using var scope = scopes.CreateAsyncScope();
                 return await scope.ServiceProvider.GetRequiredService<EfLearningRequestStore>().ApplyAsync(lease,
@@ -80,7 +80,7 @@ public sealed partial class LearningRequestRunner(IServiceScopeFactory scopes, I
                     }, token);
             }
             pending.Result = execution.Result;
-            pending.Failure = execution.Failure;
+            pending.Failure = execution.Unknown ? LessonProviderFailure.Unavailable : execution.Failure;
             token.ThrowIfCancellationRequested();
             await using (var scope = scopes.CreateAsyncScope())
             {
@@ -233,7 +233,15 @@ public sealed partial class LearningRequestRunner(IServiceScopeFactory scopes, I
         var application = await dialogue.ApplyChoiceAsync(turn, lesson, input, learning, token);
         var reply = action is not null && !isCurrent && application.Reply is LearningResult.ChoiceReply stale
             ? stale with { Prompt = null } : application.Reply;
-        var replies = TelegramLearningPresenter.Render(reply);
+        var followUp = application.AttemptRecorded
+            ? await CreatePractice(services, session).AfterAnswerAsync(lesson, reply, session, token) : new();
+        var replies = TelegramLearningPresenter.RenderAnswerWithFollowUp(reply, followUp,
+            lesson is not null && MarketLearningContent.InRussian(lesson.Theory));
+        if (followUp is { Lesson: not null } or { Route: not null } or { Practice.Lesson: not null })
+        {
+            var context = await services.GetRequiredService<IDialogueStore>().FindAsync(request.UserId, token);
+            context!.Synchronize(await lessons.FindActiveAsync(request.UserId, token), now, turn.SourceOrder);
+        }
         if (action is not null && request.SourceMessageId is { } source)
         {
             if (input.Action == ChoiceAction.Toggle && application.Reply is LearningResult.ChoiceReply { Message.Length: 0, Prompt: not null })
@@ -241,9 +249,6 @@ public sealed partial class LearningRequestRunner(IServiceScopeFactory scopes, I
             else if (application.AttemptRecorded || application.Reply is LearningResult.Session)
                 replies = [.. replies, new TelegramLearningReply("", EditMessageId: source)];
         }
-        if (application.AttemptRecorded && lesson?.Status == LessonStatus.Completed &&
-            await CreatePractice(services, session).SynchronizeAsync(request.UserId, DialogueOperationKind.Answer, token) is { } practice)
-            replies = [.. replies, .. TelegramPracticePresenter.Render(practice)];
         session.EnsureComplete();
         return new("choice_reply", replies);
     }
@@ -457,12 +462,13 @@ public sealed partial class LearningRequestRunner(IServiceScopeFactory scopes, I
             decision.Context.Synchronize(current, now, turn.SourceOrder);
             return new("practice_reply") { Replies = TelegramPracticePresenter.Render(result) };
         }
-        if (actionInput?.Action is { Kind: LearningActionKind.Hint or LearningActionKind.Solution } help)
+        if (actionInput?.Action is { Kind: LearningActionKind.Hint or LearningActionKind.Solution or
+            LearningActionKind.ExplainMaterial or LearningActionKind.ShowExample } help)
         {
             var result = await handler.ExecuteLessonAsync(new(CommandName(operation), decision.Arguments, request.UserId), token);
             session.EnsureComplete();
-            var consumed = result is LearningResult.Explanation or LearningResult.ChoiceReply;
-            if (consumed) decision.Context.Synchronize(lesson is { AcceptsAnswer: true } ? lesson : null, now, turn.SourceOrder);
+            var consumed = result is LearningResult.Explanation or LearningResult.ChoiceReply or LearningResult.Session;
+            if (consumed) decision.Context.Synchronize(lesson, now, turn.SourceOrder);
             var russian = MarketLearningContent.InRussian(lesson?.Theory ?? program?.Goal ?? turn.Text);
             var helpReplies = TelegramLearningPresenter.Render(result, russian);
             if (operation == DialogueOperationKind.RevealSolution && lesson?.Status == LessonStatus.Completed &&
@@ -473,7 +479,26 @@ public sealed partial class LearningRequestRunner(IServiceScopeFactory scopes, I
             return new("reply_committed", Introduce(introduce, helpReplies)) { RemoveSourceKeyboard = consumed };
         }
         IReadOnlyList<TelegramLearningReply> replies;
-        if (operation == DialogueOperationKind.PracticeLastSkill)
+        var languageIsRussian = MarketLearningContent.InRussian(lesson?.Theory ?? program?.Goal ?? turn.Text);
+        if (decision.ExerciseFormat is { } format)
+        {
+            var learning = new LearningService(services.GetRequiredService<ILessonStore>(), session, services.GetRequiredService<KnowledgeService>(),
+                curriculum: services.GetRequiredService<ICurriculumStore>());
+            replies = TelegramLearningPresenter.Render(await learning.ChangeFormatAsync(request.UserId, format, token), languageIsRussian);
+        }
+        else if (operation is DialogueOperationKind.Clarify or DialogueOperationKind.Explain && lesson?.Status != LessonStatus.AwaitingAnswer)
+        {
+            var learning = new LearningService(services.GetRequiredService<ILessonStore>(), session, services.GetRequiredService<KnowledgeService>(),
+                curriculum: services.GetRequiredService<ICurriculumStore>());
+            replies = TelegramLearningPresenter.Render(await learning.ExplainContextAsync(request.UserId, decision.Arguments, token), languageIsRussian);
+        }
+        else if (operation == DialogueOperationKind.Answer)
+        {
+            var result = await handler.ExecuteLessonAsync(new("answer", decision.Arguments, request.UserId), token);
+            var followUp = await CreatePractice(services, session).AfterAnswerAsync(lesson, result, session, token);
+            replies = TelegramLearningPresenter.RenderAnswerWithFollowUp(result, followUp, languageIsRussian);
+        }
+        else if (operation == DialogueOperationKind.PracticeLastSkill)
         {
             var learning = new LearningService(services.GetRequiredService<ILessonStore>(), session, services.GetRequiredService<KnowledgeService>(),
                 curriculum: services.GetRequiredService<ICurriculumStore>());
@@ -486,9 +511,10 @@ public sealed partial class LearningRequestRunner(IServiceScopeFactory scopes, I
         {
             var name = operation is DialogueOperationKind.None or DialogueOperationKind.StartOtherLesson ? command!.Name : CommandName(operation);
             replies = await handler.HandleAsync(new(name, decision.Arguments, request.UserId), token, program?.Discipline,
-                MarketLearningContent.InRussian(lesson?.Theory ?? program?.Goal ?? turn.Text));
+                languageIsRussian);
         }
-        var practiceResult = await CreatePractice(services, session).SynchronizeAsync(request.UserId, operation, token);
+        var practiceResult = operation == DialogueOperationKind.Answer ? null
+            : await CreatePractice(services, session).SynchronizeAsync(request.UserId, operation, token);
         if (practiceResult is not null) replies = [.. replies, .. TelegramPracticePresenter.Render(practiceResult)];
         session.EnsureComplete();
         var active = db.Set<Lesson>().Local.SingleOrDefault(value => value.UserId == request.UserId &&

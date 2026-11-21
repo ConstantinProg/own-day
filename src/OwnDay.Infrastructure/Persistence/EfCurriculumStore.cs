@@ -55,12 +55,18 @@ public sealed class EfCurriculumStore(OwnDayDbContext db) : ICurriculumStore
         var program = await FindAsync(user, programId, token);
         if (program is null) return new HashSet<string>(StringComparer.Ordinal);
         var versions = program.ProgressVersions(version);
-        return (await db.Set<Lesson>().Where(l => l.UserId == user && l.ProgramId == programId && l.RouteVersion != null &&
+        var stored = await db.Set<Lesson>().Where(l => l.UserId == user && l.ProgramId == programId && l.RouteVersion != null &&
             versions.Contains(l.RouteVersion.Value) && l.Status == LessonStatus.Completed && l.Choice == null &&
             !db.Set<LessonInteraction>().Any(interaction => interaction.LessonId == l.Id && interaction.Kind == LessonInteractionKind.FullAnswer) &&
             (db.Set<LearningEvidence>().Where(evidence => evidence.UserId == user && evidence.LessonId == l.Id)
                 .Select(evidence => evidence.ReassessmentCredit).FirstOrDefault() ?? l.IsCorrect) == true)
-            .Select(l => l.TopicCode!).ToListAsync(token)).ToHashSet(StringComparer.Ordinal);
+            .Select(l => l.TopicCode!).ToListAsync(token);
+        // The answer and the next exercise are committed together by the worker.
+        var justAssessed = db.Set<Lesson>().Local.Where(l => l.UserId == user && l.ProgramId == programId &&
+            l.RouteVersion is { } routeVersion && versions.Contains(routeVersion) && l.Status == LessonStatus.Completed &&
+            l.Choice is null && l.IsCorrect == true && l.Interactions.All(i => i.Kind != LessonInteractionKind.FullAnswer) &&
+            db.Entry(l).State == EntityState.Modified && (LessonStatus)db.Entry(l).OriginalValues[nameof(Lesson.Status)]! != LessonStatus.Completed);
+        return stored.Concat(justAssessed.Select(l => l.TopicCode!)).ToHashSet(StringComparer.Ordinal);
     }
 
     public void Add(LearningProgram program) => db.Set<LearningProgram>().Add(program);

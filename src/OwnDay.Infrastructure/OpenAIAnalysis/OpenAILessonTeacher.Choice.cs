@@ -37,7 +37,7 @@ public sealed partial class OpenAILessonTeacher
     private static string ChoiceInstructions(ChoiceFormat format) =>
         $" Also propose Choice in the exact requested format {format} when a short recognition check helps the current goal and level, or null. Choice and the open fallback in Criteria must both check the same idea taught in Theory. " +
         "Publishable choice questions use a self-contained hypothetical or established principle and never depend on recent, disputed, or sensitive facts. " +
-        "Choice.Question is up to 1000 characters and contains all data needed to answer. Ask only for the selection: if a justification is essential use the open fallback. Avoid giving away the key in the question or option wording. " +
+        "Prefer a small scenario that asks for the best action or to spot an error when that tests the idea better than recalling a definition. Choice.Question is up to 1000 characters and contains all data needed to answer. Ask only for the selection: if a justification is essential use the open fallback. Avoid giving away the key in the question or option wording. " +
         "Write Question, option descriptions and Explanation in the learner's language. Give 2–6 distinct options (each one line up to 160 characters), with numeric IDs from 1 to 6. " +
         "SingleChoice has exactly one correct option. MultipleChoice has at least two correct options and one distractor. TrueFalse has two options with literal labels True and False in that order and exactly one correct option. " +
         "After drafting the key, solve the question again from its wording and give the resulting IDs in Review.DerivedOptions. Recheck whether every distractor is clearly wrong under all reasonable interpretations. " +

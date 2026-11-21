@@ -187,8 +187,9 @@ public sealed partial class PostgresLearningProviderTests
                 var replies = await db.TelegramOutboxMessages.OrderBy(reply => reply.DeliveryOrder).ToListAsync();
                 Assert.DoesNotContain(replies, reply => reply.Text.Contains(question, StringComparison.Ordinal));
                 var keyboard = JsonSerializer.Deserialize<InlineKeyboardMarkup>(replies.Last(reply => reply.ReplyMarkupJson != null).ReplyMarkupJson!)!;
-                var button = Assert.Single(keyboard.InlineKeyboard.SelectMany(row => row));
-                Assert.Equal("К упражнению", button.Text);
+                var buttons = keyboard.InlineKeyboard.Select(Assert.Single).ToArray();
+                Assert.Equal(["Практика", "Подробнее", "Пример"], buttons.Select(button => button.Text));
+                var button = buttons[0];
                 callback = button.CallbackData!;
             }
 

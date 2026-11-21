@@ -102,12 +102,29 @@ public sealed class LearningProviderSession(IReadOnlyList<LearningProviderStep> 
     Func<string>? targets = null)
     : ILessonTeacher, ICurriculumPlanner, ITeachingPlanner, ILearningIntentResolver
 {
-    public const int MaxSteps = 2;
+    private const int RequiredStepLimit = 2;
+    public const int MaxSteps = RequiredStepLimit + 1;
+    public const string ContinuationStep = "generate_followup";
     private int _ordinal;
-    public int RemainingSteps => MaxSteps - _ordinal;
+    private int? _continuationOrdinal;
+    public int RemainingSteps => (_continuationOrdinal + 1 ?? RequiredStepLimit) - _ordinal;
 
-    public Task<LearningIntentProposal> ResolveAsync(LearningIntentInput input, CancellationToken token) =>
-        ConsumeAsync<LearningIntentProposal>("intent", input, token);
+    internal void BeginContinuation() => _continuationOrdinal = _ordinal;
+
+    public Task<LearningIntentProposal> ResolveAsync(LearningIntentInput input, CancellationToken token)
+    {
+        if (_ordinal < steps.Count && steps[_ordinal] is { Kind: "intent" } saved)
+        {
+            var allowed = input.Allowed.Where(intent => intent < LearningIntent.UseShortAnswer &&
+                (intent != LearningIntent.Clarify || input.Allowed.Contains(LearningIntent.Answer) || input.Theory is not null)).ToArray();
+            if (allowed.Length != input.Allowed.Length)
+            {
+                var legacy = input with { Allowed = allowed };
+                if (saved.Input == JsonSerializer.Serialize(legacy, JsonSerializerOptions.Web)) input = legacy;
+            }
+        }
+        return ConsumeAsync<LearningIntentProposal>("intent", input, token);
+    }
 
     public Task<LessonMaterial> GenerateAsync(LessonRequest request, CancellationToken token)
     {
@@ -116,7 +133,7 @@ public sealed class LearningProviderSession(IReadOnlyList<LearningProviderStep> 
             var legacy = request with { PreferredChoice = null };
             if (saved.Input == JsonSerializer.Serialize(legacy, JsonSerializerOptions.Web)) request = legacy;
         }
-        return ConsumeAsync<LessonMaterial>("generate", request, token);
+        return ConsumeAsync<LessonMaterial>(_continuationOrdinal is null ? "generate" : ContinuationStep, request, token);
     }
 
     public Task<LessonAssessment> AssessAsync(Lesson lesson, string answer, CancellationToken token) =>
@@ -152,8 +169,9 @@ public sealed class LearningProviderSession(IReadOnlyList<LearningProviderStep> 
         var json = JsonSerializer.Serialize(input, JsonSerializerOptions.Web);
         var fingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(json)));
         var stamp = targetStamp();
+        if (RemainingSteps <= 0 || _ordinal >= MaxSteps)
+            throw new InvalidOperationException("Learning command exceeded its provider step limit.");
         var ordinal = _ordinal++;
-        if (ordinal >= MaxSteps) throw new InvalidOperationException("Learning command exceeded its provider step limit.");
         if (ordinal == steps.Count)
             throw new LearningProviderRequiredException(new()
             {

@@ -26,31 +26,73 @@ public static class TelegramLearningPresenter
             : (clarification.PartiallyCorrect ? "Part of your answer is correct. " : "") + "Clarify the remaining part.\n" + clarification.Criterion,
             LearningActionProvider.ForExercise(), inRussian)],
         LearningResult.AssessmentCorrection correction => [TelegramLearningReply.WithActions(correction.Guidance + "\n\n" + correction.Question +
-            (inRussian ? "\nПопробуйте ещё раз." : "\nGive it another try.") + (correction.AnotherHintAvailable
-                ? inRussian ? " Можно попросить подсказку." : " You can ask for a hint."
-                : inRussian ? " Можно попросить показать решение." : " You can ask to see the solution."),
-            LearningActionProvider.ForExercise(), inRussian)],
-        LearningResult.HelpLimit => [inRussian ? "Лимит подсказок исчерпан. Можно ответить самостоятельно, сделать паузу или попросить показать решение."
-            : "You've used the available hints. You can answer on your own, take a break, or ask to see the solution."],
+            (inRussian ? "\nМожно ответить ещё раз или попросить объяснение." : "\nTry again or ask for an explanation."),
+            LearningActionProvider.ForCorrection(correction.AnotherHintAvailable), inRussian)],
+        LearningResult.HelpLimit => [inRussian ? "Подсказки к заданию закончились. Можно попросить объяснить принцип или показать решение."
+            : "You've used the exercise hints. You can ask for an explanation of the idea or see the solution."],
         LearningResult.InvalidClarification => [inRussian ? "Напишите вопрос длиной до 1000 символов." : "Write a question of up to 1000 characters."],
         LearningResult.InvalidTransition => [inRussian ? "Это действие сейчас недоступно. Напишите «Продолжим», чтобы вернуться к занятию."
             : "That action is unavailable right now. Write “continue” to return to the lesson."],
+        LearningResult.FormatUnavailable => [inRussian ? "Для этой проверки пока оставим текущий формат. Можно попросить пример или ответить настолько кратко, насколько позволяет вопрос."
+            : "We'll keep the current format for this check. You can ask for an example or give as short an answer as the question allows."],
+        LearningResult.ConceptReply concept => [concept.Text, .. SourceNotice(concept.Provenance, inRussian)],
         LearningResult.Finished => [inRussian ? "Упражнение завершено без оценки." : "Lesson finished without an assessment."],
         LearningResult.SkillNotFound => ["Skill not found. /learn_skills"],
         LearningResult.ReviewNotDue => ["This skill has no review due yet. /learn_reviews or /learn_status <skill id>"],
         LearningResult.ReviewDeferred deferred => [$"Review rescheduled to {deferred.DueAt:O} (UTC). No assessment or penalty. /learn_reviews"],
-        LearningResult.ChoiceReply choice => [.. string.IsNullOrEmpty(choice.Message) ? [] : new[]
-            {
-                choice.Continuation is { } continuation
-                    ? TelegramLearningReply.WithActions(choice.Message + ChoiceContinuationFallback(choice),
-                        LearningActionProvider.ForAssessment(choice.AssessedLessonId, continuation)) : new TelegramLearningReply(choice.Message)
-            },
-            .. SourceNotice(choice.Provenance, choice.Prompt?.InRussian ?? MarketLearningContent.InRussian(choice.Message)),
-            .. choice.Prompt is { } prompt ? new[] { TelegramChoicePresenter.Render(prompt) } : []],
+        LearningResult.ChoiceReply choice => RenderChoiceReply(choice),
         _ => throw new ArgumentOutOfRangeException(nameof(result))
     };
 
-    private static string RenderAnswer(LearningResult.Assessment assessment)
+    private static IReadOnlyList<TelegramLearningReply> RenderChoiceReply(LearningResult.ChoiceReply choice)
+    {
+        var russian = choice.Prompt?.InRussian ?? MarketLearningContent.InRussian(choice.Message);
+        var sources = SourceNotice(choice.Provenance, russian);
+        if (choice.Prompt is { } prompt)
+        {
+            var question = TelegramChoicePresenter.Render(prompt);
+            var feedback = choice.Message == question.Text ? "" : choice.Message;
+            var combined = string.Join("\n\n", sources.Prepend(feedback).Append(question.Text).Where(text => text.Length > 0));
+            if (combined.Length <= 4096) return [question with { Text = combined }];
+            return feedback.Length == 0 ? [.. sources, question] : [feedback, .. sources, question];
+        }
+        if (choice.Continuation is { } continuation)
+            return [TelegramLearningReply.WithActions(choice.Message + ChoiceContinuationFallback(choice),
+                LearningActionProvider.ForAssessment(choice.AssessedLessonId, continuation), russian), .. sources];
+        return [choice.Message, .. sources];
+    }
+
+    internal static IReadOnlyList<TelegramLearningReply> RenderAnswerWithFollowUp(LearningResult result,
+        LearningAnswerFollowUp followUp, bool russian = false)
+    {
+        var next = followUp switch
+        {
+            { Practice: { } practice } => TelegramPracticePresenter.Render(practice, compact: true),
+            { Route: { } route } => TelegramCurriculumPresenter.Render(route, russian),
+            { Lesson: { } lesson } => Render(lesson, russian),
+            _ => null
+        };
+        if (next is null) return Render(result, russian);
+        var feedback = result switch
+        {
+            LearningResult.ChoiceReply choice => choice.Message,
+            LearningResult.Assessment assessment => RenderAnswer(assessment with { Continuation = null }, showReview: false),
+            _ => throw new ArgumentOutOfRangeException(nameof(result))
+        };
+        if (result is LearningResult.Assessment { ProjectActionId: { } project, InRussian: var inRussian })
+            feedback += "\n\n" + ProjectPracticeNotice(project, inRussian);
+        var assessedId = result is LearningResult.Assessment assessmentResult ? assessmentResult.LessonId
+            : (result as LearningResult.ChoiceReply)?.AssessedLessonId;
+        LearningAction[] review = assessedId is { } id ? [new(LearningActionKind.ExplainAssessment, id)] : [];
+        var combined = string.Join("\n\n", next.Select(reply => reply.Text).Prepend(feedback));
+        var actions = next.Where(reply => reply.Actions is { Count: > 0 }).Take(2).ToArray();
+        if (combined.Length <= 4096 && actions.Length <= 1)
+            return [actions.Length == 0 ? TelegramLearningReply.WithActions(combined, review, russian)
+                : actions[0] with { Text = combined, Actions = [.. actions[0].Actions!, .. review] }];
+        return [TelegramLearningReply.WithActions(feedback, review, russian), .. next];
+    }
+
+    private static string RenderAnswer(LearningResult.Assessment assessment, bool showReview = true)
     {
         var russian = assessment.InRussian;
         var verdict = assessment.Status switch
@@ -74,7 +116,7 @@ public static class TelegramLearningPresenter
                 : "\nWrite “another exercise” for a new question on this skill.",
             _ => ""
         };
-        var review = assessment.Criteria is not null || !assessment.IsCorrect
+        var review = showReview && (assessment.Criteria is not null || !assessment.IsCorrect)
             ? russian ? "\nМожно спросить «почему такая оценка»." : "\nYou can ask “why this result?”." : "";
         return verdict + "\n" + assessment.Feedback + assistance + next + review;
     }
@@ -156,10 +198,9 @@ public static class TelegramLearningPresenter
             var paused = session.Status == LessonStatus.Paused;
             var next = paused
                 ? russian ? "Занятие на паузе. Напишите «Продолжим»." : "Lesson paused. Write “continue” when you're ready."
-                : russian ? "Когда будете готовы или если тема уже знакома, напишите «к упражнению»."
-                    : "When you're ready or already know the topic, write “start exercise”.";
+                : russian ? "Напишите вопрос или «к упражнению»." : "Ask a question or write “start exercise”.";
             return [TelegramLearningReply.WithActions($"{session.Topic}\n\n{session.Theory}\n\n{next}",
-                    [paused ? new(LearningActionKind.Continue) : new(LearningActionKind.Next, lessonId)], russian),
+                    paused ? [new(LearningActionKind.Continue)] : LearningActionProvider.ForTheory(lessonId, session.TheoryExpanded), russian),
                 .. SourceNotice(session.Provenance, russian),
                 .. session.LastExplanation is { } explanation ? new[] { explanation } : []];
         }
@@ -218,12 +259,12 @@ public static class TelegramLearningPresenter
         var russian = MarketLearningContent.InRussian(choice.Message);
         return (choice.Continuation, russian) switch
         {
-            (LearningContinuation.Review, true) => "\nТекстом — «что повторить».",
-            (LearningContinuation.Review, false) => "\nYou can also write “what should I review?”.",
-            (LearningContinuation.NextTopic, true) => "\nТекстом — «дальше».",
-            (LearningContinuation.NextTopic, false) => "\nYou can also write “next”.",
-            (_, true) => "\nТекстом — «ещё задание».",
-            _ => "\nYou can also write “another exercise”."
+            (LearningContinuation.Review, true) => "\nСледующая проверка — открытое интервальное повторение. Текстом — «что повторить».",
+            (LearningContinuation.Review, false) => "\nThe next check is an open spaced review. You can write “what should I review?”.",
+            (LearningContinuation.NextTopic, true) => "\nСледующая проверка — объяснить принцип своими словами на новом примере. Текстом — «дальше».",
+            (LearningContinuation.NextTopic, false) => "\nFor the next check, explain the principle in your own words using a new example. You can write “next”.",
+            (_, true) => "\nСледующая проверка — объяснить принцип своими словами на новом примере. Текстом — «ещё задание».",
+            _ => "\nFor the next check, explain the principle in your own words using a new example. You can write “another exercise”."
         };
     }
 

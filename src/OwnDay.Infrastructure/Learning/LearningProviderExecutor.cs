@@ -158,7 +158,7 @@ public sealed class LearningProviderExecutor(IServiceScopeFactory scopes, IOptio
             case "intent":
                 result = await services.GetRequiredService<ILearningIntentResolver>().ResolveAsync(step.ReadInput<LearningIntentInput>(), token);
                 break;
-            case "generate":
+            case "generate" or LearningProviderSession.ContinuationStep:
                 result = await services.GetRequiredService<ILessonTeacher>().GenerateAsync(step.ReadInput<LessonRequest>(), token);
                 break;
             case "assess":

@@ -8,26 +8,20 @@ namespace OwnDay.UnitTests.Learning;
 public sealed class TelegramLearningPresenterTests
 {
     [Fact]
-    public void Render_ChoicePromptAndPlainReplyWithSameText_OnlyPromptOffersChoices()
+    public void Render_ChoicePromptAndPlainReplyWithSameText_RendersOnceAndRequiresPromptForChoices()
     {
         var prompt = new ChoicePrompt(Guid.NewGuid(), 1, 1, ChoiceFormat.SingleChoice, "Two plus two?",
             [new(1, "Four"), new(2, "Five")], [], InRussian: false);
         var question = Assert.Single(TelegramLearningPresenter.Render(new LearningResult.ChoiceReply("", prompt)));
 
-        var replies = TelegramLearningPresenter.Render(new LearningResult.ChoiceReply(question.Text, prompt));
+        var plain = Assert.Single(TelegramLearningPresenter.Render(new LearningResult.ChoiceReply(question.Text)));
+        var merged = Assert.Single(TelegramLearningPresenter.Render(new LearningResult.ChoiceReply(question.Text, prompt)));
 
-        Assert.Collection(replies,
-            reply =>
-            {
-                Assert.Equal(question.Text, reply.Text);
-                Assert.Null(reply.Actions);
-            },
-            reply =>
-            {
-                Assert.Equal(question.Text, reply.Text);
-                Assert.Equal(new[] { 1, 2 }, reply.Actions!.Where(action => action.Kind == LearningActionKind.SelectChoice)
-                    .Select(action => (int)action.Option));
-            });
+        Assert.Equal(question.Text, plain.Text);
+        Assert.Null(plain.Actions);
+        Assert.Equal(question.Text, merged.Text);
+        Assert.Equal(new[] { 1, 2 }, merged.Actions!.Where(action => action.Kind == LearningActionKind.SelectChoice)
+            .Select(action => (int)action.Option));
     }
 
     [Fact]

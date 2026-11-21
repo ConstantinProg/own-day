@@ -27,7 +27,8 @@ public sealed class TelegramActionKeyboard(TelegramActionCodec codec)
             if (!LearningActionProvider.CanOffer(action, lesson)) continue;
             var (bound, expiresAt) = Bind(action, dialogue, now);
             if (bound is null || expiresAt <= now) continue;
-            if (action.Kind is LearningActionKind.Hint or LearningActionKind.Solution or LearningActionKind.Criteria)
+            if (action.Kind is LearningActionKind.Hint or LearningActionKind.Solution or LearningActionKind.Criteria or
+                LearningActionKind.ExplainMaterial or LearningActionKind.ShowExample)
                 bound = bound with { TargetId = lesson!.Id };
             var label = Label(bound, reply.Choice, russian, lesson?.ExercisePending == true);
             rows.Add([InlineKeyboardButton.WithCallbackData(label, codec.Encode(bound, owner, chat, expiresAt))]);
@@ -77,11 +78,13 @@ public sealed class TelegramActionKeyboard(TelegramActionCodec codec)
         {
             LearningActionKind.SubmitChoice => ("Ответить", "Submit"),
             LearningActionKind.Continue or LearningActionKind.ClarifyContinue => ("Продолжить", "Continue"),
-            LearningActionKind.Next when exercisePending => ("К упражнению", "Start exercise"),
+            LearningActionKind.Next when exercisePending => ("Практика", "Start exercise"),
             LearningActionKind.Next => ("Дальше", "Next"),
             LearningActionKind.Hint or LearningActionKind.DiagnosisHelp => ("Подсказка", "Hint"),
             LearningActionKind.Solution => ("Показать решение", "Show solution"),
             LearningActionKind.Criteria => ("Критерии", "Criteria"),
+            LearningActionKind.ExplainMaterial => (exercisePending ? "Подробнее" : "Объяснить", exercisePending ? "More detail" : "Explain"),
+            LearningActionKind.ShowExample => ("Пример", "Show example"),
             LearningActionKind.ExplainAssessment => ("Разобрать оценку", "Explain assessment"),
             LearningActionKind.AnotherExercise => ("Ещё задание", "Another exercise"),
             LearningActionKind.ReviewSuggestions => ("Что повторить", "What to review"),

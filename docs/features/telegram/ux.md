@@ -62,6 +62,11 @@ Reminder settings offer pause, resume or opt-out when available. Existing text
 phrases and slash commands still work. Free-form answers, goals, appeals and
 scheduling parameters are entered as text.
 
+The theory message offers Practice, More detail and Show example. The learner can
+also ask a question in their own words. A correct answer usually gets a brief
+assessment and the next block or exercise in one message. Explicit session end
+uses the saved topic and tells the learner where they will resume.
+
 A callback is bound to the bot, owner and private chat. Its format version,
 expiry and keyed signature fit within Telegram's 64-byte limit. Simple actions
 carry a compact context reference. Confirmation and clarification buttons use

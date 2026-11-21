@@ -11,7 +11,7 @@ namespace OwnDay.Application.Dialogue;
 public enum LearningIntent
 {
     Ambiguous, Answer, Clarify, Pause, Resume, Progress, Next, GoalChange, StudyGoal, RelevantExperience,
-    EndSession, RevealSolution, PreviousTopic, ExplainAssessment, ShowCriteria
+    EndSession, RevealSolution, PreviousTopic, ExplainAssessment, ShowCriteria, UseShortAnswer, UseSingleChoice, UseMultipleChoice
 }
 public sealed record LearningIntentInput(string Input, string Question, string? Goal, string? Discipline,
     string[] RecentInteractions, LearningIntent[] Allowed, Guid? ProgramId = null, int? RouteVersion = null,
@@ -81,5 +81,6 @@ public sealed record DialogueDecision(DialogueContext Context, DialogueOperation
     DialogueReply? Reply = null, DialogueAudit? Audit = null, FirstProgramCreation? Creation = null)
 {
     public bool SuggestReviewsOnReturn { get; init; }
+    public ExerciseResponseFormat? ExerciseFormat { get; init; }
 }
 public sealed record FirstProgramCreation(string Goal, string Experience, string? GoalCriterion, string PracticalUse);

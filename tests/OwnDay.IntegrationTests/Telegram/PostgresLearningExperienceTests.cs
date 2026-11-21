@@ -97,7 +97,7 @@ public sealed partial class PostgresLearningProviderTests
         Assert.DoesNotContain(replies, message => message.Contains("recorded-", StringComparison.Ordinal) ||
             message.Contains("NormalizedText", StringComparison.Ordinal) || message.Contains("/learn_ask", StringComparison.Ordinal) ||
             message.Contains("Write your answer", StringComparison.Ordinal) || message.Contains("не удалось подтвердить", StringComparison.Ordinal));
-        Assert.Equal(1, probe.KindCalls["generate"]);
+        Assert.Equal(2, probe.KindCalls["generate"]);
         Assert.Equal(1, probe.KindCalls["assess"]);
     }
 

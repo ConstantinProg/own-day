@@ -126,6 +126,7 @@ public sealed partial class PostgresLearningProviderTests
             Generate = request =>
             {
                 if (request.Teaching is null) return original;
+                if (request.PreviousQuestions!.Contains(nextQuestion, StringComparer.Ordinal)) throw new LessonProviderException();
                 Assert.Equal(ExerciseEvidenceKind.Understanding, request.PracticeEvidenceKind);
                 Assert.Equal(question, Assert.Single(request.PreviousQuestions!));
                 return QuestionScopedMaterial(ExerciseEvidenceKind.Understanding, new ExerciseCriterion("roles", nextQuestion));
@@ -168,7 +169,7 @@ public sealed partial class PostgresLearningProviderTests
         }
 
         await using var db = Open();
-        var lesson = await db.Set<Lesson>().SingleAsync();
+        var lesson = await db.Set<Lesson>().SingleAsync(item => item.Status == LessonStatus.Completed);
         Assert.Equal(LessonStatus.Completed, lesson.Status);
         Assert.Equal(deliveredAnswer, lesson.Answer);
         Assert.Equal(3, lesson.Content!.StructuredRubric!.Criteria.Length);
@@ -181,7 +182,7 @@ public sealed partial class PostgresLearningProviderTests
         if (previousAssessment) Assert.Equal(3, evidence.RubricEvidence.Evaluation.InitialAssessment!.Criteria.Length);
         Assert.Equal(deliveredAnswer, Assert.Single(probe.AssessedAnswers));
         Assert.Contains(await db.TelegramOutboxMessages.Select(item => item.Text).ToListAsync(), text =>
-            text.Contains("Верно, упражнение зачтено.", StringComparison.Ordinal) && text.Contains("ещё задание", StringComparison.Ordinal));
+            text.Contains("Верно, упражнение зачтено.", StringComparison.Ordinal) && text.Contains(nextQuestion, StringComparison.Ordinal));
 
         using var continued = ConsultationHost(probe);
         using var continuedClient = continued.CreateClient();
@@ -424,7 +425,7 @@ public sealed partial class PostgresLearningProviderTests
         }
 
         await using var result = Open();
-        var completed = await result.Set<Lesson>().SingleAsync();
+        var completed = await result.Set<Lesson>().SingleAsync(item => item.Id == lessonId);
         var evidence = await result.Set<LearningEvidence>().SingleAsync();
         Assert.Equal(lessonId, completed.Id);
         Assert.Equal(question, completed.Question);
@@ -490,7 +491,7 @@ public sealed partial class PostgresLearningProviderTests
 
         await using var result = Open();
         var evidence = await result.Set<LearningEvidence>().SingleAsync();
-        var completed = await result.Set<Lesson>().SingleAsync();
+        var completed = await result.Set<Lesson>().SingleAsync(item => item.Status == LessonStatus.Completed);
         var operation = await result.Set<LearningRequest>().SingleAsync(request => request.SourceUpdateId == 8);
         Assert.True(evidence.AssessedCorrect);
         Assert.Equal(originalAnswer, evidence.RubricEvidence!.Evaluation.InitialAnswer);

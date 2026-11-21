@@ -11,11 +11,13 @@ public sealed record ChoicePrompt(Guid LessonId, int Version, int Revision, Choi
     public const string LatinLabels = "ABCDEF";
     public const string CyrillicLabels = "АБВГДЕ";
     public LearningContinuation? AfterSolution { get; init; }
+    public bool AfterAttempt { get; init; }
 
     public static ChoicePrompt? From(Lesson lesson) => lesson.Choice is { } state && lesson.AcceptsAnswer
         ? new(lesson.Id, state.Exercise.Version, state.Revision, state.Exercise.Format, state.Exercise.Question,
             state.Exercise.Options, state.Draft, MarketLearningContent.InRussian(lesson.Theory))
         {
+            AfterAttempt = !state.Attempts.IsEmpty,
             AfterSolution = state.SolutionSeen
                 ? lesson.ProgramId is not null ? LearningContinuation.NextTopic : LearningContinuation.Practice
                 : null
@@ -68,6 +70,7 @@ internal static class ChoiceAnswerText
     {
         var normalized = Normalize(answer);
         if (exercise.Format == ChoiceFormat.TrueFalse && TruthIndex(normalized) >= 0) return true;
+        if (FindOption(exercise, answer) is not null) return true;
         var parts = SplitLabels(normalized);
         return parts.Length > 0 && parts.All(part => part.Length == 1 && char.IsLetter(part[0]));
     }
@@ -94,6 +97,9 @@ internal static class ChoiceAnswerText
     }
 
     private static string Normalize(string answer) => answer.Trim().ToUpperInvariant().TrimEnd('.', '!');
+
+    public static ChoiceOption? FindOption(ChoiceExercise exercise, string text) => exercise.Options.FirstOrDefault(option =>
+        string.Equals(option.Text.TrimEnd('.', '!'), text.Trim().TrimEnd('.', '!'), StringComparison.OrdinalIgnoreCase));
 
     private static string[] SplitLabels(string answer) => answer.Split([' ', '\t', '\r', '\n', ',', ';', '+', '/'],
         StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
@@ -152,9 +158,7 @@ public sealed partial class LearningService
         var selection = ChoiceAnswerText.Parse(exercise, answer);
         if (exercise.IsValidSelection(selection)) return await SubmitChoiceAsync(lesson, selection, token, answer);
 
-        var optionText = answer.TrimEnd('.', '!');
-        var option = exercise.Options.FirstOrDefault(option =>
-            string.Equals(option.Text.Trim().TrimEnd('.', '!'), optionText, StringComparison.OrdinalIgnoreCase));
+        var option = ChoiceAnswerText.FindOption(exercise, answer);
         if (option is not null) return await SubmitChoiceAsync(lesson, [option.Id], token, answer);
         if (ChoiceAnswerText.LooksLikeAnswer(exercise, answer)) return InvalidChoice(lesson);
 
@@ -211,7 +215,7 @@ public sealed partial class LearningService
         var russian = MarketLearningContent.InRussian(lesson.Theory);
         var state = lesson.Choice!;
         var attempt = state.Attempts[^1];
-        var solution = ChoiceSolution(state.Exercise, russian);
+        var solution = attempt.Outcome == ChoiceOutcome.Correct ? state.Exercise.Explanation : ChoiceSolution(state.Exercise, russian);
         if (attempt.Outcome != ChoiceOutcome.Correct && !state.SolutionSeen) lesson.RevealChoice(solution);
         var feedback = string.IsNullOrEmpty(verdict) ? solution : verdict + "\n" + solution;
         if (attempt.Assistance == AnswerAssistance.Assisted && attempt.Outcome == ChoiceOutcome.Correct)
@@ -223,11 +227,10 @@ public sealed partial class LearningService
         var learner = await knowledge.StateWithAnswerAsync(evidence, token);
         var continuation = learner.EvidenceSummary is { Understanding: true, Application: true } && attempt.Outcome == ChoiceOutcome.Correct
             ? LearningContinuation.Review : lesson.ProgramId is not null ? LearningContinuation.NextTopic : LearningContinuation.Practice;
-        var next = continuation == LearningContinuation.Review
-            ? russian ? "Следующая проверка — открытое интервальное повторение." : "The next check is an open spaced review."
-            : russian ? "Следующая проверка — объяснить принцип своими словами на новом примере." :
-                "For the next check, explain the principle in your own words using a new example.";
-        return new LearningResult.ChoiceReply(feedback + "\n\n" + next, Continuation: continuation) { AssessedLessonId = lesson.Id };
+        return new LearningResult.ChoiceReply(feedback, Continuation: continuation)
+        {
+            AssessedLessonId = lesson.Id, IsCorrect = attempt.Outcome == ChoiceOutcome.Correct
+        };
     }
 
     private static string GiveChoiceScaffold(Lesson lesson, TeachingAction action, bool russian, bool foundation)
@@ -279,19 +282,20 @@ public sealed partial class LearningService
             var solution = lesson.RevealChoice(ChoiceSolution(choice.Exercise, russian));
             return new LearningResult.ChoiceReply(solution, ChoicePrompt.From(lesson));
         }
-        if (!lesson.CanOfferMoreHelp) return new LearningResult.HelpLimit();
-        if (kind == LessonInteractionKind.Clarification && request.TrimEnd('.', '!', '?').ToLowerInvariant() is
-            "дай короткую подсказку" or "дай подсказку" or "подскажи" or "подсказка" or "give me a short hint" or "hint")
+        if (kind == LessonInteractionKind.Clarification && IsHintRequest(request))
         {
+            if (!lesson.CanOfferMoreHelp) return new LearningResult.HelpLimit();
             return new LearningResult.ChoiceReply(GiveChoiceScaffold(lesson,
                 choice.HintsUsed == 0 ? TeachingAction.Hint : TeachingAction.Simplify, russian, foundation: false), ChoicePrompt.From(lesson));
         }
+        if (!lesson.CanOfferMoreHelp) kind = LessonInteractionKind.ConceptExplanation;
         try
         {
-            var explanation = await teacher.ExplainAsync(LessonSnapshot.From(lesson) with
-            {
-                ChoiceResponse = ChoiceResponseContext.From(choice)
-            }, request, kind, token);
+            var snapshot = LessonSnapshot.From(lesson);
+            snapshot = kind == LessonInteractionKind.ConceptExplanation
+                ? snapshot with { Question = "", Content = null, RubricEvaluation = null }
+                : snapshot with { ChoiceResponse = ChoiceResponseContext.From(choice) };
+            var explanation = await teacher.ExplainAsync(snapshot, request, kind, token);
             token.ThrowIfCancellationRequested();
             lesson.AddExplanation(kind, request, explanation.Explanation, provenance: explanation.Provenance);
             return new LearningResult.ChoiceReply(explanation.Explanation, ChoicePrompt.From(lesson))
@@ -304,6 +308,9 @@ public sealed partial class LearningService
             return new LearningResult.ProviderUnavailable();
         }
     }
+
+    private static bool IsHintRequest(string request) => request.TrimEnd('.', '!', '?').ToLowerInvariant() is
+        "дай короткую подсказку" or "дай подсказку" or "подскажи" or "подсказка" or "give me a short hint" or "hint" or "could you give another hint";
 
     private static string ChoiceSolution(ChoiceExercise exercise, bool russian) =>
         (russian ? "Правильный выбор — " : "Correct selection — ") + string.Join(", ", exercise.Options

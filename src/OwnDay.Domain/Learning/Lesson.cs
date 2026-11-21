@@ -314,22 +314,45 @@ public sealed partial class Lesson
     public void AddExplanation(LessonInteractionKind kind, string request, string explanation, LearningPreferenceValues? preferences = null,
         LessonProvenance? provenance = null)
     {
-        if (Status != LessonStatus.AwaitingAnswer || ExercisePending && kind == LessonInteractionKind.FullAnswer)
+        if (Status != LessonStatus.AwaitingAnswer && (Status != LessonStatus.Paused || kind != LessonInteractionKind.ConceptExplanation) ||
+            ExercisePending && kind == LessonInteractionKind.FullAnswer)
             throw new InvalidOperationException("This explanation is unavailable at the current lesson stage.");
         if (!Enum.IsDefined(kind)) throw new ArgumentOutOfRangeException(nameof(kind));
         if (kind == LessonInteractionKind.FullAnswer
             ? _interactions.Any(interaction => interaction.Kind == LessonInteractionKind.FullAnswer)
-            : !CanOfferMoreHelp)
+            : kind != LessonInteractionKind.ConceptExplanation && !CanOfferMoreHelp)
             throw new InvalidOperationException("The exercise has reached its help limit.");
         Validate(request, 1000);
         Validate(explanation, 2500);
         provenance?.Validate();
         var choice = !ExercisePending && kind != LessonInteractionKind.FullAnswer && Choice is { } state
-            ? state with { HintsUsed = state.HintsUsed + 1, Revision = checked(state.Revision + 1) }
+            ? state with
+            {
+                HintsUsed = kind == LessonInteractionKind.ConceptExplanation ? state.HintsUsed : state.HintsUsed + 1,
+                Revision = checked(state.Revision + 1)
+            }
             : Choice;
         _interactions.Add(new LessonInteraction(Id, kind, request, explanation, preferences, provenance));
         Choice = choice;
         if (!ExercisePending) Assistance = AnswerAssistance.Assisted;
+    }
+
+    public void ReplaceExerciseWith(Lesson replacement)
+    {
+        if (Status != LessonStatus.AwaitingAnswer || replacement.UserId != UserId || replacement.Topic != Topic ||
+            replacement.Id == Id || !replacement.AcceptsAnswer || replacement.ProgramId is not null || replacement.PracticeProgramId is not null ||
+            replacement.SkillId is not null || replacement.IsReview || replacement.Teaching is not null)
+            throw new InvalidOperationException("A fresh exercise for the same owned topic is required.");
+        replacement.ProgramId = ProgramId;
+        replacement.PracticeProgramId = PracticeProgramId;
+        replacement.RouteVersion = RouteVersion;
+        replacement.TopicCode = TopicCode;
+        replacement.SkillId = SkillId;
+        replacement.ProjectActionId = ProjectActionId;
+        replacement.Transfer = Transfer;
+        replacement.IsReview = IsReview;
+        replacement.Teaching = Teaching;
+        Finish();
     }
 
     private void RequireAwaitingAnswer()

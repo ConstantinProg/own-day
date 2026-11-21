@@ -35,8 +35,13 @@ public static class AdaptiveTeaching
     {
         if (material.Choice is not null || material.Content?.StructuredRubric is not { Version: ExerciseRubric.QuestionScopedVersion } rubric ||
             rubric.Kind != requiredKind || string.IsNullOrWhiteSpace(material.Question)) return false;
-        var fingerprint = RubricEvidence.FingerprintQuestion(material.Question);
-        return previousQuestions.All(question => RubricEvidence.FingerprintQuestion(question) != fingerprint);
+        return !RepeatsQuestion(material.Question, previousQuestions);
+    }
+
+    internal static bool RepeatsQuestion(string question, IEnumerable<string> previousQuestions)
+    {
+        var fingerprint = RubricEvidence.FingerprintQuestion(question);
+        return previousQuestions.Any(previous => RubricEvidence.FingerprintQuestion(previous) == fingerprint);
     }
 
     internal static ExerciseCorrectionProposal? DistinctCorrection(Lesson lesson, ExerciseCorrectionProposal? proposal)

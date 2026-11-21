@@ -59,7 +59,8 @@ internal static class LearningRequestModel
         {
             entity.ToTable("learning_provider_steps", table =>
             {
-                table.HasCheckConstraint("CK_learning_provider_steps_identity", "ordinal BETWEEN 0 AND 1 AND version > 0");
+                table.HasCheckConstraint("CK_learning_provider_steps_identity",
+                    "(ordinal BETWEEN 0 AND 1 OR (ordinal = 2 AND kind = 'generate_followup')) AND version > 0");
                 table.HasCheckConstraint("CK_learning_provider_steps_result", "result IS NULL OR failure IS NULL");
             });
             entity.HasKey(step => new { step.RequestId, step.Ordinal });

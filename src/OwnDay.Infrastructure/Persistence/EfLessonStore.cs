@@ -13,7 +13,8 @@ public sealed class EfLessonStore(OwnDayDbContext db) : ILessonStore
         var local = db.Set<Lesson>().Local.SingleOrDefault(lesson => lesson.UserId == user && db.Entry(lesson).State is EntityState.Added or EntityState.Modified &&
             lesson.Status is LessonStatus.AwaitingAnswer or LessonStatus.Paused);
         if (local is not null) return local;
-        var stored = await db.Set<Lesson>().Include(l => l.Interactions.OrderByDescending(i => i.Id).Take(10)).SingleOrDefaultAsync(l => l.UserId == user &&
+        var stored = await db.Set<Lesson>().Include(l => l.Interactions.OrderByDescending(i => i.Kind == LessonInteractionKind.FullAnswer)
+            .ThenByDescending(i => i.Id).Take(10)).SingleOrDefaultAsync(l => l.UserId == user &&
             (l.Status == LessonStatus.AwaitingAnswer || l.Status == LessonStatus.Paused), token);
         return stored?.Status is LessonStatus.AwaitingAnswer or LessonStatus.Paused ? stored : null;
     }
@@ -33,12 +34,18 @@ public sealed class EfLessonStore(OwnDayDbContext db) : ILessonStore
          orderby evidence.ObservedAt descending, lesson.Id descending
          select lesson.Choice == null ? null : lesson.Question).FirstOrDefaultAsync(token);
 
-    public Task<string[]> RecentQuestionsAsync(UserId user, Guid skillId, CancellationToken token) =>
-        (from evidence in db.Set<LearningEvidence>()
+    public async Task<string[]> RecentQuestionsAsync(UserId user, Guid skillId, CancellationToken token)
+    {
+        var stored = await (from evidence in db.Set<LearningEvidence>()
          join lesson in db.Set<Lesson>() on new { evidence.LessonId, evidence.UserId } equals new { LessonId = lesson.Id, lesson.UserId }
          where evidence.UserId == user && evidence.SkillId == skillId
          orderby evidence.ObservedAt descending, lesson.Id descending
-         select lesson.Question).Take(3).ToArrayAsync(token);
+            select lesson.Question).Take(3).ToArrayAsync(token);
+        var justAssessed = db.Set<Lesson>().Local.Where(lesson => lesson.UserId == user && lesson.SkillId == skillId &&
+            lesson.Status == LessonStatus.Completed && db.Entry(lesson).State == EntityState.Modified &&
+            (LessonStatus)db.Entry(lesson).OriginalValues[nameof(Lesson.Status)]! != LessonStatus.Completed);
+        return justAssessed.Select(lesson => lesson.Question).Concat(stored).Take(3).ToArray();
+    }
 
     public void Add(Lesson lesson) => db.Set<Lesson>().Add(lesson);
 

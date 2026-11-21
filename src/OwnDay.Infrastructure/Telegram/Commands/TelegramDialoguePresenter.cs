@@ -77,7 +77,7 @@ public static class TelegramDialoguePresenter
                     (values.Count > 4 && values[4].Length > 0 ? $"Success criterion — {TelegramCurriculumPresenter.DisplayGoal(values[4])}\n" : "") +
                     (values.Count > 3 && values[3] == "start" ? "Write “continue” to open the first exercise." :
                         "You can start with a short diagnostic. Write “yes” to see the question or “skip” to open the first exercise."),
-                DialogueReplyKind.SessionEnded => "We'll stop here. Your progress is saved. Write “continue” when you're ready.",
+                DialogueReplyKind.SessionEnded => SessionSummary(values, true),
                 DialogueReplyKind.ExerciseCriteria => "What to work on\n" + string.Join("\n\n", values),
                 DialogueReplyKind.NoActiveLesson => "There is no open exercise. Write “continue” to get started.",
                 DialogueReplyKind.AskNewGoal => "What would you like to learn instead? Write “change goal to” followed by your goal. I’ll ask you to confirm the change.",
@@ -149,9 +149,22 @@ public static class TelegramDialoguePresenter
                     : "Можно начать с короткой диагностики. Напишите «давай» или «пропустить»."),
             DialogueReplyKind.DiagnosticQuestion => "Диагностический вопрос\n" + values[0] + "\nОтветьте на вопрос или напишите «пропустить», чтобы начать занятие.",
             DialogueReplyKind.DiagnosticOffer => "Можно начать с короткой диагностики. Напишите «давай», чтобы увидеть вопрос, или «пропустить», чтобы открыть упражнение.",
-            DialogueReplyKind.SessionEnded => "Сессия завершена. Ваш прогресс сохранён. Напишите «Продолжим», когда будете готовы.",
+            DialogueReplyKind.SessionEnded => SessionSummary(values, false),
             DialogueReplyKind.ExerciseCriteria => "На что обратить внимание\n" + string.Join("\n\n", values),
             _ => "Учебный диалог временно недоступен. Попробуйте позже."
         }];
+    }
+
+    private static string SessionSummary(IReadOnlyList<string> values, bool english)
+    {
+        var studied = values.ElementAtOrDefault(0);
+        var next = values.ElementAtOrDefault(1);
+        var hasNext = !string.IsNullOrWhiteSpace(next);
+        var newTopic = hasNext && next != studied;
+        var topic = string.IsNullOrWhiteSpace(studied) ? "" : english ? $" We covered {studied}." : $" Тема занятия — {studied}.";
+        var transition = english
+            ? newTopic ? $" Next time we'll work on {next}." : hasNext ? " Next time we'll return to the open exercise." : " Next time we'll pick up where we left off."
+            : newTopic ? $" В следующий раз — {next}." : hasNext ? " В следующий раз вернёмся к открытому заданию." : " В следующий раз продолжим с того же места.";
+        return (english ? "Session ended. Your progress is saved." : "Сессия завершена. Ваш прогресс сохранён.") + topic + transition;
     }
 }

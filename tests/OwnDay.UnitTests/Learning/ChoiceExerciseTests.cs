@@ -61,7 +61,7 @@ public sealed class ChoiceExerciseTests
     }
 
     [Fact]
-    public async Task ClarifyAsync_ChoiceHelpFromProviderAndPublishedHint_ShareLimit()
+    public async Task ClarifyAsync_ChoiceHintsExhausted_ConceptExplanationRemainsAvailable()
     {
         var teacher = new RecordingTeacher();
         var (lesson, learning, _) = Create(Exercise(ChoiceFormat.SingleChoice), teacher: teacher);
@@ -70,12 +70,12 @@ public sealed class ChoiceExerciseTests
         Assert.IsType<LearningResult.ChoiceReply>(await learning.ClarifyAsync(lesson.UserId, "Could you give a hint?", default));
         var revision = lesson.Choice!.Revision;
         Assert.IsType<LearningResult.HelpLimit>(await learning.ClarifyAsync(lesson.UserId, "Could you give another hint?", default));
-        Assert.IsType<LearningResult.HelpLimit>(await learning.ExplainAsync(lesson.UserId, default));
+        Assert.IsType<LearningResult.ChoiceReply>(await learning.ExplainAsync(lesson.UserId, default));
 
-        Assert.Equal(1, teacher.ExplanationCalls);
+        Assert.Equal(2, teacher.ExplanationCalls);
         Assert.Equal(Lesson.MaxHelpSteps, lesson.Choice.HintsUsed);
-        Assert.Equal(Lesson.MaxHelpSteps, lesson.Interactions.Count);
-        Assert.Equal(revision, lesson.Choice.Revision);
+        Assert.Equal(LessonInteractionKind.ConceptExplanation, lesson.Interactions.Last().Kind);
+        Assert.Equal(revision + 1, lesson.Choice.Revision);
         Assert.Equal(AnswerAssistance.Assisted, lesson.Assistance);
         Assert.IsType<LearningResult.ChoiceReply>(await learning.RevealAsync(lesson.UserId, default));
     }

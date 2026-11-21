@@ -1657,7 +1657,8 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
         modelBuilder.Entity("OwnDay.Application.Learning.Requests.LearningProviderStep", b =>
             b.ToTable("learning_provider_steps", null, t =>
             {
-                t.HasCheckConstraint("CK_learning_provider_steps_identity", "ordinal BETWEEN 0 AND 1 AND version > 0");
+                t.HasCheckConstraint("CK_learning_provider_steps_identity",
+                    "(ordinal BETWEEN 0 AND 1 OR (ordinal = 2 AND kind = 'generate_followup')) AND version > 0");
                 t.HasCheckConstraint("CK_learning_provider_steps_result", "result IS NULL OR failure IS NULL");
             }));
 

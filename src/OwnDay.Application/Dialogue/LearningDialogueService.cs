@@ -90,8 +90,12 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
         var normalized = Normalize(turn.Text);
         var command = turn.Command;
         var naturalAction = command is null ? Deterministic(normalized) : null;
+        var bound = lesson is not null && turn.ReceiptLessonId == lesson.Id &&
+            (turn.ReceiptPromptId == context.PromptId || legacy && turn.ReceiptPromptId is null) &&
+            (context.PromptOpenedAt is null || turn.ReceivedAt >= context.PromptOpenedAt) &&
+            (context.ResponseAfterSourceOrder == 0 || turn.IsAfterSourceOrder(context.ResponseAfterSourceOrder));
         if (command is null && lesson?.ExercisePending == true &&
-            normalized is "к упражнению" or "пропустить объяснение" or "start exercise" or "skip explanation")
+            normalized is "к упражнению" or "практика" or "пропустить объяснение" or "start exercise" or "skip explanation")
             naturalAction = DialogueOperationKind.Next;
         if (command is null && lesson is null && program is not null && normalized is "давай" or "let's go")
             naturalAction = DialogueOperationKind.Resume;
@@ -154,6 +158,9 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
                 return Recap(context, lesson) with { SuggestReviewsOnReturn = true };
             }
         }
+        var format = command is null ? ExplicitFormat(normalized.TrimEnd('?')) : null;
+        if (format is not null && lesson is { Status: LessonStatus.AwaitingAnswer } && context.PendingConfirmation is null)
+            return ChangeFormat(context, format.Value, bound);
         if (lesson is null && program is null && context.Consultation is { CreatedProgramId: null } &&
             command is DialogueOperationKind.Cancel or DialogueOperationKind.Pause or DialogueOperationKind.Resume)
             return await FirstGoalConsultation.DecideAsync(context, turn with
@@ -318,10 +325,6 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
         if (lesson is null && program is not null && (command ?? naturalAction) == DialogueOperationKind.Resume)
             return new(context, DialogueOperationKind.Next, "") { SuggestReviewsOnReturn = returning && program.PendingDiagnosticQuestion is null };
 
-        var bound = lesson is not null && turn.ReceiptLessonId == lesson.Id &&
-            (turn.ReceiptPromptId == context.PromptId || legacy && turn.ReceiptPromptId is null) &&
-            (context.PromptOpenedAt is null || turn.ReceivedAt >= context.PromptOpenedAt) &&
-            (context.ResponseAfterSourceOrder == 0 || turn.IsAfterSourceOrder(context.ResponseAfterSourceOrder));
         if (bound && contextual?.Kind == LearningActionKind.Criteria)
             return new(context, null, "", new(DialogueReplyKind.ExerciseCriteria,
                 [lesson!.AssessmentContent?.StructuredRubric?.QuestionText() ?? lesson.ResponseQuestion], english));
@@ -336,10 +339,10 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
             return OpenChoice(context, turn, stamp, [DialogueOperationKind.Clarify, DialogueOperationKind.ChangeGoal]);
         var awaiting = lesson?.AcceptsAnswer == true;
         if (naturalAction is { } action && (!awaiting || lesson?.Choice is not null ||
-            action is not (DialogueOperationKind.Clarify or DialogueOperationKind.RevealSolution)))
+            action is not (DialogueOperationKind.Clarify or DialogueOperationKind.RevealSolution) || IsExampleRequest(normalized.TrimEnd('?'))))
             return await DecideActionAsync(context, turn, action, turn.Text, lesson, program, stamp, false, bound, token);
         var studyingTheory = lesson?.ExercisePending == true;
-        if (!awaiting && program is null)
+        if (!awaiting && program is null && lesson?.Status != LessonStatus.Paused)
             return new(context, null, "", new(lesson is null ? DialogueReplyKind.NoActiveLesson : DialogueReplyKind.Paused, InEnglish: english));
         if (awaiting && !bound || !awaiting && turn.SourceOrder <= context.ResponseAfterSourceOrder)
             return Reply(context, DialogueReplyKind.NeedBinding);
@@ -357,13 +360,15 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
             return OpenChoice(context, turn, stamp, [DialogueOperationKind.Answer, DialogueOperationKind.Clarify]);
         LearningIntent[] allowed = studyingTheory
             ? [LearningIntent.Ambiguous, LearningIntent.Clarify, LearningIntent.Pause, LearningIntent.Resume,
-                LearningIntent.Progress, LearningIntent.Next, LearningIntent.EndSession, LearningIntent.PreviousTopic]
+                LearningIntent.Progress, LearningIntent.Next, LearningIntent.EndSession, LearningIntent.PreviousTopic,
+                LearningIntent.UseShortAnswer, LearningIntent.UseSingleChoice, LearningIntent.UseMultipleChoice]
             : awaiting
             ? [LearningIntent.Ambiguous, LearningIntent.Answer, LearningIntent.Clarify, LearningIntent.Pause, LearningIntent.Resume,
                 LearningIntent.Progress, LearningIntent.Next, LearningIntent.GoalChange, LearningIntent.EndSession,
-                LearningIntent.RevealSolution, LearningIntent.PreviousTopic, LearningIntent.ExplainAssessment, LearningIntent.ShowCriteria]
+                LearningIntent.RevealSolution, LearningIntent.PreviousTopic, LearningIntent.ExplainAssessment, LearningIntent.ShowCriteria,
+                LearningIntent.UseShortAnswer, LearningIntent.UseSingleChoice, LearningIntent.UseMultipleChoice]
             : [LearningIntent.Ambiguous, LearningIntent.Resume, LearningIntent.Next, LearningIntent.Progress,
-                LearningIntent.EndSession, LearningIntent.PreviousTopic, LearningIntent.ExplainAssessment, LearningIntent.ShowCriteria];
+                LearningIntent.EndSession, LearningIntent.PreviousTopic, LearningIntent.ExplainAssessment, LearningIntent.ShowCriteria, LearningIntent.Clarify];
         LearningIntentProposal proposal;
         try
         {
@@ -397,6 +402,14 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
             return new(context, null, "", new(DialogueReplyKind.ExerciseCriteria, [lesson.ResponseQuestion], english));
         if (proposal.Intent == LearningIntent.EndSession && sessions is not null && turn.SourceOrder > 0)
             return await EndSessionAsync(context, turn, lesson, program, english, token);
+        var proposedFormat = proposal.Intent switch
+        {
+            LearningIntent.UseShortAnswer => ExerciseResponseFormat.ShortText,
+            LearningIntent.UseSingleChoice => ExerciseResponseFormat.SingleChoice,
+            LearningIntent.UseMultipleChoice => ExerciseResponseFormat.MultipleChoice,
+            _ => (ExerciseResponseFormat?)null
+        };
+        if (proposedFormat is { } requestedFormat) return ChangeFormat(context, requestedFormat, bound);
         var proposedAction = proposal.Intent switch
         {
             LearningIntent.Answer => DialogueOperationKind.Answer,
@@ -421,10 +434,10 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
     {
         if (turn.SourceOrder <= context.ResponseAfterSourceOrder)
             return new(context, null, "", new(DialogueReplyKind.NeedBinding, InEnglish: english));
-        await sessions!.EndAsync(turn, program?.Id, lesson, token);
+        var summary = await sessions!.EndAsync(turn, program?.Id, lesson, token);
         if (lesson is not null) context.Synchronize(lesson, turn.Now, turn.SourceOrder);
         context.AdvanceResponseBoundary(turn.SourceOrder);
-        return new(context, null, "", new(DialogueReplyKind.SessionEnded, InEnglish: english));
+        return new(context, null, "", new(DialogueReplyKind.SessionEnded, [summary?.Topic ?? "", lesson?.Topic ?? ""], english));
     }
 
     private static DialogueDecision DecideDiagnostic(DialogueContext context, DialogueTurn turn, string normalized, DialogueProgramSnapshot program, string question)
@@ -477,6 +490,9 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
         }
         if (action is DialogueOperationKind.Answer or DialogueOperationKind.Clarify or DialogueOperationKind.Explain or DialogueOperationKind.RevealSolution)
         {
+            if (action is DialogueOperationKind.Clarify or DialogueOperationKind.Explain &&
+                (lesson?.Status == LessonStatus.Paused && bound || lesson is null && program is not null && turn.ReceiptLessonId is null))
+                return new(context, action, arguments);
             if (!bound || lesson?.Status != LessonStatus.AwaitingAnswer)
                 return Reply(context, DialogueReplyKind.NeedBinding);
         }
@@ -594,6 +610,19 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
     private static bool LooksLikeChoiceAnswer(Lesson? lesson, string text) =>
         lesson is { Status: LessonStatus.AwaitingAnswer, Choice: { } choice } && ChoiceAnswerText.LooksLikeAnswer(choice.Exercise, text);
     private static string Normalize(string text) => text.Trim().TrimEnd('.', '!').ToLowerInvariant();
+    private static DialogueDecision ChangeFormat(DialogueContext context, ExerciseResponseFormat format, bool bound) => bound
+        ? new(context, DialogueOperationKind.ChangeExerciseFormat, "") { ExerciseFormat = format }
+        : Reply(context, DialogueReplyKind.NeedBinding);
+
+    private static ExerciseResponseFormat? ExplicitFormat(string text) => text switch
+    {
+        "дай короткий вопрос" or "можно короткий ответ" or "хочу короткий ответ" or "short answer" => ExerciseResponseFormat.ShortText,
+        "дай варианты ответа" or "давай с вариантами" or "можно с вариантами" or "give me choices" or "single choice" => ExerciseResponseFormat.SingleChoice,
+        "дай вопрос с несколькими ответами" or "multiple choice" => ExerciseResponseFormat.MultipleChoice,
+        _ => null
+    };
+    private static bool IsExampleRequest(string text) => text is
+        "приведи пример" or "покажи пример" or "дай пример" or "give me an example" or "show me an example";
     private static string Bounded(string text) => text[..Math.Min(500, text.Length)];
     private static string WithProgramTarget(string stamp, DialogueProgramSnapshot? program) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(stamp + JsonSerializer.Serialize(program, JsonSerializerOptions.Web))));
@@ -608,6 +637,7 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
     };
     private static DialogueOperationKind? Deterministic(string text)
     {
+        text = text.TrimEnd('?');
         if (text is "завершить сессию" or "закончить сессию" or "на сегодня хватит" or "end session" or "that's enough for today") return DialogueOperationKind.EndSession;
         if (text is "пауза" or "поставь на паузу" or "мне пора, продолжим позже" or "продолжим позже" or "pause" or "stop") return DialogueOperationKind.Pause;
         if (text is "продолжим" or "продолжить" or "давай продолжим" or "resume" or "continue") return DialogueOperationKind.Resume;
@@ -618,6 +648,8 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
             "дай правильный ответ" or "show the solution" or "show the correct answer" or "give me the answer")
             return DialogueOperationKind.RevealSolution;
         if (text is "дай подсказку" or "подскажи" or "подсказка" or "hint") return DialogueOperationKind.Clarify;
+        if (text is "объясни" or "объясни подробнее" or "объясни по-другому" or "explain" or "explain in more detail") return DialogueOperationKind.Explain;
+        if (IsExampleRequest(text)) return DialogueOperationKind.Clarify;
         if (text.StartsWith("хочу другую цель", StringComparison.Ordinal) || text.StartsWith("сменить цель", StringComparison.Ordinal)) return DialogueOperationKind.ChangeGoal;
         return null;
     }

@@ -51,6 +51,13 @@ public static class LearningActionProvider
         ? [new(LearningActionKind.Hint), new(LearningActionKind.Solution)]
         : [new(LearningActionKind.Hint), new(LearningActionKind.Solution), new(LearningActionKind.Criteria)];
 
+    public static IReadOnlyList<LearningAction> ForTheory(Guid lessonId, bool expanded) => expanded
+        ? [new(LearningActionKind.Next, lessonId)]
+        : [new(LearningActionKind.Next, lessonId), new(LearningActionKind.ExplainMaterial), new(LearningActionKind.ShowExample)];
+
+    public static IReadOnlyList<LearningAction> ForCorrection(bool anotherHint) =>
+        [new(LearningActionKind.ExplainMaterial), new(anotherHint ? LearningActionKind.Hint : LearningActionKind.Solution)];
+
     public static IReadOnlyList<LearningAction> ForReview(Guid skillId, bool due) => due
         ? [new(LearningActionKind.StartReview, skillId), new(LearningActionKind.PostponeReview, skillId), new(LearningActionKind.SkipReview, skillId)]
         : [new(LearningActionKind.SkillPractice, skillId)];
@@ -58,6 +65,7 @@ public static class LearningActionProvider
     public static bool CanOffer(LearningAction action, Lesson? lesson) => action.Kind switch
     {
         LearningActionKind.Hint => lesson is { AcceptsAnswer: true, CanOfferMoreHelp: true },
+        LearningActionKind.ExplainMaterial or LearningActionKind.ShowExample => lesson is { Status: LessonStatus.AwaitingAnswer },
         LearningActionKind.Solution => lesson is { AcceptsAnswer: true } &&
             (lesson.Choice is { } choice ? !choice.SolutionSeen : lesson.Interactions.All(interaction => interaction.Kind != LessonInteractionKind.FullAnswer)),
         LearningActionKind.Criteria => lesson is { AcceptsAnswer: true, AssessmentContent.StructuredRubric: not null },
@@ -100,7 +108,8 @@ public static class LearningActionProvider
         var actions = prompt.Options.Select(option => LearningAction.ForChoice(prompt, kind, checked((byte)option.Id))).ToList();
         if (multiple && !prompt.Draft.IsEmpty)
             actions.Add(LearningAction.ForChoice(prompt, LearningActionKind.SubmitChoice));
-        actions.AddRange(ForExercise(choice: true));
+        if (prompt.Format != ChoiceFormat.MultipleChoice || prompt.Draft.IsEmpty)
+            actions.AddRange(prompt.AfterAttempt ? [new(LearningActionKind.ExplainMaterial), new(LearningActionKind.Solution)] : ForExercise(choice: true));
         return actions;
     }
 }

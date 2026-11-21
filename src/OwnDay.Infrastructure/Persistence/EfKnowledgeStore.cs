@@ -75,8 +75,12 @@ public sealed class EfKnowledgeStore(OwnDayDbContext db) : IKnowledgeStore
         return statuses;
     }
 
-    public Task<Skill?> FindAsync(UserId user, Guid skillId, CancellationToken token) =>
-        db.Set<Skill>().SingleOrDefaultAsync(s => s.UserId == user && s.Id == skillId, token);
+    public async Task<Skill?> FindAsync(UserId user, Guid skillId, CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
+        return db.Set<Skill>().Local.FirstOrDefault(s => s.UserId == user && s.Id == skillId)
+            ?? await db.Set<Skill>().SingleOrDefaultAsync(s => s.UserId == user && s.Id == skillId, token);
+    }
 
     public async Task<Skill?> FindTopicAsync(UserId user, Guid programId, int version, string topicCode, CancellationToken token)
     {
@@ -88,6 +92,10 @@ public sealed class EfKnowledgeStore(OwnDayDbContext db) : IKnowledgeStore
         var linked = await db.Set<ProgramSkillLink>().Where(l => l.UserId == user && l.ProgramId == programId &&
             l.ProgressVersion == progressVersion && l.TopicCode == topicCode).Select(l => (Guid?)l.SkillId).SingleOrDefaultAsync(token);
         if (linked is Guid skillId) return await FindAsync(user, skillId, token);
+        var recent = db.Set<Lesson>().Local.FirstOrDefault(l => l.UserId == user && l.ProgramId == programId &&
+            l.RouteVersion is { } routeVersion && versions.Contains(routeVersion) && l.TopicCode == topicCode && l.SkillId != null &&
+            db.Entry(l).OriginalValues[nameof(Lesson.SkillId)] is null);
+        if (recent?.SkillId is { } trackedSkillId) return await FindAsync(user, trackedSkillId, token);
         return await db.Set<Skill>().FirstOrDefaultAsync(s => s.UserId == user && db.Set<Lesson>().Any(l =>
             l.UserId == user && l.ProgramId == programId && l.RouteVersion != null && versions.Contains(l.RouteVersion.Value) &&
             l.TopicCode == topicCode && l.SkillId == s.Id), token);
@@ -98,8 +106,10 @@ public sealed class EfKnowledgeStore(OwnDayDbContext db) : IKnowledgeStore
 
     public async Task<IReadOnlyList<LearningEvidence>> EvidenceAsync(UserId user, Guid skillId, CancellationToken token)
     {
-        var evidence = await db.Set<LearningEvidence>().Where(e => e.UserId == user && e.SkillId == skillId).ToListAsync(token);
-        return evidence.OrderBy(e => e.ObservedAt).ThenBy(e => e.LessonId).ToArray();
+        var stored = await db.Set<LearningEvidence>().Where(e => e.UserId == user && e.SkillId == skillId)
+            .OrderBy(e => e.ObservedAt).ThenBy(e => e.LessonId).ToListAsync(token);
+        return stored.Concat(db.Set<LearningEvidence>().Local.Where(e => e.UserId == user && e.SkillId == skillId &&
+            db.Entry(e).State == EntityState.Added)).ToArray();
     }
 
     public void Add(Skill skill) => db.Set<Skill>().Add(skill);
