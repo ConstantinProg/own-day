@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Telegram.Bot;
+using Telegram.Bot.Types;
 using Telegram.Bot.Types.ReplyMarkups;
 
 namespace OwnDay.Infrastructure.Telegram.Delivery;
@@ -30,6 +31,13 @@ public sealed class TelegramBotMessageSender : ITelegramMessageSender
             replyMarkup: replyMarkupJson is null ? new InlineKeyboardMarkup(Array.Empty<InlineKeyboardButton[]>())
                 : JsonSerializer.Deserialize<InlineKeyboardMarkup>(replyMarkupJson),
             cancellationToken: timeout.Token);
+    }
+
+    public async Task SendDocumentAsync(long chatId, Stream content, string name, CancellationToken cancellationToken)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(30));
+        await _botClient.SendDocument(chatId, InputFile.FromStream(content, name), cancellationToken: timeout.Token);
     }
 
     private static CancellationTokenSource DeliveryTimeout(CancellationToken token)

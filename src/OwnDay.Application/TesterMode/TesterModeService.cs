@@ -11,6 +11,9 @@ public sealed class TesterModeService(ITesterModeStore store, TesterModeOptions 
 
     public bool Enabled => options.Enabled;
 
+    public async Task<bool> CanExportAsync(UserId user, CancellationToken cancellationToken) =>
+        Enabled && (await store.FindAsync(user, cancellationToken))?.Authorized == true;
+
     public static bool IsTesterCommand(string? command) =>
         command is "tester" or "tester_off" or "tester_status" or "tester_reset" or "tester_delete_all";
 

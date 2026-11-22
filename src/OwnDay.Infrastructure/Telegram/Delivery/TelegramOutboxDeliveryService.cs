@@ -1,9 +1,12 @@
+using System.Diagnostics;
 using Microsoft.EntityFrameworkCore;
 using OwnDay.Application.Learning;
 using OwnDay.Application.Learning.Requests;
 using OwnDay.Application.Inbox.Observability;
 using Microsoft.Extensions.Logging;
 using OwnDay.Infrastructure.Persistence;
+using OwnDay.Infrastructure.Diagnostics;
+using OwnDay.Application.TesterMode;
 using OwnDay.Domain;
 using OwnDay.Domain.Learning;
 using Telegram.Bot.Exceptions;
@@ -18,12 +21,14 @@ public sealed class TelegramOutboxDeliveryService
     private readonly ITelegramMessageSender _messageSender;
     private readonly ILogger<TelegramOutboxDeliveryService> _logger;
     private readonly TimeProvider _timeProvider;
+    private readonly DiagnosticJournal? _journal;
+    private readonly TesterModeService? _tester;
 
     public TelegramOutboxDeliveryService(
         OwnDayDbContext dbContext,
         ITelegramMessageSender messageSender,
         ILogger<TelegramOutboxDeliveryService> logger,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider, DiagnosticJournal? journal = null, TesterModeService? tester = null)
     {
         ArgumentNullException.ThrowIfNull(dbContext);
         ArgumentNullException.ThrowIfNull(messageSender);
@@ -34,6 +39,8 @@ public sealed class TelegramOutboxDeliveryService
         _messageSender = messageSender;
         _logger = logger;
         _timeProvider = timeProvider;
+        _journal = journal;
+        _tester = tester;
     }
 
     public async Task<BatchProcessingResult> DeliverBatchAsync(CancellationToken cancellationToken)
@@ -73,6 +80,11 @@ public sealed class TelegramOutboxDeliveryService
                 owner = requestOwner.Value.Value;
             }
 
+            var correlation = message.LearningRequestId ?? message.DiagnosticCorrelationId ??
+                (message.StudyInvitationId is not null ? message.Id : (Guid?)null);
+            using var diagnostics = DiagnosticJournal.Enter(_journal is not null && correlation is { } id && owner is > 0
+                ? await _journal.CaptureAsync(new UserId(owner.Value), id, message.LearningRequestId, null, cancellationToken)
+                : null);
             await using var ownerLock = persistedOrder && owner is { } ownerId
                 ? await OwnerLock.AcquireAsync(_dbContext, ownerId, cancellationToken) : null;
             if (owner is not null)
@@ -111,6 +123,29 @@ public sealed class TelegramOutboxDeliveryService
                 }
             }
 
+            var attempt = message.AttemptCount == int.MaxValue ? int.MaxValue : message.AttemptCount + 1;
+            var started = Stopwatch.GetTimestamp();
+            void Observe(string code, string? error = null, string severity = "info") =>
+                _journal?.Write("telegram", code, new(Error: error, DurationMs: (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds),
+                    severity, message.Id, attempt: attempt);
+
+            DiagnosticDocument? document = null;
+            if (message.DocumentName is not null)
+            {
+                document = await _dbContext.Set<DiagnosticDocument>().FindAsync([message.Id], cancellationToken);
+                if (document is null || message.DocumentExpiresAt <= _timeProvider.GetUtcNow().UtcDateTime ||
+                    _tester is null || message.ChatId <= 0 || !await _tester.CanExportAsync(new UserId(message.ChatId), cancellationToken))
+                {
+                    if (document is not null) _dbContext.Remove(document);
+                    message.Status = OutboxMessageStatus.Failed;
+                    message.LastError = "DiagnosticDocumentUnavailable";
+                    await _dbContext.SaveChangesAsync(cancellationToken);
+                    continue;
+                }
+            }
+            _journal?.Write("outbox", "outbox_claimed", new(WaitMs: Math.Max(0,
+                (long)(_timeProvider.GetUtcNow().UtcDateTime - message.CreatedAt).TotalMilliseconds)),
+                entity: message.Id, attempt: attempt);
             try
             {
                 if (message.AttemptCount > 0)
@@ -120,16 +155,24 @@ public sealed class TelegramOutboxDeliveryService
                         Code = InboxEventCodes.BackgroundDeliveryRetry, At = now
                     });
                 }
-                if (message.EditMessageId is { } target)
+                Observe("telegram_send_started");
+                if (document is not null)
+                {
+                    using var stream = new MemoryStream(document.Contents, writable: false);
+                    await _messageSender.SendDocumentAsync(message.ChatId, stream, message.DocumentName!, cancellationToken);
+                }
+                else if (message.EditMessageId is { } target)
                     await _messageSender.EditKeyboardAsync(message.ChatId, target, message.ReplyMarkupJson, cancellationToken);
                 else
                     await _messageSender.SendMessageAsync(message.ChatId, message.Text, message.ReplyMarkupJson, cancellationToken);
                 MarkSent(message);
+                Observe("telegram_api_acknowledged");
             }
             catch (ApiRequestException exception) when (message.EditMessageId is not null && exception.ErrorCode == 400 &&
                 exception.Message.Contains("message is not modified", StringComparison.OrdinalIgnoreCase))
             {
                 MarkSent(message);
+                Observe("telegram_api_acknowledged");
             }
             catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
             {
@@ -138,12 +181,14 @@ public sealed class TelegramOutboxDeliveryService
                     message.AttemptCount++;
                 }
                 message.LastError = exception.GetType().Name;
+                Observe("telegram_failed", message.LastError, "error");
                 _dbContext.InboxOperationEvents.Add(new InboxOperationEvent
                 {
                     Code = InboxEventCodes.BackgroundDeliveryError, At = _timeProvider.GetUtcNow().UtcDateTime
                 });
 
                 if (exception is ApiRequestException { ErrorCode: 400 or 403 or 404 } ||
+                    document is not null && message.AttemptCount >= 3 ||
                     message.EditMessageId is not null && (message.ReplyMarkupJson is null || message.AttemptCount >= 3))
                 {
                     message.Status = OutboxMessageStatus.Failed;
@@ -157,6 +202,7 @@ public sealed class TelegramOutboxDeliveryService
                     blockedChats.Add(message.ChatId);
                     message.NextAttemptAt = _timeProvider.GetUtcNow().UtcDateTime.AddSeconds(
                         Math.Min(MaximumRetryDelaySeconds, Math.Pow(2, Math.Min(message.AttemptCount, 12))));
+                    Observe("telegram_retry_scheduled", severity: "warning");
                     _logger.LogWarning(
                         "Telegram outbox message {OutboxMessageId} delivery failed on attempt {AttemptCount} ({ErrorType}).",
                         message.Id,
@@ -164,6 +210,8 @@ public sealed class TelegramOutboxDeliveryService
                 }
             }
 
+            if (document is not null && message.Status != OutboxMessageStatus.Pending)
+                _dbContext.Remove(document);
             // Persist each attempt before a later send can be cancelled.
             await _dbContext.SaveChangesAsync(cancellationToken);
         }

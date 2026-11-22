@@ -13,12 +13,14 @@ using OwnDay.Domain.Learning;
 using OwnDay.Application.Inbox.Analysis;
 using OwnDay.Infrastructure.Learning;
 using OwnDay.Application.Dialogue;
+using OwnDay.Infrastructure.Diagnostics;
 
 namespace OwnDay.Infrastructure.OpenAIAnalysis;
 
 public sealed partial class OpenAILessonTeacher(Func<ChatClient> createClient, IOptions<OpenAIInboxAnalysisOptions> options,
     ILogger<OpenAILessonTeacher> logger, RfcLessonSourceReader? sourceReader = null,
-    LearningProviderUsage? usage = null, MoexLessonSourceReader? marketSource = null) : ILessonTeacher, ICurriculumPlanner, ITeachingPlanner, ILearningIntentResolver
+    LearningProviderUsage? usage = null, MoexLessonSourceReader? marketSource = null, DiagnosticJournal? journal = null,
+    DiagnosticText? diagnosticText = null) : ILessonTeacher, ICurriculumPlanner, ITeachingPlanner, ILearningIntentResolver
 {
     private const string GroundingInstructions =
         " Teach established concepts without a generic sourcing disclaimer. If answering would require a current, disputed or high-risk fact " +
@@ -272,28 +274,59 @@ public sealed partial class OpenAILessonTeacher(Func<ChatClient> createClient, I
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
         timeout.CancelAfter(TimeSpan.FromSeconds(options.Value.TimeoutSeconds));
         var stopwatch = Stopwatch.StartNew();
+        var context = DiagnosticJournal.Active;
+        var selectedOutputLimit = maxOutputTokens ?? options.Value.MaxOutputTokens;
+        var fields = new DiagnosticFields(Kind: context?.Purpose, Step: context?.Step, Provider: "openai",
+            Model: diagnosticText?.Filter(options.Value.Model), MaxOutputTokens: selectedOutputLimit, ReasoningEffort: reasoningEffort,
+            PromptVersion: context?.PromptVersion);
+        long? parseStarted = null;
         try
         {
             var client = createClient();
             var completionOptions = reasoningEffort is null ? new ChatCompletionOptions()
                 : ModelReaderWriter.Read<ChatCompletionOptions>(BinaryData.FromString(JsonSerializer.Serialize(new { reasoning_effort = reasoningEffort })))!;
-            completionOptions.MaxOutputTokenCount = maxOutputTokens ?? options.Value.MaxOutputTokens;
+            completionOptions.MaxOutputTokenCount = selectedOutputLimit;
             completionOptions.ResponseFormat = ChatResponseFormat.CreateJsonSchemaFormat("lesson", BinaryData.FromString(schema), jsonSchemaIsStrict: true);
+            journal?.Write("llm", "llm_call_started", fields, entity: context?.Invocation, detail: () => new
+            {
+                messages = new[]
+                {
+                    new { role = "system", text = diagnosticText?.Filter(prompt) },
+                    new { role = "user", text = diagnosticText?.Filter(serializedInput) }
+                },
+                responseSchema = diagnosticText?.Json(schema)
+            });
             var response = await client.CompleteChatAsync(
                 [new SystemChatMessage(prompt), new UserChatMessage(serializedInput)],
                 completionOptions, timeout.Token);
             var completion = response.Value;
+            var visible = completion.Content.FirstOrDefault(part => part.Kind == ChatMessageContentPartKind.Text)?.Text;
+            journal?.Write("llm", "llm_response_received", fields with
+            {
+                Model = diagnosticText?.Filter(completion.Model),
+                Status = completion.FinishReason.ToString(),
+                DurationMs = stopwatch.ElapsedMilliseconds,
+                InputTokens = completion.Usage?.InputTokenCount,
+                OutputTokens = completion.Usage?.OutputTokenCount
+            }, entity: context?.Invocation, detail: () => new { text = diagnosticText?.Filter(visible) });
             if (usage is not null)
                 usage.Response = new InboxAnalyzerResponse(string.Empty, completion.Model, completion.Id,
                     completion.Usage?.InputTokenCount, completion.Usage?.OutputTokenCount,
                     completion.Usage?.InputTokenDetails?.CachedTokenCount);
             logger.LogInformation("Lesson provider completed in {ElapsedMs} ms using {InputTokens} input and {OutputTokens} output tokens ({Model}).",
                 stopwatch.ElapsedMilliseconds, completion.Usage?.InputTokenCount, completion.Usage?.OutputTokenCount, completion.Model);
+            var validationStarted = Stopwatch.GetTimestamp();
             if (completion.FinishReason != ChatFinishReason.Stop || !string.IsNullOrEmpty(completion.Refusal) || completion.Content.Count != 1 ||
                 completion.Content[0].Kind != ChatMessageContentPartKind.Text)
                 throw new LessonProviderException(LessonProviderFailure.InvalidResponse);
+            journal?.Write("llm", "llm_envelope_validated", fields with { Status = "accepted",
+                DurationMs = (long)Stopwatch.GetElapsedTime(validationStarted).TotalMilliseconds }, entity: context?.Invocation);
+            parseStarted = Stopwatch.GetTimestamp();
             var result = parse is not null ? parse(completion.Content[0].Text)
                 : JsonSerializer.Deserialize<T>(completion.Content[0].Text) ?? throw new LessonProviderException(LessonProviderFailure.InvalidResponse);
+            journal?.Write("llm", "llm_response_parsed", fields with { Status = "accepted",
+                DurationMs = (long)Stopwatch.GetElapsedTime(parseStarted.Value).TotalMilliseconds }, entity: context?.Invocation,
+                detail: () => new { result = diagnosticText?.Json(JsonSerializer.Serialize(result)) });
             return (result, completion.Model);
         }
         catch (Exception exception) when (exception is ClientResultException or HttpRequestException or JsonException ||
@@ -307,13 +340,22 @@ public sealed partial class OpenAILessonTeacher(Func<ChatClient> createClient, I
                 _ => LessonProviderFailure.HttpError
             };
             LogFailure(reason, (exception as ClientResultException)?.Status, stopwatch.ElapsedMilliseconds);
+            journal?.Write("llm", reason == LessonProviderFailure.InvalidResponse ? "llm_validation_failed" : "llm_call_failed",
+                fields with { Error = reason.ToString(), HttpStatus = (exception as ClientResultException)?.Status,
+                    DurationMs = FailureDuration() }, "error", context?.Invocation);
             throw new LessonProviderException(reason);
         }
         catch (LessonProviderException exception)
         {
             LogFailure(exception.Reason, null, stopwatch.ElapsedMilliseconds);
+            journal?.Write("llm", exception.Reason == LessonProviderFailure.InvalidResponse ? "llm_validation_failed" : "llm_call_failed",
+                fields with { Error = exception.Reason.ToString(), DurationMs = FailureDuration() },
+                "error", context?.Invocation);
             throw;
         }
+
+        long FailureDuration() => parseStarted is { } timestamp
+            ? (long)Stopwatch.GetElapsedTime(timestamp).TotalMilliseconds : stopwatch.ElapsedMilliseconds;
     }
 
     private void LogFailure(LessonProviderFailure reason, int? status, long elapsedMs) =>

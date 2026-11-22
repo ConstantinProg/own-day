@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using OwnDay.Application.TesterMode;
+using OwnDay.Infrastructure.Diagnostics;
 using OwnDay.Infrastructure.Persistence;
 using OwnDay.Infrastructure.Telegram.Actions;
 using OwnDay.Infrastructure.Telegram.Cleanup;
@@ -31,6 +32,7 @@ public static class TelegramServiceCollectionExtensions
         services.AddSingleton(provider => provider.GetRequiredService<IOptions<TesterModeOptions>>().Value);
         services.AddScoped<ITesterModeStore, EfTesterModeStore>();
         services.AddScoped<TesterModeService>();
+        services.AddDiagnostics();
         services.AddOptions<OwnDay.Infrastructure.Learning.LearningRequestProcessingOptions>()
             .BindConfiguration("Learning:Processing")
             .Validate(settings => settings.DialogueEnabled && settings.ConsultationEnabled,

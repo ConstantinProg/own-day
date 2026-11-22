@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using OwnDay.Infrastructure.Diagnostics;
 using OwnDay.Application.Inbox.Observability;
 using OwnDay.Application.Inbox;
 using OwnDay.Application.Inbox.Analysis;
@@ -17,6 +18,7 @@ namespace OwnDay.Infrastructure.Persistence;
 public sealed class OwnDayDbContext(DbContextOptions<OwnDayDbContext> options)
     : DbContext(options)
 {
+    internal Action<OwnDayDbContext>? ObserveDiagnosticChanges { get; set; }
     public DbSet<OpenAIRequestAttempt> OpenAIRequestAttempts => Set<OpenAIRequestAttempt>();
     public DbSet<InboxOperationEvent> InboxOperationEvents => Set<InboxOperationEvent>();
 
@@ -44,6 +46,7 @@ public sealed class OwnDayDbContext(DbContextOptions<OwnDayDbContext> options)
 
     public override async Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
     {
+        ObserveDiagnosticChanges?.Invoke(this);
         if (Database.IsNpgsql())
         {
             // Allocate in reply order before EF orders/batches INSERTs by entity key.
@@ -69,6 +72,7 @@ public sealed class OwnDayDbContext(DbContextOptions<OwnDayDbContext> options)
         LearningRequestModel.Configure(modelBuilder);
         DialogueModel.Configure(modelBuilder);
         TesterModeModel.Configure(modelBuilder);
+        DiagnosticModel.Configure(modelBuilder);
         modelBuilder.Entity<OwnDay.Domain.Learning.Lesson>(entity =>
         {
             entity.ToTable("learning_lessons");
@@ -298,6 +302,10 @@ public sealed class OwnDayDbContext(DbContextOptions<OwnDayDbContext> options)
                 .HasColumnName("update_id");
             entity.Property(update => update.ReceivedAt).HasColumnName("received_at");
             entity.Property(update => update.ProcessedAt).HasColumnName("processed_at");
+            entity.Property(update => update.DiagnosticOwnerId).HasColumnName("diagnostic_owner_id");
+            entity.Property(update => update.DiagnosticCorrelationId).HasColumnName("diagnostic_correlation_id");
+            entity.HasIndex(update => new { update.DiagnosticOwnerId, update.ReceivedAt, update.UpdateId })
+                .HasDatabaseName("IX_processed_telegram_updates_diagnostic_owner").HasFilter("diagnostic_owner_id IS NOT NULL");
         });
 
         modelBuilder.Entity<TelegramOutboxMessage>(entity =>
@@ -329,6 +337,9 @@ public sealed class OwnDayDbContext(DbContextOptions<OwnDayDbContext> options)
             entity.Property(message => message.CreatedAt).HasColumnName("created_at");
             entity.Property(message => message.SentAt).HasColumnName("sent_at");
             entity.Property(message => message.LastError).HasColumnName("last_error");
+            entity.Property(message => message.DocumentName).HasColumnName("document_name");
+            entity.Property(message => message.DocumentExpiresAt).HasColumnName("document_expires_at");
+            entity.Property(message => message.DiagnosticCorrelationId).HasColumnName("diagnostic_correlation_id");
             entity.HasIndex(message => new { message.Status, message.NextAttemptAt });
             entity.HasIndex(message => new { message.Status, message.SentAt });
         });

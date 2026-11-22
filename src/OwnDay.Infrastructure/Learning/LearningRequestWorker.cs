@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -5,11 +6,12 @@ using Microsoft.Extensions.Options;
 using Microsoft.EntityFrameworkCore;
 using OwnDay.Application.Learning.Requests;
 using OwnDay.Infrastructure.Persistence;
+using OwnDay.Infrastructure.Diagnostics;
 
 namespace OwnDay.Infrastructure.Learning;
 
 public sealed class LearningRequestWorker(IServiceScopeFactory scopes, IOptions<LearningRequestProcessingOptions> options,
-    TimeProvider clock, ILogger<LearningRequestWorker> logger) : BackgroundService
+    TimeProvider clock, ILogger<LearningRequestWorker> logger, DiagnosticJournal? journal = null) : BackgroundService
 {
     public override async Task StartAsync(CancellationToken cancellationToken)
     {
@@ -38,8 +40,26 @@ public sealed class LearningRequestWorker(IServiceScopeFactory scopes, IOptions<
                 var lease = await store.ClaimAsync(TimeSpan.FromSeconds(options.Value.LeaseSeconds), token);
                 if (lease is not null)
                 {
-                    var applied = await scope.ServiceProvider.GetRequiredService<LearningRequestProcessor>()
-                        .ProcessAsync(lease, options.Value.MaxAttempts, token);
+                    using var diagnostics = DiagnosticJournal.Enter(journal is null ? null :
+                        await journal.CaptureAsync(lease.UserId, lease.RequestId, lease.RequestId, lease.Attempt, token));
+                    var started = Stopwatch.GetTimestamp();
+                    var waited = lease.ReceivedAt is { } received ? Math.Max(0, (long)(clock.GetUtcNow().UtcDateTime - received).TotalMilliseconds) : (long?)null;
+                    journal?.Write("learning", "request_claimed", new(Status: "running", WaitMs: waited));
+                    if (lease.Attempt > 1) journal?.Write("learning", "request_reclaimed", severity: "warning");
+                    bool applied;
+                    try
+                    {
+                        applied = await scope.ServiceProvider.GetRequiredService<LearningRequestProcessor>()
+                            .ProcessAsync(lease, options.Value.MaxAttempts, token);
+                    }
+                    catch (Exception error)
+                    {
+                        journal?.Write("learning", "request_attempt_failed", new(Error: error.GetType().Name,
+                            DurationMs: (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds), "error");
+                        throw;
+                    }
+                    journal?.Write("learning", "request_attempt_finished", new(Status: applied ? "completed" : "ownership_lost",
+                        DurationMs: (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds));
                     logger.LogInformation("Learning request {RequestId}, attempt {Attempt}: applied {Applied}.",
                         lease.RequestId, lease.Attempt, applied);
                     continue;

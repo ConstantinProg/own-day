@@ -1,4 +1,7 @@
 using System.Data;
+using System.Diagnostics;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
@@ -11,6 +14,7 @@ using OwnDay.Application.Learning;
 using OwnDay.Application.TesterMode;
 using OwnDay.Domain.Learning;
 using OwnDay.Infrastructure.Learning;
+using OwnDay.Infrastructure.Diagnostics;
 using OwnDay.Application.Dialogue;
 using OwnDay.Domain;
 using OwnDay.Domain.Dialogue;
@@ -22,6 +26,7 @@ using OwnDay.Infrastructure.Telegram.Delivery;
 using OwnDay.Infrastructure.Telegram.Localization;
 using OwnDay.Infrastructure.Telegram.Routing;
 using Telegram.Bot.Types;
+using Telegram.Bot.Types.Enums;
 
 namespace OwnDay.Infrastructure.Telegram.Handling;
 
@@ -41,6 +46,8 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
     private readonly LearningRequestProcessingOptions _processing;
     private readonly TelegramActionKeyboard? _keyboard;
     private readonly TesterModeService? _testerMode;
+    private readonly DiagnosticJournal? _journal;
+    private readonly DiagnosticText? _diagnosticText;
 
     public TelegramUpdateHandler(
         TelegramUpdateRouter router,
@@ -59,7 +66,9 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         ITelegramCallbackResponder? callbackResponder = null,
         IOptions<LearningRequestProcessingOptions>? processing = null,
         TelegramActionKeyboard? keyboard = null,
-        TesterModeService? testerMode = null)
+        TesterModeService? testerMode = null,
+        DiagnosticJournal? journal = null,
+        DiagnosticText? diagnosticText = null)
     {
         ArgumentNullException.ThrowIfNull(router);
         ArgumentNullException.ThrowIfNull(languageFlow);
@@ -83,6 +92,8 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         _processing = processing?.Value ?? new();
         _keyboard = keyboard;
         _testerMode = testerMode;
+        _journal = journal;
+        _diagnosticText = diagnosticText;
     }
 
     public async Task HandleAsync(
@@ -122,12 +133,30 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
 
     private async Task HandleRoutedAsync(Update update, TelegramUpdateRouteResult route, CancellationToken cancellationToken)
     {
+        var started = Stopwatch.GetTimestamp();
         var now = _timeProvider.GetUtcNow().UtcDateTime;
         var commandName = (route as TelegramUpdateRouteResult.Dispatch)?.Command.Name;
         var containsSecret = TesterModeService.ContainsSecretPrefix(update.Message?.Text);
-        if ((containsSecret || TesterModeService.IsTesterCommand(commandName)) &&
-            !(update.Message is { From.Id: > 0 } input && input.Chat.Id == input.From.Id))
+        if ((containsSecret || TesterModeService.IsTesterCommand(commandName) || commandName == "export") &&
+            !(update.Message is { From.Id: > 0, Chat.Type: ChatType.Private } input &&
+                input.Chat.Id == input.From.Id))
             return;
+
+        var user = route switch
+        {
+            TelegramUpdateRouteResult.Action action => action.UserId,
+            TelegramUpdateRouteResult.TesterAction action => action.UserId,
+            TelegramUpdateRouteResult.Text text => text.UserId,
+            TelegramUpdateRouteResult.Dispatch dispatch => dispatch.Command.UserId,
+            _ => throw new InvalidOperationException("Unexpected route.")
+        };
+        // The same Telegram update can be redelivered after its receipt transaction rolled back.
+        var correlation = new Guid(SHA256.HashData(Encoding.UTF8.GetBytes(
+            FormattableString.Invariant($"OwnDay/Telegram/{user.Value}/{update.Id}"))).AsSpan(0, 16));
+        // Capture without holding a business connection. The writer checks the generation again.
+        var captured = _journal is not null && !containsSecret && commandName != "export" &&
+            !TesterModeService.IsTesterCommand(commandName) && route is not TelegramUpdateRouteResult.TesterAction
+            ? await _journal.CaptureAsync(user, correlation, null, null, cancellationToken) : null;
 
         await using var transaction = _dbContext.Database.IsNpgsql()
             ? await _dbContext.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken)
@@ -150,7 +179,50 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
             return;
         }
 
-        if (!containsSecret && route is TelegramUpdateRouteResult.Dispatch { Command.Name: "version" or "changes" } release)
+        if (_dbContext.Database.IsNpgsql())
+        {
+            await _dbContext.Database.ExecuteSqlInterpolatedAsync(
+                $"SELECT pg_advisory_xact_lock({user.Value})", cancellationToken);
+        }
+
+        if (commandName == "export" && !containsSecret)
+        {
+            await HandleExportAsync(update, (TelegramUpdateRouteResult.Dispatch)route, user, now, transaction, cancellationToken);
+            return;
+        }
+        if (await TryHandleTesterModeAsync(update, route, user, transaction, cancellationToken))
+            return;
+
+        await _dbContext.ProcessedTelegramUpdates.Where(row => row.UpdateId == update.Id)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(row => row.DiagnosticOwnerId, user.Value)
+                .SetProperty(row => row.DiagnosticCorrelationId, correlation), cancellationToken);
+        var durable = route is TelegramUpdateRouteResult.Action or TelegramUpdateRouteResult.Text ||
+            commandName is not null && (_learningCommands.Handles(commandName) || commandName == "cancel");
+        using var diagnostics = DiagnosticJournal.Enter(durable && captured is not null ? captured with { Request = correlation } : captured);
+        _journal?.Write("telegram", "request_received", new(Kind: route switch
+        {
+            TelegramUpdateRouteResult.Text => "text",
+            TelegramUpdateRouteResult.Action => "learning_action",
+            _ => "command"
+        }, UpdateId: update.Id, MessageId: update.Message?.Id),
+            detail: () => new { text = _diagnosticText?.Filter(update.Message?.Text),
+                action = (route as TelegramUpdateRouteResult.Action)?.Value.Kind.ToString() }, occurredAt: now);
+        try
+        {
+            await HandleUserUpdateAsync(update, route, user, correlation, now, started, transaction, cancellationToken);
+        }
+        catch (Exception error)
+        {
+            _journal?.Write("telegram", "ingress_failed", new(Error: error.GetType().Name,
+                DurationMs: (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds), "error");
+            throw;
+        }
+    }
+
+    private async Task HandleUserUpdateAsync(Update update, TelegramUpdateRouteResult route, UserId user, Guid correlation, DateTime now,
+        long started, IDbContextTransaction transaction, CancellationToken cancellationToken)
+    {
+        if (route is TelegramUpdateRouteResult.Dispatch { Command.Name: "version" or "changes" } release)
         {
             var reply = release.Command.Name == "changes"
                 ? await _changes.RenderAsync(TelegramTexts.ResolveLocale(update.Message?.From?.LanguageCode), cancellationToken)
@@ -159,23 +231,6 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
                 deleteCommand: release.Command.Name == "version");
             return;
         }
-
-        var user = route switch
-        {
-            TelegramUpdateRouteResult.Action action => action.UserId,
-            TelegramUpdateRouteResult.TesterAction action => action.UserId,
-            TelegramUpdateRouteResult.Text text => text.UserId,
-            TelegramUpdateRouteResult.Dispatch dispatch => dispatch.Command.UserId,
-            _ => throw new InvalidOperationException("Unexpected route.")
-        };
-        if (_dbContext.Database.IsNpgsql())
-        {
-            await _dbContext.Database.ExecuteSqlInterpolatedAsync(
-                $"SELECT pg_advisory_xact_lock({user.Value})", cancellationToken);
-        }
-
-        if (await TryHandleTesterModeAsync(update, route, user, transaction, cancellationToken))
-            return;
 
         var dialogue = await _dbContext.Set<DialogueContext>().SingleOrDefaultAsync(context => context.UserId == user, cancellationToken);
         if (dialogue is not null && (dialogue.SchemaVersion != DialogueContext.CurrentSchemaVersion || dialogue.Consultation is { Version: not 1 }))
@@ -198,6 +253,8 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
                 .ExecuteUpdateAsync(setters => setters.SetProperty(processed => processed.ProcessedAt, acceptedAt), cancellationToken);
             await _dbContext.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
+            _journal?.Write("learning", "request_queued", new(Status: "ready",
+                DurationMs: (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds));
             await AcknowledgeAsync(update, cancellationToken);
         }
 
@@ -208,7 +265,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
                 new LearningActionInput(contextual.Value, contextual.ExpiresAt,
                     update.CallbackQuery?.From.LanguageCode?.StartsWith("ru", StringComparison.OrdinalIgnoreCase) == true,
                     _processing.ProgramSwitchEnabled),
-                "learning_action", 1, databaseNow, ready: true, cancellationToken);
+                "learning_action", 1, databaseNow, ready: true, correlation, cancellationToken);
             await CommitReceiptAsync(databaseNow);
             return;
         }
@@ -227,14 +284,14 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
             {
                 await AddReceiptAsync(update, user, chatId,
                     new LearningCommandInput(study.Name, study.Arguments, lessonId, dialogue?.PromptId, dialogue?.Revision),
-                    "learning_command", 3, databaseNow, ready: true, cancellationToken);
+                    "learning_command", 3, databaseNow, ready: true, correlation, cancellationToken);
             }
             else
             {
                 await AddReceiptAsync(update, user, chatId, new LearningTextInput(ordinary.Value, lessonId,
                     dialogue?.PromptId, dialogue?.Revision, true,
                     _processing.EnglishDiagnosticEnabled, _processing.PracticeEnabled, _processing.ProgramSwitchEnabled),
-                    "learning_text", 1, databaseNow, ready: true, cancellationToken);
+                    "learning_text", 1, databaseNow, ready: true, correlation, cancellationToken);
             }
             await CommitReceiptAsync(databaseNow);
             return;
@@ -249,7 +306,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
             if (_learningCommands.Handles(command.Name) || command.Name == "cancel")
             {
                 var databaseNow = await EnsureLearningAcceptanceAsync(cancellationToken);
-                await AddLearningRequestAsync(update, dispatch, databaseNow, ready: true, cancellationToken,
+                await AddLearningRequestAsync(update, dispatch, databaseNow, ready: true, correlation, cancellationToken,
                     dialogueMode: true, dialogue: dialogue);
                 await CommitReceiptAsync(databaseNow);
                 return;
@@ -283,6 +340,27 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         await CommitRepliesAsync(update, chatId, replies, now, transaction, cancellationToken);
     }
 
+    private async Task HandleExportAsync(Update update, TelegramUpdateRouteResult.Dispatch dispatch, UserId user,
+        DateTime now, IDbContextTransaction transaction, CancellationToken token)
+    {
+        var russian = update.Message?.From?.LanguageCode?.StartsWith("ru", StringComparison.OrdinalIgnoreCase) == true;
+        string? reply = null;
+        if (_testerMode is null || !await _testerMode.CanExportAsync(user, token))
+            reply = russian ? "Экспорт доступен только в активном режиме тестировщика." : "Export requires active Tester Mode.";
+        else if (!DiagnosticExportCommand.TryParse(dispatch.Command.Arguments, out var mode))
+            reply = russian ? "Команды: /export, /export recent, /export last." : "Use /export, /export recent, or /export last.";
+        else if (!_dbContext.Database.IsNpgsql())
+            reply = russian ? "Экспорт сейчас недоступен." : "Diagnostics export is unavailable.";
+        else if (await _dbContext.Set<DiagnosticExportJob>().AnyAsync(job => job.OwnerId == user.Value, token) ||
+            await _dbContext.TelegramOutboxMessages.AnyAsync(message => message.ChatId == user.Value &&
+                message.DocumentName != null && message.Status == OutboxMessageStatus.Pending, token))
+            reply = russian ? "Предыдущий экспорт ещё обрабатывается." : "The previous export is still pending.";
+        else
+            _dbContext.Add(new DiagnosticExportJob { UpdateId = update.Id, OwnerId = user.Value, Mode = mode,
+                ReceivedAt = now, InRussian = russian });
+        await CommitRepliesAsync(update, user.Value, reply is null ? [] : [reply], now, transaction, token, deleteCommand: false);
+    }
+
     private async Task<bool> TryHandleTesterModeAsync(Update update, TelegramUpdateRouteResult route, UserId user,
         IDbContextTransaction transaction, CancellationToken token)
     {
@@ -313,6 +391,13 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         }
 
         if (result is null) return false;
+        if (result.Result == TesterModeResult.Revoked && _dbContext.Database.IsNpgsql())
+        {
+            await DiagnosticFencing.AdvanceAsync(_dbContext, user.Value, clearHistory: false, token);
+            await _dbContext.Set<DiagnosticExportJob>().Where(job => job.OwnerId == user.Value).ExecuteDeleteAsync(token);
+            await _dbContext.TelegramOutboxMessages.Where(message => message.ChatId == user.Value &&
+                message.DocumentName != null && message.Status == OutboxMessageStatus.Pending).ExecuteDeleteAsync(token);
+        }
         var russian = language?.StartsWith("ru", StringComparison.OrdinalIgnoreCase) == true;
         await CommitRepliesAsync(update, user.Value, [RenderTesterReply(result, russian, user.Value)], now, transaction, token);
         return true;
@@ -332,19 +417,24 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
     private async Task CommitRepliesAsync(Update update, long chatId, IReadOnlyList<TelegramLearningReply> replies, DateTime now,
         IDbContextTransaction transaction, CancellationToken cancellationToken, bool deleteCommand = true)
     {
+        var intents = new List<TelegramOutboxMessage>(replies.Count);
         for (var index = 0; index < replies.Count; index++)
         {
-            _dbContext.TelegramOutboxMessages.Add(new TelegramOutboxMessage
+            var intent = new TelegramOutboxMessage
             {
                 Id = Guid.NewGuid(),
                 ChatId = chatId,
                 Text = replies[index].Text,
                 ReplyMarkupJson = replies[index].ReplyMarkupJson,
+                DiagnosticCorrelationId = DiagnosticJournal.Active?.Correlation,
                 Status = OutboxMessageStatus.Pending,
                 AttemptCount = 0,
                 NextAttemptAt = now,
                 CreatedAt = now.AddTicks(index * 10L)
-            });
+            };
+            intents.Add(intent);
+            _dbContext.TelegramOutboxMessages.Add(intent);
+            WriteReply(intent, "reply_formed");
         }
 
         await _dbContext.ProcessedTelegramUpdates
@@ -353,8 +443,30 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
                 setters => setters.SetProperty(processed => processed.ProcessedAt, now),
                 cancellationToken);
 
+        DiagnosticStateChange[] changes = [];
+        if (_journal is not null && _diagnosticText is not null && DiagnosticJournal.Detailed)
+        {
+            try { changes = DiagnosticStateChanges.Capture(_dbContext, _diagnosticText); }
+            catch (Exception) { _journal.CountDropped(); }
+        }
+        foreach (var change in changes)
+            _journal?.Write(change.Category, "state_change_proposed", new(Kind: change.Entity),
+                entity: change.Id, detail: () => new { source = "telegram_ingress", change });
         await _dbContext.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
+        try
+        {
+            await transaction.CommitAsync(cancellationToken);
+        }
+        catch (Exception error)
+        {
+            _journal?.Write("persistence", "commit_outcome_unknown", new(Error: error.GetType().Name), "error");
+            throw;
+        }
+        foreach (var change in changes)
+            _journal?.Write(change.Category, "state_change_committed", new(Kind: change.Entity),
+                entity: change.Id, detail: () => new { source = "telegram_ingress", change });
+        foreach (var intent in intents) WriteReply(intent, "outbox_committed");
+        _journal?.Write("telegram", "request_completed", new(Status: "reply_committed"));
 
         if (update.CallbackQuery is not null)
         {
@@ -366,6 +478,13 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
             await DeleteProcessedMessageAsync(message, cancellationToken);
         }
     }
+
+    private void WriteReply(TelegramOutboxMessage message, string code) =>
+        _journal?.Write("outbox", code, entity: message.Id, detail: () => new
+        {
+            text = _diagnosticText?.Filter(message.Text),
+            keyboard = _diagnosticText?.Keyboard(message.ReplyMarkupJson)
+        });
 
     private async Task DeleteProcessedMessageAsync(Message message, CancellationToken token)
     {
@@ -408,7 +527,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         .Select(lesson => (Guid?)lesson.Id).SingleOrDefaultAsync(token);
 
     private async Task<LearningRequest> AddLearningRequestAsync(Update update, TelegramUpdateRouteResult.Dispatch dispatch,
-        DateTime receivedAt, bool ready, CancellationToken token, bool dialogueMode = false, DialogueContext? dialogue = null)
+        DateTime receivedAt, bool ready, Guid correlation, CancellationToken token, bool dialogueMode = false, DialogueContext? dialogue = null)
     {
         var command = dispatch.Command;
         Guid? lessonId = null;
@@ -416,16 +535,17 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
             lessonId = await CurrentLessonIdAsync(command.UserId, token);
         return await AddReceiptAsync(update, command.UserId, dispatch.ChatId,
             new LearningCommandInput(command.Name, command.Arguments, lessonId, dialogue?.PromptId, dialogue?.Revision, _processing.ProgramSwitchEnabled),
-            "learning_command", ready ? dialogueMode ? 3 : 2 : 1, receivedAt, ready, token);
+            "learning_command", ready ? dialogueMode ? 3 : 2 : 1, receivedAt, ready, correlation, token);
     }
 
     private async Task<LearningRequest> AddReceiptAsync(Update update, UserId user, long chatId, object input,
-        string kind, int version, DateTime receivedAt, bool ready, CancellationToken token)
+        string kind, int version, DateTime receivedAt, bool ready, Guid correlation, CancellationToken token)
     {
         var sequence = await _dbContext.Set<LearningRequest>().Where(request => request.UserId == user)
             .MaxAsync(request => (long?)request.Sequence, token) ?? 0;
         var request = new LearningRequest
         {
+            Id = correlation,
             UserId = user, Sequence = checked(sequence + 1),
             SourceKey = $"telegram:update:{update.Id}", SourceUpdateId = update.Id,
             SourceMessageId = update.Message?.Id ?? update.CallbackQuery?.Message?.Id,

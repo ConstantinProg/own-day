@@ -25,4 +25,7 @@ public sealed class TelegramOutboxMessage
     public DateTime? SentAt { get; set; }
 
     public string? LastError { get; set; }
+    public string? DocumentName { get; init; }
+    public DateTime? DocumentExpiresAt { get; init; }
+    public Guid? DiagnosticCorrelationId { get; init; }
 }

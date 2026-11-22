@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using OwnDay.Infrastructure.Diagnostics;
 using OwnDay.Application.Learning;
 using OwnDay.Application.Learning.Requests;
 using OwnDay.Application.Inbox.Analysis;
@@ -50,7 +51,7 @@ public sealed record LearningProviderExecution(string? Result = null, LessonProv
     bool Unknown = false, bool OwnershipLost = false);
 
 public sealed class LearningProviderExecutor(IServiceScopeFactory scopes, IOptions<LearningRequestProcessingOptions> options,
-    LearningProviderCallGate gate, ILogger<LearningProviderExecutor> logger)
+    LearningProviderCallGate gate, ILogger<LearningProviderExecutor> logger, DiagnosticJournal? journal = null)
 {
     public async Task<LearningProviderExecution> ExecuteAsync(LearningRequestLease lease, LearningProviderStep step, CancellationToken token)
     {
@@ -76,12 +77,19 @@ public sealed class LearningProviderExecutor(IServiceScopeFactory scopes, IOptio
             var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
             deadline.CancelAfter(TimeSpan.FromSeconds(options.Value.ProviderTimeoutSeconds));
             var invocationToken = deadline.Token;
+            using var diagnostics = DiagnosticJournal.Enter(DiagnosticJournal.Active is { } context
+                ? context with { Invocation = attemptId, Step = step.Ordinal, Purpose = step.Kind,
+                    PromptVersion = step.Version, Attempt = admission.Number } : null);
+            journal?.Write("llm", "provider_attempt_admitted", new(Kind: step.Kind, Step: step.Ordinal,
+                PromptVersion: step.Version), entity: attemptId);
             var physical = InvokePhysicalAsync(attemptId, step, deadline);
             LearningProviderExecution result;
             try { result = await physical.WaitAsync(invocationToken); }
             catch (OperationCanceledException) when (!token.IsCancellationRequested)
             {
                 gate.MarkUnresponsive(physical);
+                journal?.Write("llm", "provider_outcome_unknown", new(Kind: step.Kind, Step: step.Ordinal),
+                    "warning", attemptId);
                 return new(Unknown: true);
             }
             catch (OperationCanceledException)
@@ -91,6 +99,8 @@ public sealed class LearningProviderExecutor(IServiceScopeFactory scopes, IOptio
             }
             if (result.Failure is not (LessonProviderFailure.HttpError or LessonProviderFailure.Timeout) ||
                 retry + 1 == options.Value.MaxProviderAttempts) return result;
+            journal?.Write("llm", "provider_retry_scheduled", new(Kind: step.Kind, Step: step.Ordinal, WaitMs: 200),
+                "warning", attemptId);
             await Task.Delay(200, token);
         }
         return new(Failure: LessonProviderFailure.Unavailable);
@@ -119,6 +129,8 @@ public sealed class LearningProviderExecutor(IServiceScopeFactory scopes, IOptio
         }
         catch (LessonProviderException failure)
         {
+            journal?.Write("llm", "provider_attempt_failed", new(Error: failure.Reason.ToString(), Kind: step.Kind,
+                Step: step.Ordinal), "error", attemptId);
             outcome = failure.Reason is LessonProviderFailure.HttpError or LessonProviderFailure.Timeout
                 ? "transient_failure" : "permanent_failure";
             return new(Failure: failure.Reason);
@@ -130,6 +142,8 @@ public sealed class LearningProviderExecutor(IServiceScopeFactory scopes, IOptio
         }
         finally
         {
+            journal?.Write("llm", "provider_attempt_finished", new(Status: outcome, Kind: step.Kind, Step: step.Ordinal),
+                entity: attemptId);
             // Bounded invocation/financial reconciliation outlives the logical
             // deadline/Host token, without changing checkpoints or Domain state.
             using var reconciliation = new CancellationTokenSource(TimeSpan.FromSeconds(5));

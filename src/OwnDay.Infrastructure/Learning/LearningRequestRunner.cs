@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
@@ -15,6 +16,7 @@ using OwnDay.Infrastructure.Telegram.Commands;
 using OwnDay.Application.Dialogue;
 using OwnDay.Domain.Dialogue;
 using OwnDay.Domain.Learning;
+using OwnDay.Infrastructure.Diagnostics;
 
 namespace OwnDay.Infrastructure.Learning;
 
@@ -296,6 +298,7 @@ public sealed partial class LearningRequestRunner(IServiceScopeFactory scopes, I
             command?.Arguments ?? text!.Text, command?.LessonId ?? text?.LessonId, command?.PromptId ?? text?.PromptId,
             new DateTimeOffset(request.ReceivedAt), now, lesson is null ? null : db.Entry(lesson).Property<uint>("TargetVersion").OriginalValue,
             actionInput is null ? request.SourceMessageId ?? request.SourceUpdateId : 0, actionInput?.Action, request.Sequence);
+        var decisionStarted = Stopwatch.GetTimestamp();
         var decision = await new LearningDialogueService(store, session, processing.ConsultationEnabled || text?.ConsultationAllowed == true,
             processing.PracticeEnabled || text?.PracticeAllowed == true,
             processing.ProgramSwitchEnabled || text?.ProgramSwitchAllowed == true || command?.ProgramSwitchAllowed == true,
@@ -303,6 +306,19 @@ public sealed partial class LearningRequestRunner(IServiceScopeFactory scopes, I
             .DecideAsync(turn, lesson, program, pedagogicalStamp, token);
         var introduce = db.Entry(decision.Context).State == EntityState.Added;
         var audit = decision.Audit is null ? null : JsonSerializer.Serialize(decision.Audit, JsonSerializerOptions.Web);
+        var diagnostics = services.GetService<DiagnosticJournal>();
+        diagnostics?.Write("dialogue", "dialogue_interpreted", new(Status: decision.Audit?.Code ?? decision.Reply?.Kind.ToString(),
+            Kind: decision.Execute?.ToString(), DurationMs: (long)Stopwatch.GetElapsedTime(decisionStarted).TotalMilliseconds),
+            entity: decision.Context.TargetLessonId, detail: () =>
+            {
+                var filter = services.GetService<DiagnosticText>();
+                return new
+                {
+                    decision.Context.Phase, decision.Context.ExpectedResponse, decision.Context.Revision, decision.Context.PromptId,
+                    originalRequestId = decision.Audit?.OriginalRequestId,
+                    arguments = filter?.Filter(decision.Arguments), audit = filter?.Json(audit)
+                };
+            });
         if (decision.Creation is { } creation)
         {
             var result = await CreateCurriculum(services, session).CreateAsync(request.UserId, creation.Goal, creation.Experience, null, token,

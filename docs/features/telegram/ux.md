@@ -21,6 +21,8 @@ Russian clients receive Russian text. Other clients receive English text.
 Both release commands use the transactional outbox. A retry of the same
 webhook update does not queue a second reply.
 
+Authorized users in Tester Mode can request `/export`, `/export recent` and `/export last` in their private chat. Telegram delivers the result as a document through the outbox. [Diagnostic export](../diagnostics.md)
+
 Learning processing, durable ingress, dialogue and first-goal consultation are
 enabled by default. The production Compose application explicitly enables these
 settings, overriding historical disabled values in its runtime env file. Startup

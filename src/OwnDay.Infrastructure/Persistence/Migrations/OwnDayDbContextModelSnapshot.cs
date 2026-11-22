@@ -19,6 +19,61 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
 
         NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+        modelBuilder.Entity("OwnDay.Infrastructure.Diagnostics.DiagnosticEvent", b =>
+        {
+            b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("uuid");
+            b.Property<long>("OwnerId").HasColumnType("bigint");
+            b.Property<Guid>("Generation").HasColumnType("uuid");
+            b.Property<DateTime>("OccurredAt").HasColumnType("timestamp with time zone");
+            b.Property<string>("Category").IsRequired().HasColumnType("text");
+            b.Property<string>("Code").IsRequired().HasColumnType("text");
+            b.Property<string>("Severity").IsRequired().HasColumnType("text");
+            b.Property<Guid>("CorrelationId").HasColumnType("uuid");
+            b.Property<Guid?>("RequestId").HasColumnType("uuid");
+            b.Property<int?>("AttemptNumber").HasColumnType("integer");
+            b.Property<Guid?>("EntityId").HasColumnType("uuid");
+            b.Property<int>("SchemaVersion").HasColumnType("integer");
+            b.Property<string>("Detail").IsRequired().HasColumnType("text");
+            b.Property<Guid>("DetailGeneration").HasColumnType("uuid");
+            b.Property<string>("Data").IsRequired().HasColumnType("jsonb");
+            b.HasKey("Id");
+            b.HasIndex("OwnerId", "OccurredAt", "Id");
+            b.HasIndex("OwnerId", "RequestId", "OccurredAt", "Id");
+            b.HasIndex("OwnerId", "CorrelationId");
+            b.HasIndex("OccurredAt", "Id");
+            b.ToTable("diagnostic_events");
+        });
+
+        modelBuilder.Entity("OwnDay.Infrastructure.Diagnostics.DiagnosticFence", b =>
+        {
+            b.Property<Guid>("DetailGeneration").HasColumnType("uuid");
+            b.Property<long>("OwnerId").ValueGeneratedNever().HasColumnType("bigint");
+            b.Property<Guid>("Generation").HasColumnType("uuid");
+            b.HasKey("OwnerId");
+            b.ToTable("diagnostic_fences");
+        });
+
+        modelBuilder.Entity("OwnDay.Infrastructure.Diagnostics.DiagnosticExportJob", b =>
+        {
+            b.Property<int>("UpdateId").ValueGeneratedNever().HasColumnType("integer");
+            b.Property<long>("OwnerId").HasColumnType("bigint");
+            b.Property<int>("Mode").HasColumnType("integer");
+            b.Property<DateTime>("ReceivedAt").HasColumnType("timestamp with time zone");
+            b.Property<bool>("InRussian").HasColumnType("boolean");
+            b.HasKey("UpdateId");
+            b.HasIndex("OwnerId").IsUnique();
+            b.HasIndex("ReceivedAt", "UpdateId");
+            b.ToTable("diagnostic_export_jobs");
+        });
+
+        modelBuilder.Entity("OwnDay.Infrastructure.Diagnostics.DiagnosticDocument", b =>
+        {
+            b.Property<Guid>("OutboxId").HasColumnType("uuid");
+            b.Property<byte[]>("Contents").IsRequired().HasColumnType("bytea");
+            b.HasKey("OutboxId");
+            b.ToTable("diagnostic_documents");
+        });
+
         modelBuilder.Entity("OwnDay.Domain.Dialogue.DialogueContext", b =>
         {
             b.Property<long>("UserId").ValueGeneratedNever().HasColumnType("bigint").HasColumnName("user_id");
@@ -380,6 +435,8 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
 
         modelBuilder.Entity("OwnDay.Infrastructure.Persistence.ProcessedTelegramUpdate", b =>
         {
+            b.Property<long?>("DiagnosticOwnerId").HasColumnType("bigint").HasColumnName("diagnostic_owner_id");
+            b.Property<Guid?>("DiagnosticCorrelationId").HasColumnType("uuid").HasColumnName("diagnostic_correlation_id");
             b.Property<long>("UpdateId")
                 .HasColumnType("bigint")
                 .HasColumnName("update_id");
@@ -394,11 +451,17 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
 
             b.HasKey("UpdateId");
 
+            b.HasIndex("DiagnosticOwnerId", "ReceivedAt", "UpdateId").HasDatabaseName("IX_processed_telegram_updates_diagnostic_owner")
+                .HasFilter("diagnostic_owner_id IS NOT NULL");
+
             b.ToTable("processed_telegram_updates");
         });
 
         modelBuilder.Entity("OwnDay.Infrastructure.Persistence.TelegramOutboxMessage", b =>
         {
+            b.Property<string>("DocumentName").HasColumnType("text").HasColumnName("document_name");
+            b.Property<DateTime?>("DocumentExpiresAt").HasColumnType("timestamp with time zone").HasColumnName("document_expires_at");
+            b.Property<Guid?>("DiagnosticCorrelationId").HasColumnType("uuid").HasColumnName("diagnostic_correlation_id");
             b.Property<int?>("EditMessageId").HasColumnType("integer").HasColumnName("edit_message_id");
 
             b.Property<string>("ReplyMarkupJson")
@@ -1644,6 +1707,12 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
                     .HasForeignKey("RequestId", "Ordinal").OnDelete(DeleteBehavior.Restrict).IsRequired();
             });
 
+        modelBuilder.Entity("OwnDay.Infrastructure.Diagnostics.DiagnosticDocument", b =>
+        {
+            b.HasOne("OwnDay.Infrastructure.Persistence.TelegramOutboxMessage", null)
+                .WithOne().HasForeignKey("OwnDay.Infrastructure.Diagnostics.DiagnosticDocument", "OutboxId")
+                .OnDelete(DeleteBehavior.Cascade).IsRequired();
+        });
         modelBuilder.HasSequence<long>("telegram_outbox_delivery_order_seq");
         modelBuilder.Entity("OwnDay.Infrastructure.Persistence.TelegramOutboxMessage", b =>
             {

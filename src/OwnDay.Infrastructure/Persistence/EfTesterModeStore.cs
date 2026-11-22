@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using OwnDay.Infrastructure.Diagnostics;
 using OwnDay.Application.Inbox;
 using OwnDay.Application.Inbox.Analysis;
 using OwnDay.Application.Learning;
@@ -56,6 +57,11 @@ public sealed class EfTesterModeStore(OwnDayDbContext db, ICurriculumStore curri
         await ClearRequestsAndRepliesAsync(userId, cancellationToken);
         await ClearLearningAsync(userId, cancellationToken);
         await ClearInboxAndTasksAsync(userId, cancellationToken);
+        await DiagnosticFencing.AdvanceAsync(db, userId.Value, clearHistory: true, cancellationToken);
+        await db.Set<DiagnosticExportJob>().Where(row => row.OwnerId == userId.Value).ExecuteDeleteAsync(cancellationToken);
+        await db.ProcessedTelegramUpdates.Where(row => row.DiagnosticOwnerId == userId.Value).ExecuteUpdateAsync(setters =>
+            setters.SetProperty(row => row.DiagnosticOwnerId, (long?)null)
+                .SetProperty(row => row.DiagnosticCorrelationId, (Guid?)null), cancellationToken);
         if (operation == TesterModeOperation.DeleteAll)
             await db.InboxOperationEvents.Where(item => item.UserId == userId.Value).ExecuteDeleteAsync(cancellationToken);
     }

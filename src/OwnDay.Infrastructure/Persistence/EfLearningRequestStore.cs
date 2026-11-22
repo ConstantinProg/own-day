@@ -1,12 +1,18 @@
+using System.Diagnostics;
 using Microsoft.EntityFrameworkCore;
 using OwnDay.Application.Learning.Requests;
 using OwnDay.Infrastructure.Learning;
+using OwnDay.Infrastructure.Diagnostics;
 
 namespace OwnDay.Infrastructure.Persistence;
 
-public sealed class EfLearningRequestStore(OwnDayDbContext db) : ILearningRequestStore
+public sealed class EfLearningRequestStore(OwnDayDbContext db, DiagnosticJournal? journal = null,
+    DiagnosticText? diagnosticText = null) : ILearningRequestStore
 {
-    public sealed record AttemptAdmission(Guid? Id, bool Unknown, bool OwnershipLost);
+    public sealed record AttemptAdmission(Guid? Id, bool Unknown, bool OwnershipLost)
+    {
+        public int? Number { get; init; }
+    }
 
     public async Task<AttemptAdmission> BeginAttemptAsync(LearningRequestLease lease, int ordinal, int maxAttempts,
         TimeSpan renewal, CancellationToken token)
@@ -37,7 +43,7 @@ public sealed class EfLearningRequestStore(OwnDayDbContext db) : ILearningReques
             """, token);
         if (stillOwned == 0) return new(null, false, true);
         await transaction.CommitAsync(token);
-        return new(attempt.Id, false, false);
+        return new(attempt.Id, false, false) { Number = attempt.Number };
     }
 
     public Task<int> FinishAttemptAsync(Guid id, string outcome, CancellationToken token) =>
@@ -66,7 +72,7 @@ public sealed class EfLearningRequestStore(OwnDayDbContext db) : ILearningReques
             RETURNING *
             """).AsNoTracking().ToListAsync(token);
         var request = rows.SingleOrDefault();
-        return request is null ? null : new(request.Id, leaseToken, request.UserId, request.AttemptCount);
+        return request is null ? null : new(request.Id, leaseToken, request.UserId, request.AttemptCount) { ReceivedAt = request.ReceivedAt };
     }
 
     // Persist the prepared operation, marker, replies and completion atomically.
@@ -91,23 +97,78 @@ public sealed class EfLearningRequestStore(OwnDayDbContext db) : ILearningReques
         if (await db.Set<LearningAppliedOperation>().AnyAsync(operation => operation.RequestId == request.Id, token))
             throw new InvalidOperationException("An unfinished request already has an applied operation.");
 
-        var execution = await execute(request, token);
+        var started = Stopwatch.GetTimestamp();
+        var changes = new List<DiagnosticStateChange>();
+        if (journal is not null && DiagnosticJournal.Detailed && diagnosticText is not null)
+        {
+            db.ObserveDiagnosticChanges = context =>
+            {
+                try
+                {
+                    var captured = DiagnosticStateChanges.Capture(context, diagnosticText);
+                    var remaining = Math.Max(0, 128 - changes.Count);
+                    changes.AddRange(captured.Take(remaining));
+                    if (captured.Length > remaining) journal.CountDropped(captured.Length - remaining);
+                }
+                catch (Exception) { journal.CountDropped(); }
+            };
+        }
+        LearningRequestCompletion execution;
+        try
+        {
+            execution = await execute(request, token);
+            db.ObserveDiagnosticChanges?.Invoke(db);
+        }
+        catch (Exception error) when (error is not LearningProviderRequiredException and not StaleLearningPreparationException)
+        {
+            journal?.Write("persistence", "apply_aborted", new(Error: error.GetType().Name,
+                DurationMs: (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds), "error");
+            throw;
+        }
+        finally
+        {
+            db.ObserveDiagnosticChanges = null;
+        }
+        journal?.Write("dialogue", "decision_proposed", new(Status: execution.Outcome,
+            DurationMs: (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds),
+            detail: () => new { audit = diagnosticText?.Json(execution.DialogueOutcomeJson) });
+        if (execution.Outcome.Contains("reject", StringComparison.Ordinal) || execution.Outcome is "stale_target" or "provider_outcome_unknown" or "unsupported_payload")
+            journal?.Write("dialogue", "decision_rejected", new(Status: execution.Outcome), "warning");
+        foreach (var change in changes)
+            journal?.Write(change.Category, "state_change_proposed", new(Status: execution.Outcome, Kind: change.Entity),
+                entity: change.Id, detail: () => new { source = "learning_apply", rule = execution.Outcome, change });
+
         var replies = execution.Replies ??
             ["The learning request could not be processed. Retry the original command; no answer was assessed."];
         var now = await db.Database.SqlQuery<DateTime>($"SELECT clock_timestamp() AS \"Value\"").SingleAsync(token);
+        var intents = new List<TelegramOutboxMessage>(replies.Count);
         for (var ordinal = 0; ordinal < replies.Count; ordinal++)
         {
             var reply = replies[ordinal];
-            db.TelegramOutboxMessages.Add(new TelegramOutboxMessage
+            var intent = new TelegramOutboxMessage
             {
                 Id = Guid.NewGuid(), ChatId = request.ChatId, LearningRequestId = request.Id, ReplyOrdinal = ordinal,
                 Text = reply.Text, ReplyMarkupJson = reply.ReplyMarkupJson, EditMessageId = reply.EditMessageId,
                 Status = OutboxMessageStatus.Pending, NextAttemptAt = now,
                 CreatedAt = now.AddTicks(ordinal * 10L)
-            });
+            };
+            db.TelegramOutboxMessages.Add(intent);
+            intents.Add(intent);
+            WriteReply(intent, "reply_formed");
         }
         db.Add(new LearningAppliedOperation { RequestId = request.Id, AppliedAt = now });
-        await db.SaveChangesAsync(token);
+        var saving = Stopwatch.GetTimestamp();
+        try
+        {
+            await db.SaveChangesAsync(token);
+            journal?.Write("persistence", "apply_writes_staged", new(DurationMs: (long)Stopwatch.GetElapsedTime(saving).TotalMilliseconds));
+        }
+        catch (Exception error)
+        {
+            journal?.Write("persistence", "apply_writes_failed", new(Error: error.GetType().Name,
+                DurationMs: (long)Stopwatch.GetElapsedTime(saving).TotalMilliseconds), "error");
+            throw;
+        }
         // Recheck the fence after target I/O/writes. An expired worker rolls back everything.
         var completed = await db.Database.ExecuteSqlInterpolatedAsync($"""
             UPDATE learning_requests SET status = 0, completed_at = clock_timestamp(), outcome = {execution.Outcome},
@@ -118,12 +179,35 @@ public sealed class EfLearningRequestStore(OwnDayDbContext db) : ILearningReques
         if (completed == 0)
         {
             await transaction.RollbackAsync(token);
+            journal?.Write("persistence", "state_change_rolled_back", new(Status: "lease_expired"), "warning");
             db.ChangeTracker.Clear();
             return false;
         }
-        await transaction.CommitAsync(token);
+        try
+        {
+            await transaction.CommitAsync(token);
+        }
+        catch (Exception error)
+        {
+            journal?.Write("persistence", "commit_outcome_unknown", new(Error: error.GetType().Name), "error");
+            throw;
+        }
+        journal?.Write("learning", "request_completed", new(Status: execution.Outcome));
+        journal?.Write("persistence", "transaction_committed", new(Status: execution.Outcome,
+            DurationMs: (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds));
+        foreach (var change in changes)
+            journal?.Write(change.Category, "state_change_committed", new(Status: execution.Outcome, Kind: change.Entity),
+                entity: change.Id, detail: () => new { source = "learning_apply", rule = execution.Outcome, change });
+        foreach (var intent in intents) WriteReply(intent, "outbox_committed");
         return true;
     }
+
+    private void WriteReply(TelegramOutboxMessage message, string code) =>
+        journal?.Write("outbox", code, entity: message.Id, detail: () => new
+        {
+            text = diagnosticText?.Filter(message.Text),
+            keyboard = diagnosticText?.Keyboard(message.ReplyMarkupJson)
+        });
 
     public async Task<bool> SaveStepAsync(LearningRequestLease lease, LearningProviderStep step,
         TimeSpan renewal, CancellationToken token)

@@ -4,6 +4,7 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using OpenAI;
 using OpenAI.Chat;
@@ -13,12 +14,67 @@ using OwnDay.Domain.Learning;
 using OwnDay.Infrastructure.OpenAIAnalysis;
 using OwnDay.Infrastructure.Learning;
 using OwnDay.Application.Dialogue;
+using OwnDay.Application.TesterMode;
+using OwnDay.Infrastructure.Diagnostics;
+using OwnDay.Infrastructure.Telegram.Configuration;
 using Xunit;
 
 namespace OwnDay.UnitTests.Learning;
 
 public sealed partial class OpenAILessonTeacherTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ResolveAsync_WithDiagnosticContext_RecordsMetadataAndOnlyTesterCapturesWireMessages(bool detailed)
+    {
+        const string response = """{"Intent":"Answer"}""";
+        using var handler = new ResponseHandler(JsonSerializer.Serialize(new
+        {
+            id = "test", model = "gpt-6-luna", created = 1, @object = "chat.completion",
+            usage = new { prompt_tokens = 20, completion_tokens = 6, total_tokens = 26 },
+            choices = new[] { new { index = 0, finish_reason = "stop", message = new { role = "assistant", content = response } } }
+        }));
+        using var http = new HttpClient(handler);
+        using var services = new ServiceCollection().BuildServiceProvider();
+        var journal = new DiagnosticJournal(services.GetRequiredService<IServiceScopeFactory>(),
+            Options.Create(new DiagnosticOptions()), new TesterModeOptions(), TimeProvider.System);
+        var options = Options.Create(new OpenAIInboxAnalysisOptions { Enabled = true, ApiKey = "dummy-key" });
+        var text = new DiagnosticText(Options.Create(new TelegramOptions()), options);
+        var teacher = new OpenAILessonTeacher(() => new ChatClient("gpt-6-luna", new ApiKeyCredential("dummy-key"), new OpenAIClientOptions
+        {
+            Transport = new HttpClientPipelineTransport(http), RetryPolicy = new ClientRetryPolicy(0)
+        }), options, new RecordingLogger(), journal: journal, diagnosticText: text);
+        var request = Guid.NewGuid();
+        var operation = Guid.NewGuid();
+        using var context = DiagnosticJournal.Enter(new(42, Guid.Empty, detailed, request, request, 2, operation, 0, "intent", 1));
+
+        var input = new LearningIntentInput("My exact answer", "Write a polite request.", null, null, [], [LearningIntent.Answer]);
+        Assert.Equal(LearningIntent.Answer, (await teacher.ResolveAsync(input, default)).Intent);
+        Assert.Equal(1, handler.Requests);
+        Assert.True(journal.Reader.TryRead(out var sent));
+        Assert.Equal(request, sent.RequestId);
+        Assert.Equal(operation, sent.EntityId);
+        Assert.True(journal.Reader.TryRead(out var received));
+        using var sentPayload = JsonDocument.Parse(sent.Data);
+        using var receivedPayload = JsonDocument.Parse(received.Data);
+        Assert.Equal(20, receivedPayload.RootElement.GetProperty("fields").GetProperty("inputTokens").GetInt32());
+        Assert.DoesNotContain("dummy-key", sent.Data);
+        if (detailed)
+        {
+            using var wire = JsonDocument.Parse(handler.RequestBody!);
+            var sentMessages = sentPayload.RootElement.GetProperty("detail").GetProperty("messages");
+            Assert.Equal(wire.RootElement.GetProperty("messages").EnumerateArray().Select(message => message.GetProperty("content").GetString()),
+                sentMessages.EnumerateArray().Select(message => message.GetProperty("text").GetString()));
+            Assert.Equal(response, receivedPayload.RootElement.GetProperty("detail").GetProperty("text").GetString());
+        }
+        else
+        {
+            Assert.Equal(JsonValueKind.Null, sentPayload.RootElement.GetProperty("detail").ValueKind);
+            Assert.Equal(JsonValueKind.Null, receivedPayload.RootElement.GetProperty("detail").ValueKind);
+        }
+    }
+
     [Theory]
     [InlineData("{\"Intent\":\"Answer\"}", true)]
     [InlineData("{\"Intent\":\"Answer\",\"TargetId\":\"foreign\"}", false)]

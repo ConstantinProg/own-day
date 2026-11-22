@@ -2,7 +2,10 @@ using OwnDay.Domain;
 
 namespace OwnDay.Application.Learning.Requests;
 
-public sealed record LearningRequestLease(Guid RequestId, Guid Token, UserId UserId, int Attempt);
+public sealed record LearningRequestLease(Guid RequestId, Guid Token, UserId UserId, int Attempt)
+{
+    public DateTime? ReceivedAt { get; init; }
+}
 
 public sealed class LearningAppliedOperation
 {

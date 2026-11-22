@@ -13,6 +13,7 @@ using OwnDay.Domain.Dialogue;
 using OwnDay.Domain.Inbox;
 using OwnDay.Domain.Learning;
 using OwnDay.Domain.Projects;
+using OwnDay.Infrastructure.Diagnostics;
 using OwnDay.Infrastructure.Persistence;
 using Xunit;
 using TaskItem = OwnDay.Domain.Actions.Action;
@@ -92,6 +93,12 @@ public sealed partial class PostgresTesterModeTests
         await SeedPersonalRecordsAsync();
         await PostAsync(client, 3, "Private pending lesson");
         await TesterModeAuthorizationTests.PostAsync(client, 4, "Other pending lesson", Other.Value);
+        await using (var db = Open())
+        {
+            db.AddRange(Event(Guid.NewGuid(), Tester.Value, DateTime.UtcNow, Guid.NewGuid()),
+                Event(Guid.NewGuid(), Other.Value, DateTime.UtcNow, Guid.NewGuid()));
+            await db.SaveChangesAsync();
+        }
 
         var ledger = host.Services.GetRequiredService<IOpenAIRequestLedger>();
         var (lease, attempt) = await BeginProviderAttemptAsync(Tester);
@@ -111,6 +118,7 @@ public sealed partial class PostgresTesterModeTests
             Assert.Equal(2, await rolledBack.Set<LearningRequest>().CountAsync());
             Assert.Equal(2, await rolledBack.OpenAIRequestAttempts.CountAsync());
             Assert.False(await rolledBack.ProcessedTelegramUpdates.AnyAsync(update => update.UpdateId == 7));
+            Assert.Equal(2, await rolledBack.Set<DiagnosticEvent>().CountAsync());
             Assert.True(await rolledBack.TelegramOutboxMessages.AnyAsync(message => message.Text == "Private committed reply"));
             Assert.Equal(TesterModeOperation.DeleteAll, (await rolledBack.Set<TesterModeState>().SingleAsync()).PendingOperation);
             await rolledBack.Database.ExecuteSqlRawAsync("DROP TRIGGER reject_project_delete ON projects");
@@ -122,6 +130,7 @@ public sealed partial class PostgresTesterModeTests
         await using (var cleared = Open())
         {
             await AssertOnlySecondOwnerRemainsAsync(cleared);
+            Assert.Equal(Other.Value, (await cleared.Set<DiagnosticEvent>().SingleAsync()).OwnerId);
             var erased = new EfLearningRequestStore(cleared);
             Assert.False(await erased.ApplyAsync(lease, (_, _) => throw new InvalidOperationException("Erased request ran."), default));
         }

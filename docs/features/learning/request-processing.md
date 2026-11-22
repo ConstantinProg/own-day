@@ -22,6 +22,11 @@ updates acknowledge their existing receipt even while acceptance is paused.
 Worker cancellation is independent of the completed HTTP request token. Queued
 commands remain visible in chat; receipt does not wait for command deletion.
 
+The diagnostic journal links receipt, worker attempts, provider calls, decisions,
+transaction outcomes and outbound delivery using the Learning request ID. Export
+reads the current committed status without waiting for Learning to finish.
+[Diagnostic export](../diagnostics.md)
+
 Payload version 2 binds Answer/Clarify/Explain to the active Lesson at receipt.
 The worker checks this binding before preparation and rechecks target stamps at
 apply. Missing/replaced questions produce an explicit clarification with no
