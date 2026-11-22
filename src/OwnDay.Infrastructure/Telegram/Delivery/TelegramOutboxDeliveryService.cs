@@ -43,15 +43,24 @@ public sealed class TelegramOutboxDeliveryService
         _tester = tester;
     }
 
-    public async Task<BatchProcessingResult> DeliverBatchAsync(CancellationToken cancellationToken)
+    public Task<BatchProcessingResult> DeliverBatchAsync(CancellationToken cancellationToken) =>
+        DeliverBatchAsync(documents: false, cancellationToken);
+
+    internal Task<BatchProcessingResult> DeliverDocumentsAsync(CancellationToken cancellationToken) =>
+        DeliverBatchAsync(documents: true, cancellationToken);
+
+    private async Task<BatchProcessingResult> DeliverBatchAsync(bool documents, CancellationToken cancellationToken)
     {
         var now = _timeProvider.GetUtcNow().UtcDateTime;
         var persistedOrder = _dbContext.Database.IsNpgsql();
+        if (documents && !persistedOrder) return new BatchProcessingResult(false);
         var query = _dbContext.TelegramOutboxMessages
             .Where(message => message.Status == OutboxMessageStatus.Pending &&
+                              (message.DocumentName != null) == documents &&
                               message.NextAttemptAt <= now &&
                               !_dbContext.TelegramOutboxMessages.Any(pending =>
                                   pending.ChatId == message.ChatId && pending.Status == OutboxMessageStatus.Pending &&
+                                  (pending.DocumentName != null) == documents &&
                                   pending.NextAttemptAt > now &&
                                   (persistedOrder ? pending.DeliveryOrder < message.DeliveryOrder :
                                       pending.CreatedAt < message.CreatedAt ||
@@ -86,7 +95,7 @@ public sealed class TelegramOutboxDeliveryService
                 ? await _journal.CaptureAsync(new UserId(owner.Value), id, message.LearningRequestId, null, cancellationToken)
                 : null);
             await using var ownerLock = persistedOrder && owner is { } ownerId
-                ? await OwnerLock.AcquireAsync(_dbContext, ownerId, cancellationToken) : null;
+                ? await OwnerLock.AcquireAsync(_dbContext, ownerId, documents, cancellationToken) : null;
             if (owner is not null)
             {
                 var entry = _dbContext.Entry(message);
@@ -227,16 +236,19 @@ public sealed class TelegramOutboxDeliveryService
         message.LastError = null;
     }
 
-    private sealed class OwnerLock(OwnDayDbContext db, long owner) : IAsyncDisposable
+    private sealed class OwnerLock(OwnDayDbContext db, long owner, bool documents) : IAsyncDisposable
     {
-        public static async Task<OwnerLock> AcquireAsync(OwnDayDbContext db, long owner, CancellationToken token)
+        public static async Task<OwnerLock> AcquireAsync(OwnDayDbContext db, long owner, bool documents, CancellationToken token)
         {
-            // Use the same fence as the Learning writers without holding a DB transaction during Telegram I/O.
+            // Use a session lock so Telegram I/O does not keep a database transaction open.
             await db.Database.OpenConnectionAsync(token);
             try
             {
-                await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_lock({owner})", token);
-                return new(db, owner);
+                if (documents)
+                    await db.Database.ExecuteSqlAsync($"SELECT pg_advisory_lock({DiagnosticFencing.DocumentLockNamespace}, {owner.GetHashCode()})", token);
+                else
+                    await db.Database.ExecuteSqlAsync($"SELECT pg_advisory_lock({owner})", token);
+                return new(db, owner, documents);
             }
             catch
             {
@@ -251,7 +263,10 @@ public sealed class TelegramOutboxDeliveryService
             {
                 // Resource cleanup needs its own short budget even when delivery was cancelled.
                 using var release = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-                await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_unlock({owner})", release.Token);
+                if (documents)
+                    await db.Database.ExecuteSqlAsync($"SELECT pg_advisory_unlock({DiagnosticFencing.DocumentLockNamespace}, {owner.GetHashCode()})", release.Token);
+                else
+                    await db.Database.ExecuteSqlAsync($"SELECT pg_advisory_unlock({owner})", release.Token);
             }
             finally
             {

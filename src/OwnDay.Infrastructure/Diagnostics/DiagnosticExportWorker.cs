@@ -98,7 +98,7 @@ internal sealed class DiagnosticExportWorker(IServiceScopeFactory scopes, IOptio
         foreach (var row in expired)
         {
             await using var transaction = await db.Database.BeginTransactionAsync(token);
-            if (!await db.Database.SqlQuery<bool>($"SELECT pg_try_advisory_xact_lock({row.ChatId}) AS \"Value\"").SingleAsync(token))
+            if (!await db.Database.SqlQuery<bool>($"SELECT pg_try_advisory_xact_lock({DiagnosticFencing.DocumentLockNamespace}, {row.ChatId.GetHashCode()}) AS \"Value\"").SingleAsync(token))
                 continue;
             await db.Set<DiagnosticDocument>().Where(document => document.OutboxId == row.Id).ExecuteDeleteAsync(token);
             await db.TelegramOutboxMessages.Where(message => message.Id == row.Id && message.Status == OutboxMessageStatus.Pending)

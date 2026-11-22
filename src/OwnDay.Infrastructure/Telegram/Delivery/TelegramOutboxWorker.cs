@@ -17,7 +17,10 @@ public sealed class TelegramOutboxWorker(
     private readonly ILogger<TelegramOutboxWorker> _logger = logger ??
         throw new ArgumentNullException(nameof(logger));
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    protected override Task ExecuteAsync(CancellationToken stoppingToken) =>
+        Task.WhenAll(PollAsync(documents: false, stoppingToken), PollAsync(documents: true, stoppingToken));
+
+    private async Task PollAsync(bool documents, CancellationToken stoppingToken)
     {
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -27,7 +30,9 @@ public sealed class TelegramOutboxWorker(
                 var deliveryService = scope.ServiceProvider
                     .GetRequiredService<TelegramOutboxDeliveryService>();
 
-                var result = await deliveryService.DeliverBatchAsync(stoppingToken);
+                var result = documents
+                    ? await deliveryService.DeliverDocumentsAsync(stoppingToken)
+                    : await deliveryService.DeliverBatchAsync(stoppingToken);
                 if (result.IsFullBatch)
                 {
                     continue;
@@ -35,7 +40,8 @@ public sealed class TelegramOutboxWorker(
             }
             catch (Exception exception) when (!stoppingToken.IsCancellationRequested)
             {
-                _logger.LogError("Telegram outbox delivery cycle failed ({ErrorType}).", exception.GetType().Name);
+                _logger.LogError("Telegram outbox delivery cycle failed (Documents: {Documents}, Error: {ErrorType}).",
+                    documents, exception.GetType().Name);
             }
 
             await Task.Delay(PollInterval, _timeProvider, stoppingToken);

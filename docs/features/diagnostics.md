@@ -8,9 +8,9 @@ The journal helps investigate a Telegram request across receipt, Learning, dialo
 | `/export recent` | JSON | Current state and the latest 100 events from the preceding 24 hours, returned in ascending UTC time and event ID order |
 | `/export last` | JSON | The latest user request by receipt time, its retained correlated events and current state. An unfinished request is included at its current status. |
 
-All modes require globally enabled Tester Mode, an authorized tester and that user's private chat. An export accepts no owner argument and skips diagnostic and Tester Mode commands when selecting the last request. An empty request history produces a Telegram message. Only one export can be pending per owner.
+All modes require globally enabled Tester Mode, an authorized tester and that user's private chat. An export accepts no owner argument. Last mode selects from committed Telegram receipts and Learning requests, excluding diagnostic and Tester Mode commands. An empty request history produces a Telegram message. Only one export can be pending per owner.
 
-The webhook commits Telegram update deduplication and the export job together. The export worker runs independently of the Learning queue. It reads the latest committed data using a read-only PostgreSQL `REPEATABLE READ` transaction. It rechecks tester access when publishing the outbox intent and again at delivery. The outbox stores the bounded file in a separate PostgreSQL row and removes its bytes after confirmation, terminal failure, expiry, or tester cleanup. No public URLs or temporary local files are created. Telegram may receive a second copy if its API accepted the first delivery but OwnDay could not save that receipt.
+The webhook commits Telegram update deduplication and the export job together. The export worker runs independently of the Learning queue. It reads the latest committed data using a read-only PostgreSQL `REPEATABLE READ` transaction. It rechecks tester access when publishing the outbox intent and again at delivery. The outbox sends export documents independently of ordinary replies, with a separate lock that synchronizes document delivery with Tester Mode cleanup. It stores the bounded file in a separate PostgreSQL row and removes its bytes after confirmation, terminal failure, expiry, or tester cleanup. No public URLs or temporary local files are created. Telegram may receive a second copy if its API accepted the first delivery but OwnDay could not save that receipt.
 
 ## Capture and retention
 
@@ -34,6 +34,8 @@ The buffer is process local and bounded. A separate writer stores batches and ba
 Useful event codes include `request_received`, `request_queued`, `request_claimed`, `request_reclaimed`, `decision_proposed`, `decision_rejected`, `state_change_proposed`, `state_change_committed`, `state_change_rolled_back`, `commit_outcome_unknown`, `llm_call_started`, `llm_response_parsed`, `llm_validation_failed`, `provider_retry_scheduled`, `reply_formed`, `outbox_committed`, `outbox_claimed`, `telegram_send_started`, `telegram_api_acknowledged` and `telegram_retry_scheduled`. Telegram acknowledgement denotes API acceptance. Learning completion denotes a committed outcome and may be a rejection or failure. Queue wait is elapsed time between receipt and claim. Stage execution uses a monotonic clock.
 
 Start an investigation with `/export last`. Match the receipt and current request status using its ID. Follow the attempt numbers and provider invocation IDs across retries and correlate the decision with the transaction outcome. Use the outbox message ID to trace delivery through the Telegram API acknowledgement. If the timeline has gaps, consult the current snapshot and its completeness statuses. Use `/export recent` when the incident spans multiple requests.
+
+New provider failures during subject diagnostics are recorded as `diagnostic_provider_unavailable`. Older `diagnostic_reply` outcomes may include provider failures because those requests used the same outcome code for both results.
 
 ## Deployment and limits
 

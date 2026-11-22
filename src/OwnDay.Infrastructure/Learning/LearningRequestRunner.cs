@@ -438,7 +438,7 @@ public sealed partial class LearningRequestRunner(IServiceScopeFactory scopes, I
             }
             session.EnsureComplete();
             var russian = MarketLearningContent.InRussian(program?.Goal ?? turn.Text);
-            return new("diagnostic_reply")
+            return new(result is CurriculumResult.ProviderUnavailable ? "diagnostic_provider_unavailable" : "diagnostic_reply")
                 { Replies = Introduce(introduce, TelegramCurriculumPresenter.Render(result, russian), !russian) };
         }
         if (operation is DialogueOperationKind.SwitchProgram or DialogueOperationKind.SwitchGoal or DialogueOperationKind.SwitchGoalWithCriterion or

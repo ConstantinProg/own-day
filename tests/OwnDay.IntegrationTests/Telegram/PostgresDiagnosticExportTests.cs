@@ -62,7 +62,7 @@ public sealed partial class PostgresTesterModeTests
         {
             UserId = Tester, ChatId = Tester.Value, Sequence = 1, SourceKey = "test:completed", SourceUpdateId = 401,
             NormalizedInput = "{}", Status = LearningRequestStatus.Completed, ReceivedAt = now.AddMinutes(-3),
-            AvailableAt = now.AddMinutes(-3), CompletedAt = now.AddMinutes(-1)
+            AvailableAt = now.AddMinutes(-3), CompletedAt = now.AddMinutes(-1), Outcome = "diagnostic_provider_unavailable"
         };
         var ids = Enumerable.Range(1, 103).Select(i => new Guid(i, 0, 0, new byte[8])).ToArray();
         await using (var db = Open())
@@ -85,8 +85,10 @@ public sealed partial class PostgresTesterModeTests
             var rows = json.RootElement.GetProperty("timeline").EnumerateArray().ToArray();
             Assert.Equal(100, rows.Length);
             Assert.Equal(ids.Skip(3), rows.Select(row => row.GetProperty("id").GetGuid()));
-            Assert.Equal(1, json.RootElement.GetProperty("summary").GetProperty("currentState").GetProperty("requests")
-                .GetProperty("pendingRequests").GetInt32());
+            var counts = json.RootElement.GetProperty("summary").GetProperty("currentState").GetProperty("requests");
+            Assert.Equal(1, counts.GetProperty("pendingRequests").GetInt32());
+            Assert.Equal(1, counts.GetProperty("failedRequests").GetInt32());
+            Assert.Equal(0, counts.GetProperty("successfulRequests").GetInt32());
         }
         var last = await reader.BuildAsync(Job(DiagnosticExportMode.Last), default);
         using (var json = JsonDocument.Parse(last.Bytes!))
@@ -112,7 +114,7 @@ public sealed partial class PostgresTesterModeTests
     }
 
     [Fact]
-    public async Task Post_DuplicateDelivery_QueuesOnceAndDocumentSurvivesWorkerRestartAndSendRetry()
+    public async Task Post_DuplicateExport_QueuesOnceAndDoesNotBlockRepliesDuringUploadOrBackoff()
     {
         using var host = Host();
         using var client = host.CreateClient();
@@ -138,23 +140,49 @@ public sealed partial class PostgresTesterModeTests
         {
             var db = attempt.ServiceProvider.GetRequiredService<OwnDayDbContext>();
             var delivery = ActivatorUtilities.CreateInstance<TelegramOutboxDeliveryService>(attempt.ServiceProvider, sender);
-            await delivery.DeliverBatchAsync(default);
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            var upload = delivery.DeliverDocumentsAsync(deadline.Token);
+            try
+            {
+                await sender.Started.Task.WaitAsync(deadline.Token);
+                await PostAsync(restartedClient, 502, "/version").WaitAsync(deadline.Token);
+                await DeliverRepliesAsync(restarted.Services, sender, deadline.Token);
+                Assert.Contains(sender.Messages, text => text.StartsWith("OwnDay ", StringComparison.Ordinal));
+            }
+            finally
+            {
+                sender.Resume.TrySetResult();
+                await upload;
+            }
             var pending = await db.TelegramOutboxMessages.SingleAsync(row => row.DocumentName != null);
             Assert.Equal(1, pending.AttemptCount);
             Assert.True(await db.Set<DiagnosticDocument>().AnyAsync());
+            // Force a long backoff so the reply is tested independently of the wall clock.
+            pending.NextAttemptAt = DateTime.UtcNow.AddMinutes(5);
+            await db.SaveChangesAsync();
+            await PostAsync(restartedClient, 503, "/version");
+            await DeliverRepliesAsync(restarted.Services, sender, deadline.Token);
+            Assert.Equal(2, sender.Messages.Count(text => text.StartsWith("OwnDay ", StringComparison.Ordinal)));
             pending.NextAttemptAt = DateTime.UtcNow.AddSeconds(-1);
             await db.SaveChangesAsync();
         }
         await using (var attempt = restarted.Services.CreateAsyncScope())
         {
             var delivery = ActivatorUtilities.CreateInstance<TelegramOutboxDeliveryService>(attempt.ServiceProvider, sender);
-            await delivery.DeliverBatchAsync(default);
+            await delivery.DeliverDocumentsAsync(default);
         }
         Assert.Equal(2, sender.Calls);
         Assert.Equal(Tester.Value, sender.ChatId);
         await using var after = Open();
         Assert.Empty(await after.Set<DiagnosticDocument>().ToListAsync());
         Assert.Equal(OutboxMessageStatus.Sent, (await after.TelegramOutboxMessages.SingleAsync(row => row.DocumentName != null)).Status);
+    }
+
+    private static async Task DeliverRepliesAsync(IServiceProvider services, ExportSender sender, CancellationToken token)
+    {
+        await using var scope = services.CreateAsyncScope();
+        var delivery = ActivatorUtilities.CreateInstance<TelegramOutboxDeliveryService>(scope.ServiceProvider, sender);
+        await delivery.DeliverBatchAsync(token);
     }
 
     [Fact]
@@ -360,6 +388,38 @@ public sealed partial class PostgresTesterModeTests
     }
 
     [Fact]
+    public async Task BuildAsync_LastAfterFailedReceipt_SelectsCommittedUpdate()
+    {
+        using var host = Host();
+        using var client = host.CreateClient();
+        await AuthorizeAsync(client);
+        await PostAsync(client, 900, "/version");
+        host.Services.GetRequiredService<IOptions<LearningRequestProcessingOptions>>().Value.AcceptancePaused = true;
+        await TesterModeAuthorizationTests.PostAsync(client, 901, "Unaccepted learning request",
+            status: System.Net.HttpStatusCode.InternalServerError);
+
+        var journal = host.Services.GetRequiredService<DiagnosticJournal>();
+        var events = new List<DiagnosticEvent>();
+        while (journal.Reader.TryRead(out var row)) events.Add(row);
+        var failed = Assert.Single(events, row => row.Code == "ingress_failed");
+        using var writer = ActivatorUtilities.CreateInstance<DiagnosticWriter>(host.Services);
+        Assert.True(await writer.WriteAsync(Tester.Value, [.. events], default));
+
+        await using var scope = host.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
+        var accepted = await db.ProcessedTelegramUpdates.SingleAsync(row => row.UpdateId == 900);
+        Assert.False(await db.ProcessedTelegramUpdates.AnyAsync(row => row.UpdateId == 901));
+        var result = await scope.ServiceProvider.GetRequiredService<DiagnosticExportReader>()
+            .BuildAsync(Job(DiagnosticExportMode.Last), default);
+        using var json = JsonDocument.Parse(result.Bytes!);
+        var metadata = json.RootElement.GetProperty("metadata");
+        Assert.Equal(accepted.DiagnosticCorrelationId, metadata.GetProperty("correlationId").GetGuid());
+        Assert.Null(metadata.GetProperty("requestId").GetString());
+        Assert.DoesNotContain(json.RootElement.GetProperty("timeline").EnumerateArray(),
+            row => row.GetProperty("correlationId").GetGuid() == failed.CorrelationId);
+    }
+
+    [Fact]
     public async Task Post_FailedReceiptAndRedelivery_RetainsOneCorrelationAcrossAttempts()
     {
         using var host = Host();
@@ -396,11 +456,17 @@ public sealed partial class PostgresTesterModeTests
 
     private sealed class ExportSender : ITelegramMessageSender
     {
+        public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Resume { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public List<string> Messages { get; } = [];
         public int Calls { get; private set; }
         public long ChatId { get; private set; }
 
-        public Task SendMessageAsync(long chatId, string text, string? replyMarkupJson, CancellationToken cancellationToken = default) =>
-            Task.CompletedTask;
+        public Task SendMessageAsync(long chatId, string text, string? replyMarkupJson, CancellationToken cancellationToken = default)
+        {
+            Messages.Add(text);
+            return Task.CompletedTask;
+        }
 
         public async Task SendDocumentAsync(long chatId, Stream content, string name, CancellationToken cancellationToken)
         {
@@ -410,7 +476,12 @@ public sealed partial class PostgresTesterModeTests
             var header = new byte[2];
             await content.ReadExactlyAsync(header, cancellationToken);
             Assert.Equal(new byte[] { 0x50, 0x4b }, header);
-            if (Calls == 1) throw new HttpRequestException();
+            if (Calls == 1)
+            {
+                Started.SetResult();
+                await Resume.Task.WaitAsync(cancellationToken);
+                throw new HttpRequestException();
+            }
         }
     }
 

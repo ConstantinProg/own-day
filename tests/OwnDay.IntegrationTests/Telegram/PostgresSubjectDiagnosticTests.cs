@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using OwnDay.Application.Learning;
+using OwnDay.Application.Learning.Requests;
 using OwnDay.Domain.Dialogue;
 using OwnDay.Domain.Learning;
 using Xunit;
@@ -8,6 +9,28 @@ namespace OwnDay.IntegrationTests.Telegram;
 
 public sealed partial class PostgresLearningProviderTests
 {
+    [Fact]
+    public async Task Post_SubjectDiagnosticProviderUnavailable_PersistsFailureOutcome()
+    {
+        var probe = new Probe("")
+        {
+            Plan = request => request.Question is null
+                ? new("TypeScript", [new("types", "Type narrowing", [])], "Чем union отличается от intersection?")
+                : throw new LessonProviderException(LessonProviderFailure.Unavailable)
+        };
+        using var host = ConsultationHost(probe);
+        using var client = host.CreateClient();
+        string[] turns = ["Хочу изучить TypeScript", "Типизировать обработчики событий", "Начинаю с нуля",
+            "давай", "Union допускает один из типов"];
+        for (var index = 0; index < turns.Length; index++)
+            await SendEnglishAsync(client, index + 1, turns[index]);
+
+        await using var db = Open();
+        var request = await db.Set<LearningRequest>().SingleAsync(row => row.SourceUpdateId == turns.Length);
+        Assert.Equal(LearningRequestStatus.Completed, request.Status);
+        Assert.Equal("diagnostic_provider_unavailable", request.Outcome);
+    }
+
     [Theory]
     [InlineData("Очень смутно", false)]
     [InlineData("Что-то слышал", true)]

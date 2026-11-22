@@ -393,6 +393,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         if (result is null) return false;
         if (result.Result == TesterModeResult.Revoked && _dbContext.Database.IsNpgsql())
         {
+            await DiagnosticFencing.LockDocumentsAsync(_dbContext, user.Value, token);
             await DiagnosticFencing.AdvanceAsync(_dbContext, user.Value, clearHistory: false, token);
             await _dbContext.Set<DiagnosticExportJob>().Where(job => job.OwnerId == user.Value).ExecuteDeleteAsync(token);
             await _dbContext.TelegramOutboxMessages.Where(message => message.ChatId == user.Value &&

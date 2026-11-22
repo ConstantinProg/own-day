@@ -41,42 +41,14 @@ internal sealed partial class DiagnosticExportReader(OwnDayDbContext db, TesterM
         var requests = db.Set<LearningRequest>().AsNoTracking().Where(row => row.UserId == owner);
         var events = db.Set<DiagnosticEvent>().AsNoTracking().Where(row => row.OwnerId == owner.Value &&
             row.OccurredAt >= cutoff && row.OccurredAt <= now);
-        Guid? lastRequest = null;
-        Guid? lastCorrelation = null;
-        if (job.Mode == DiagnosticExportMode.Last)
-        {
-            var acceptedUpdates = db.ProcessedTelegramUpdates.AsNoTracking()
-                .Where(row => row.DiagnosticOwnerId == owner.Value && row.DiagnosticCorrelationId != null);
-            var acceptedUpdate = await acceptedUpdates.OrderByDescending(row => row.ReceivedAt).ThenByDescending(row => row.UpdateId)
-                .Select(row => new { Correlation = row.DiagnosticCorrelationId!.Value, row.ReceivedAt }).FirstOrDefaultAsync(token);
-            var receipt = await requests.Where(row => !acceptedUpdates.Any(update => update.DiagnosticCorrelationId == row.Id))
-                .OrderByDescending(row => row.ReceivedAt).ThenByDescending(row => row.Sequence)
-                .Select(row => new { row.Id, row.ReceivedAt }).FirstOrDefaultAsync(token);
-            var ingress = await events.Where(row => row.Code == "request_received")
-                .OrderByDescending(row => row.OccurredAt).ThenByDescending(row => row.Id)
-                .Select(row => new { row.CorrelationId, row.RequestId, row.OccurredAt }).FirstOrDefaultAsync(token);
-            var received = DateTime.MinValue;
-            if (receipt is not null)
-            {
-                lastRequest = receipt.Id;
-                lastCorrelation = receipt.Id;
-                received = receipt.ReceivedAt;
-            }
-            if (acceptedUpdate is not null && acceptedUpdate.ReceivedAt >= received)
-            {
-                lastCorrelation = acceptedUpdate.Correlation;
-                lastRequest = await requests.Where(row => row.Id == acceptedUpdate.Correlation)
-                    .Select(row => (Guid?)row.Id).SingleOrDefaultAsync(token);
-                received = acceptedUpdate.ReceivedAt;
-            }
-            if (ingress is not null && ingress.OccurredAt > received)
-            {
-                lastRequest = ingress.RequestId;
-                lastCorrelation = ingress.CorrelationId;
-            }
-            if (lastCorrelation is null) return new(null, null, "no_requests");
-            events = events.Where(row => row.CorrelationId == lastCorrelation || lastRequest != null && row.RequestId == lastRequest);
-        }
+        var receipt = job.Mode == DiagnosticExportMode.Last
+            ? await FindLastReceiptAsync(owner, requests, token)
+            : null;
+        if (job.Mode == DiagnosticExportMode.Last && receipt is null)
+            return new(null, null, "no_requests");
+        if (receipt is not null)
+            events = events.Where(row => row.CorrelationId == receipt.CorrelationId ||
+                receipt.RequestId != null && row.RequestId == receipt.RequestId);
         if (job.Mode == DiagnosticExportMode.Recent)
             events = events.OrderByDescending(row => row.OccurredAt).ThenByDescending(row => row.Id).Take(100);
 
@@ -87,104 +59,126 @@ internal sealed partial class DiagnosticExportReader(OwnDayDbContext db, TesterM
             using var zip = new ZipArchive(cappedOutput, ZipArchiveMode.Create, leaveOpen: true);
             await using var entry = zip.CreateEntry("diagnostics.json", CompressionLevel.Fastest).Open();
             using var cappedJson = new DiagnosticLimitedStream(entry, options.Value.MaxExportBytes);
-            await WriteAsync(cappedJson);
+            await WriteDocumentAsync(cappedJson, transaction, job.Mode, owner, now, cutoff, receipt, requests, events, token);
         }
         else
         {
-            await WriteAsync(cappedOutput);
+            await WriteDocumentAsync(cappedOutput, transaction, job.Mode, owner, now, cutoff, receipt, requests, events, token);
         }
         await transaction.CommitAsync(token);
         return new(job.Mode == DiagnosticExportMode.Full ? "ownday-diagnostics.zip" : "ownday-diagnostics.json", output.ToArray());
-
-        async Task WriteAsync(Stream stream)
-        {
-            var completeness = new SortedDictionary<string, Section>(StringComparer.Ordinal);
-            var summary = new TimelineSummary();
-            using var writer = new Utf8JsonWriter(stream);
-            writer.WriteStartObject();
-            Property(writer, "metadata", new
-            {
-                schemaVersion = 1, mode = job.Mode, snapshotAtUtc = now, historyFromUtc = cutoff,
-                historyToUtc = now, ownerId = owner.Value, applicationVersion = version.Version, version.CommitSha,
-                requestId = lastRequest, correlationId = lastCorrelation
-            });
-
-            writer.WriteStartObject("snapshot");
-            var requestSlice = job.Mode == DiagnosticExportMode.Last ? requests.Where(row => row.Id == lastRequest) : requests;
-            await WriteSnapshotAsync(writer, transaction, completeness, owner, requestSlice, lastCorrelation, token);
-            writer.WriteEndObject();
-
-            await RowsAsync(writer, transaction, completeness, "timeline", events.OrderBy(row => row.OccurredAt).ThenBy(row => row.Id),
-                row =>
-                {
-                    summary.Count(row);
-                    return new
-                    {
-                        row.Id, row.OwnerId, row.OccurredAt, row.Category, row.Code, row.Severity, row.CorrelationId,
-                        operationId = row.Category == "llm" ? row.EntityId : row.RequestId ?? row.CorrelationId,
-                        row.RequestId, row.AttemptNumber, row.EntityId, row.SchemaVersion, row.Detail,
-                        data = JsonSerializer.Deserialize<JsonElement>(row.Data)
-                    };
-                }, token);
-
-            await ValueAsync(writer, transaction, completeness, "configuration", async () =>
-            {
-                var schema = (await db.Database.GetAppliedMigrationsAsync(token)).LastOrDefault();
-                return new
-                {
-                    environment = text.Filter(environment.EnvironmentName), databaseSchema = schema, testerMode = tester.Enabled,
-                    llm = new { provider = "openai", provider.Value.Enabled, model = text.Filter(provider.Value.Model),
-                        provider.Value.MaxOutputTokens, provider.Value.MaxInputUtf8Bytes, provider.Value.TimeoutSeconds,
-                        provider.Value.EffectiveReasoningEffort,
-                        budget = new { budget.Value.MonthlyUsdLimit, budget.Value.TokensPerRequest, budget.Value.MonthlyTokenLimit,
-                            budget.Value.MonthlyUserTokenLimit, budget.Value.MonthlyCallLimit, budget.Value.MonthlyUserCallLimit,
-                            budget.Value.TokenLimit } },
-                    learning = new
-                    {
-                        learning.Value.Enabled, learning.Value.DurableIngressEnabled, learning.Value.DialogueEnabled,
-                        learning.Value.ConsultationEnabled, learning.Value.PracticeEnabled, learning.Value.EnglishDiagnosticEnabled,
-                        learning.Value.ProgramSwitchEnabled, learning.Value.AcceptancePaused, learning.Value.MaxQueueAgeSeconds,
-                        learning.Value.Parallelism, learning.Value.PollMilliseconds, learning.Value.LeaseSeconds,
-                        learning.Value.MaxAttempts, learning.Value.ProviderTimeoutSeconds, learning.Value.MaxProviderAttempts
-                    },
-                    telegram = new { transport = "webhook", exportChat = "private", documentTimeoutSeconds = 30, documentAttempts = 3 },
-                    diagnostics = new { options.Value.QueueCapacity, options.Value.BatchSize, options.Value.MaxExportBytes,
-                        options.Value.ExportTimeoutSeconds, options.Value.DocumentLifetimeMinutes, retentionDays = DiagnosticOptions.RetentionDays }
-                };
-            }, token);
-
-            writer.WriteStartObject("summary");
-            await ValueAsync(writer, transaction, completeness, "currentState", async () =>
-            {
-                var dialogue = await db.Set<DialogueContext>().AsNoTracking().SingleOrDefaultAsync(row => row.UserId == owner, token);
-                return new
-                {
-                    requests = await RequestCountsAsync(requests, token),
-                    incompleteDialogues = dialogue is { ExpectedResponse: not DialogueExpectedResponse.None } ? 1 : 0,
-                    pendingConfirmations = dialogue?.PendingConfirmation is null ? 0 : 1
-                };
-            }, token);
-            await ValueAsync(writer, transaction, completeness, "requestCohort", async () =>
-                await RequestCountsAsync(requestSlice.Where(row => row.ReceivedAt >= cutoff && row.ReceivedAt <= now), token), token);
-            Property(writer, "selectedTimeline", summary);
-            await ValueAsync(writer, transaction, completeness, "loss", async () =>
-            {
-                var generation = await db.Set<DiagnosticFence>().AsNoTracking().Where(row => row.OwnerId == owner.Value)
-                    .Select(row => (Guid?)row.Generation).SingleOrDefaultAsync(token) ?? Guid.Empty;
-                return new { observed = journal.ObservedLosses(owner.Value, generation), scope = "owner_on_this_process_at_serialization" };
-            }, token);
-            Property(writer, "incompleteSections", completeness.Where(pair => pair.Value.Status != "complete").Select(pair => pair.Key).ToArray());
-            writer.WriteEndObject();
-            Property(writer, "completeness", new
-            {
-                sections = completeness,
-                journal = new { status = "partial", code = "asynchronous_best_effort",
-                    reason = "Only events committed at snapshot time are included. Buffering, restart, or overload can leave gaps." }
-            });
-            writer.WriteEndObject();
-            await writer.FlushAsync(token);
-        }
     }
+
+    private async Task<ExportReceipt?> FindLastReceiptAsync(UserId owner, IQueryable<LearningRequest> requests,
+        CancellationToken token)
+    {
+        var acceptedUpdates = db.ProcessedTelegramUpdates.AsNoTracking()
+            .Where(row => row.DiagnosticOwnerId == owner.Value && row.DiagnosticCorrelationId != null && row.ProcessedAt != null);
+        var acceptedUpdate = await acceptedUpdates.OrderByDescending(row => row.ReceivedAt).ThenByDescending(row => row.UpdateId)
+            .Select(row => new { Correlation = row.DiagnosticCorrelationId!.Value, row.ReceivedAt }).FirstOrDefaultAsync(token);
+        var legacyReceipt = await requests.Where(row => !acceptedUpdates.Any(update => update.DiagnosticCorrelationId == row.Id))
+            .OrderByDescending(row => row.ReceivedAt).ThenByDescending(row => row.Sequence)
+            .Select(row => new { row.Id, row.ReceivedAt }).FirstOrDefaultAsync(token);
+        if (acceptedUpdate is null || legacyReceipt is not null && legacyReceipt.ReceivedAt > acceptedUpdate.ReceivedAt)
+            return legacyReceipt is null ? null : new(legacyReceipt.Id, legacyReceipt.Id);
+
+        var requestId = await requests.Where(row => row.Id == acceptedUpdate.Correlation)
+            .Select(row => (Guid?)row.Id).SingleOrDefaultAsync(token);
+        return new(acceptedUpdate.Correlation, requestId);
+    }
+
+    private async Task WriteDocumentAsync(Stream stream, IDbContextTransaction transaction, DiagnosticExportMode mode,
+        UserId owner, DateTime now, DateTime cutoff, ExportReceipt? receipt, IQueryable<LearningRequest> requests,
+        IQueryable<DiagnosticEvent> events, CancellationToken token)
+    {
+        var completeness = new SortedDictionary<string, Section>(StringComparer.Ordinal);
+        var summary = new TimelineSummary();
+        using var writer = new Utf8JsonWriter(stream);
+        writer.WriteStartObject();
+        Property(writer, "metadata", new
+        {
+            schemaVersion = 1, mode, snapshotAtUtc = now, historyFromUtc = cutoff,
+            historyToUtc = now, ownerId = owner.Value, applicationVersion = version.Version, version.CommitSha,
+            requestId = receipt?.RequestId, correlationId = receipt?.CorrelationId
+        });
+
+        writer.WriteStartObject("snapshot");
+        var requestSlice = receipt is null ? requests : requests.Where(row => row.Id == receipt.RequestId);
+        await WriteSnapshotAsync(writer, transaction, completeness, owner, requestSlice, receipt?.CorrelationId, token);
+        writer.WriteEndObject();
+
+        await RowsAsync(writer, transaction, completeness, "timeline", events.OrderBy(row => row.OccurredAt).ThenBy(row => row.Id),
+            row =>
+            {
+                summary.Count(row);
+                return new
+                {
+                    row.Id, row.OwnerId, row.OccurredAt, row.Category, row.Code, row.Severity, row.CorrelationId,
+                    operationId = row.Category == "llm" ? row.EntityId : row.RequestId ?? row.CorrelationId,
+                    row.RequestId, row.AttemptNumber, row.EntityId, row.SchemaVersion, row.Detail,
+                    data = JsonSerializer.Deserialize<JsonElement>(row.Data)
+                };
+            }, token);
+
+        await ValueAsync(writer, transaction, completeness, "configuration", async () =>
+        {
+            var schema = (await db.Database.GetAppliedMigrationsAsync(token)).LastOrDefault();
+            return new
+            {
+                environment = text.Filter(environment.EnvironmentName), databaseSchema = schema, testerMode = tester.Enabled,
+                llm = new { provider = "openai", provider.Value.Enabled, model = text.Filter(provider.Value.Model),
+                    provider.Value.MaxOutputTokens, provider.Value.MaxInputUtf8Bytes, provider.Value.TimeoutSeconds,
+                    provider.Value.EffectiveReasoningEffort,
+                    budget = new { budget.Value.MonthlyUsdLimit, budget.Value.TokensPerRequest, budget.Value.MonthlyTokenLimit,
+                        budget.Value.MonthlyUserTokenLimit, budget.Value.MonthlyCallLimit, budget.Value.MonthlyUserCallLimit,
+                        budget.Value.TokenLimit } },
+                learning = new
+                {
+                    learning.Value.Enabled, learning.Value.DurableIngressEnabled, learning.Value.DialogueEnabled,
+                    learning.Value.ConsultationEnabled, learning.Value.PracticeEnabled, learning.Value.EnglishDiagnosticEnabled,
+                    learning.Value.ProgramSwitchEnabled, learning.Value.AcceptancePaused, learning.Value.MaxQueueAgeSeconds,
+                    learning.Value.Parallelism, learning.Value.PollMilliseconds, learning.Value.LeaseSeconds,
+                    learning.Value.MaxAttempts, learning.Value.ProviderTimeoutSeconds, learning.Value.MaxProviderAttempts
+                },
+                telegram = new { transport = "webhook", exportChat = "private", documentTimeoutSeconds = 30, documentAttempts = 3 },
+                diagnostics = new { options.Value.QueueCapacity, options.Value.BatchSize, options.Value.MaxExportBytes,
+                    options.Value.ExportTimeoutSeconds, options.Value.DocumentLifetimeMinutes, retentionDays = DiagnosticOptions.RetentionDays }
+            };
+        }, token);
+
+        writer.WriteStartObject("summary");
+        await ValueAsync(writer, transaction, completeness, "currentState", async () =>
+        {
+            var dialogue = await db.Set<DialogueContext>().AsNoTracking().SingleOrDefaultAsync(row => row.UserId == owner, token);
+            return new
+            {
+                requests = await RequestCountsAsync(requests, token),
+                incompleteDialogues = dialogue is { ExpectedResponse: not DialogueExpectedResponse.None } ? 1 : 0,
+                pendingConfirmations = dialogue?.PendingConfirmation is null ? 0 : 1
+            };
+        }, token);
+        await ValueAsync(writer, transaction, completeness, "requestCohort", async () =>
+            await RequestCountsAsync(requestSlice.Where(row => row.ReceivedAt >= cutoff && row.ReceivedAt <= now), token), token);
+        Property(writer, "selectedTimeline", summary);
+        await ValueAsync(writer, transaction, completeness, "loss", async () =>
+        {
+            var generation = await db.Set<DiagnosticFence>().AsNoTracking().Where(row => row.OwnerId == owner.Value)
+                .Select(row => (Guid?)row.Generation).SingleOrDefaultAsync(token) ?? Guid.Empty;
+            return new { observed = journal.ObservedLosses(owner.Value, generation), scope = "owner_on_this_process_at_serialization" };
+        }, token);
+        Property(writer, "incompleteSections", completeness.Where(pair => pair.Value.Status != "complete").Select(pair => pair.Key).ToArray());
+        writer.WriteEndObject();
+        Property(writer, "completeness", new
+        {
+            sections = completeness,
+            journal = new { status = "partial", code = "asynchronous_best_effort",
+                reason = "Only events committed at snapshot time are included. Buffering, restart, or overload can leave gaps." }
+        });
+        writer.WriteEndObject();
+        await writer.FlushAsync(token);
+    }
+
+    private sealed record ExportReceipt(Guid CorrelationId, Guid? RequestId);
 
     private static async Task<RequestCounts> RequestCountsAsync(IQueryable<LearningRequest> requests, CancellationToken token)
     {

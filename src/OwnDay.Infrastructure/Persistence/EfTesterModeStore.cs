@@ -53,6 +53,7 @@ public sealed class EfTesterModeStore(OwnDayDbContext db, ICurriculumStore curri
         if (db.Database.CurrentTransaction is null)
             throw new InvalidOperationException("Tester Mode data removal requires the Telegram owner transaction.");
 
+        await DiagnosticFencing.LockDocumentsAsync(db, userId.Value, cancellationToken);
         await EfOpenAIRequestLedger.PreserveOwnerChargesAsync(db, userId.Value, cancellationToken);
         await ClearRequestsAndRepliesAsync(userId, cancellationToken);
         await ClearLearningAsync(userId, cancellationToken);

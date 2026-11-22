@@ -7,6 +7,13 @@ internal static class DiagnosticFencing
 {
     // The two-key namespace is separate from the single-key business locks.
     internal const int LockNamespace = 18763;
+    internal const int DocumentLockNamespace = 18764;
+
+    internal static async Task LockDocumentsAsync(OwnDayDbContext db, long owner, CancellationToken token)
+    {
+        if (db.Database.IsNpgsql())
+            await db.Database.ExecuteSqlAsync($"SELECT pg_advisory_xact_lock({DocumentLockNamespace}, {owner.GetHashCode()})", token);
+    }
 
     internal static async Task AdvanceAsync(OwnDayDbContext db, long owner, bool clearHistory, CancellationToken token)
     {
