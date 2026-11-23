@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
+using OwnDay.Application.Settings;
 using OwnDay.Application.TesterMode;
 using OwnDay.Infrastructure.Diagnostics;
 using OwnDay.Infrastructure.Persistence;
@@ -99,6 +100,9 @@ public static class TelegramServiceCollectionExtensions
         services.AddScoped<TelegramActionCommandHandler>();
         services.AddScoped<TelegramStructuredCommandHandler>();
         services.AddScoped<TelegramLanguageFlow>();
+        services.AddScoped<EfUserLanguageStore>();
+        services.AddScoped<IUserLanguageStore>(provider => provider.GetRequiredService<EfUserLanguageStore>());
+        services.AddScoped<UserLanguageSettings>();
         services.AddSingleton<TelegramUpdateRouter>();
 
         services.AddScoped<OwnDay.Application.Learning.ILessonStore, OwnDay.Infrastructure.Persistence.EfLessonStore>();

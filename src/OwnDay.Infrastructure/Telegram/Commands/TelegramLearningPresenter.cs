@@ -5,22 +5,25 @@ namespace OwnDay.Infrastructure.Telegram.Commands;
 
 public static class TelegramLearningPresenter
 {
-    public static IReadOnlyList<TelegramLearningReply> Render(LearningResult result, bool inRussian = false) => result switch
+    public static IReadOnlyList<TelegramLearningReply> Render(LearningResult result, bool? inRussian = null) =>
+        Render(result, inRussian ?? false, inRussian);
+
+    private static IReadOnlyList<TelegramLearningReply> Render(LearningResult result, bool inRussian, bool? preferredRussian) => result switch
     {
-        LearningResult.Material material => RenderMaterial(material),
-        LearningResult.Assessment assessment => [TelegramLearningReply.WithActions(RenderAnswer(assessment),
-            LearningActionProvider.ForAssessment(assessment.LessonId, assessment.Continuation), assessment.InRussian),
+        LearningResult.Material material => RenderMaterial(material, preferredRussian),
+        LearningResult.Assessment assessment => [TelegramLearningReply.WithActions(RenderAnswer(assessment, inRussian: preferredRussian),
+            LearningActionProvider.ForAssessment(assessment.LessonId, assessment.Continuation), preferredRussian ?? assessment.InRussian),
             .. assessment.IndependentPracticeSkillId is not null && assessment.Continuation is not LearningContinuation.Practice
-                ? new[] { assessment.InRussian ? "Для самостоятельной проверки напишите «ещё задание»."
+                ? new[] { (preferredRussian ?? assessment.InRussian) ? "Для самостоятельной проверки напишите «ещё задание»."
                     : "Write “another exercise” to try it on your own." } : Array.Empty<string>(),
-            .. assessment.ProjectActionId is long actionId ? new[] { ProjectPracticeNotice(actionId, assessment.InRussian) } : Array.Empty<string>()],
+            .. assessment.ProjectActionId is long actionId ? new[] { ProjectPracticeNotice(actionId, preferredRussian ?? assessment.InRussian) } : Array.Empty<string>()],
         LearningResult.InvalidTopic => [inRussian ? "Укажите тему занятия длиной до 500 символов." : "Enter a lesson topic of up to 500 characters."],
         LearningResult.InvalidAnswer => [inRussian ? "Напишите ответ длиной до 3000 символов." : "Write an answer of up to 3000 characters."],
         LearningResult.NoActiveLesson => [inRussian ? "Сейчас нет открытого упражнения. Напишите «Продолжим»." : "There is no open exercise. Write “continue” to get started."],
         LearningResult.ProviderUnavailable => [inRussian ? "Подготовить ответ пока не удалось. Повторите запрос чуть позже."
             : "I couldn't prepare a response. Try again in a moment."],
-        LearningResult.Session session => RenderSession(session),
-        LearningResult.Explanation explanation => RenderExplanation(explanation),
+        LearningResult.Session session => RenderSession(session, preferredRussian),
+        LearningResult.Explanation explanation => RenderExplanation(explanation, preferredRussian),
         LearningResult.AssessmentClarification clarification => [TelegramLearningReply.WithActions(inRussian
             ? (clarification.PartiallyCorrect ? "Часть ответа верна. " : "") + "Уточните оставшуюся часть задания.\n" + clarification.Criterion
             : (clarification.PartiallyCorrect ? "Part of your answer is correct. " : "") + "Clarify the remaining part.\n" + clarification.Criterion,
@@ -37,51 +40,53 @@ public static class TelegramLearningPresenter
             : "We'll keep the current format for this check. You can ask for an example or give as short an answer as the question allows."],
         LearningResult.ConceptReply concept => [concept.Text, .. SourceNotice(concept.Provenance, inRussian)],
         LearningResult.Finished => [inRussian ? "Упражнение завершено без оценки." : "Lesson finished without an assessment."],
-        LearningResult.SkillNotFound => ["Skill not found. /learn_skills"],
-        LearningResult.ReviewNotDue => ["This skill has no review due yet. /learn_reviews or /learn_status <skill id>"],
-        LearningResult.ReviewDeferred deferred => [$"Review rescheduled to {deferred.DueAt:O} (UTC). No assessment or penalty. /learn_reviews"],
-        LearningResult.ChoiceReply choice => RenderChoiceReply(choice),
+        LearningResult.SkillNotFound => [inRussian ? "Навык не найден. /learn_skills" : "Skill not found. /learn_skills"],
+        LearningResult.ReviewNotDue => [inRussian ? "Срок повторения этого навыка ещё не наступил. /learn_reviews · /learn_status <код навыка>"
+            : "This skill has no review due yet. /learn_reviews or /learn_status <skill id>"],
+        LearningResult.ReviewDeferred deferred => [inRussian ? $"Повторение перенесено на {deferred.DueAt:O} (UTC). /learn_reviews"
+            : $"Review rescheduled to {deferred.DueAt:O} (UTC). No assessment or penalty. /learn_reviews"],
+        LearningResult.ChoiceReply choice => RenderChoiceReply(choice, preferredRussian),
         _ => throw new ArgumentOutOfRangeException(nameof(result))
     };
 
-    private static IReadOnlyList<TelegramLearningReply> RenderChoiceReply(LearningResult.ChoiceReply choice)
+    private static IReadOnlyList<TelegramLearningReply> RenderChoiceReply(LearningResult.ChoiceReply choice, bool? inRussian)
     {
-        var russian = choice.Prompt?.InRussian ?? MarketLearningContent.InRussian(choice.Message);
+        var russian = inRussian ?? choice.Prompt?.InRussian ?? MarketLearningContent.InRussian(choice.Message);
         var sources = SourceNotice(choice.Provenance, russian);
         if (choice.Prompt is { } prompt)
         {
-            var question = TelegramChoicePresenter.Render(prompt);
+            var question = TelegramChoicePresenter.Render(prompt with { InRussian = russian });
             var feedback = choice.Message == question.Text ? "" : choice.Message;
             var combined = string.Join("\n\n", sources.Prepend(feedback).Append(question.Text).Where(text => text.Length > 0));
             if (combined.Length <= 4096) return [question with { Text = combined }];
             return feedback.Length == 0 ? [.. sources, question] : [feedback, .. sources, question];
         }
         if (choice.Continuation is { } continuation)
-            return [TelegramLearningReply.WithActions(choice.Message + ChoiceContinuationFallback(choice),
+            return [TelegramLearningReply.WithActions(choice.Message + ChoiceContinuationFallback(choice, russian),
                 LearningActionProvider.ForAssessment(choice.AssessedLessonId, continuation), russian), .. sources];
         return [choice.Message, .. sources];
     }
 
     internal static IReadOnlyList<TelegramLearningReply> RenderAnswerWithFollowUp(LearningResult result,
-        LearningAnswerFollowUp followUp, bool russian = false)
+        LearningAnswerFollowUp followUp, bool russian = false, bool? preferredRussian = null)
     {
         var next = followUp switch
         {
-            LearningAnswerFollowUp.Practice practice => TelegramPracticePresenter.Render(practice.Value, compact: true),
-            LearningAnswerFollowUp.Route route => TelegramCurriculumPresenter.Render(route.Value, russian),
-            LearningAnswerFollowUp.Lesson lesson => Render(lesson.Value, russian),
+            LearningAnswerFollowUp.Practice practice => TelegramPracticePresenter.Render(practice.Value, compact: true, inRussian: preferredRussian),
+            LearningAnswerFollowUp.Route route => TelegramCurriculumPresenter.Render(route.Value, preferredRussian ?? russian),
+            LearningAnswerFollowUp.Lesson lesson => Render(lesson.Value, russian, preferredRussian),
             LearningAnswerFollowUp.None => null,
             _ => throw new ArgumentOutOfRangeException(nameof(followUp))
         };
-        if (next is null) return Render(result, russian);
+        if (next is null) return Render(result, russian, preferredRussian);
         var feedback = result switch
         {
             LearningResult.ChoiceReply choice => choice.Message,
-            LearningResult.Assessment assessment => RenderAnswer(assessment with { Continuation = null }, showReview: false),
+            LearningResult.Assessment assessment => RenderAnswer(assessment with { Continuation = null }, showReview: false, inRussian: preferredRussian),
             _ => throw new ArgumentOutOfRangeException(nameof(result))
         };
         if (result is LearningResult.Assessment { ProjectActionId: { } project, InRussian: var inRussian })
-            feedback += "\n\n" + ProjectPracticeNotice(project, inRussian);
+            feedback += "\n\n" + ProjectPracticeNotice(project, preferredRussian ?? inRussian);
         var assessedId = result is LearningResult.Assessment assessmentResult ? assessmentResult.LessonId
             : (result as LearningResult.ChoiceReply)?.AssessedLessonId;
         LearningAction[] review = assessedId is { } id ? [new(LearningActionKind.ExplainAssessment, id)] : [];
@@ -93,9 +98,9 @@ public static class TelegramLearningPresenter
         return [TelegramLearningReply.WithActions(feedback, review, russian), .. next];
     }
 
-    private static string RenderAnswer(LearningResult.Assessment assessment, bool showReview = true)
+    private static string RenderAnswer(LearningResult.Assessment assessment, bool showReview = true, bool? inRussian = null)
     {
-        var russian = assessment.InRussian;
+        var russian = inRussian ?? assessment.InRussian;
         var verdict = assessment.Status switch
         {
             AnswerAssessmentStatus.Conflict => russian ? "Проверки разошлись. Зачёт пока под вопросом." : "Conflict: the checks disagree. Credit is uncertain.",
@@ -122,13 +127,13 @@ public static class TelegramLearningPresenter
         return verdict + "\n" + assessment.Feedback + assistance + next + review;
     }
 
-    private static IReadOnlyList<TelegramLearningReply> RenderMaterial(LearningResult.Material material)
+    private static IReadOnlyList<TelegramLearningReply> RenderMaterial(LearningResult.Material material, bool? inRussian)
     {
-        var russian = MarketLearningContent.InRussian(material.Theory);
+        var russian = inRussian ?? MarketLearningContent.InRussian(material.Theory);
         var theory = material.Topic + "\n\n" + material.Theory;
         if (material.Choice is { } choice)
             return [.. material.IncludeTheory ? new[] { theory } : [], .. SourceNotice(material.Provenance, russian),
-                TelegramChoicePresenter.Render(choice)];
+                TelegramChoicePresenter.Render(choice with { InRussian = inRussian ?? choice.InRussian })];
         if (material.Content is { Kind: LearningContentKind.ReadingChoice or LearningContentKind.OpenWriting } content)
             theory += russian ? "\n\nЦель — " + content.Objective : "\n\nObjective — " + content.Objective;
         return [.. material.IncludeTheory ? new[] { theory } : [], .. SourceNotice(material.Provenance, russian),
@@ -137,12 +142,13 @@ public static class TelegramLearningPresenter
                 LearningActionProvider.ForExercise(), russian)];
     }
 
-    private static IReadOnlyList<TelegramLearningReply> RenderExplanation(LearningResult.Explanation explanation)
+    private static IReadOnlyList<TelegramLearningReply> RenderExplanation(LearningResult.Explanation explanation, bool? inRussian)
     {
-        var russian = MarketLearningContent.InRussian(explanation.Text);
+        var russian = inRussian ?? MarketLearningContent.InRussian(explanation.Text);
+        var actionRussian = inRussian ?? explanation.InRussian ?? russian;
         return [explanation.Text, .. SourceNotice(explanation.Provenance, russian),
-            TelegramLearningReply.WithActions(RenderTask(explanation.Question, explanation.TaskContent) + "\n\n" + AnswerAction(explanation.InRussian ?? russian),
-                LearningActionProvider.ForExercise(), explanation.InRussian ?? russian)];
+            TelegramLearningReply.WithActions(RenderTask(explanation.Question, explanation.TaskContent) + "\n\n" + AnswerAction(actionRussian),
+                LearningActionProvider.ForExercise(), actionRussian)];
     }
 
     private static IEnumerable<string> ContextNotices(long? projectActionId, InterdisciplinaryPractice? transfer, bool russian)
@@ -191,9 +197,9 @@ public static class TelegramLearningPresenter
         return notice is null ? [] : [notice];
     }
 
-    private static IReadOnlyList<TelegramLearningReply> RenderSession(LearningResult.Session session)
+    private static IReadOnlyList<TelegramLearningReply> RenderSession(LearningResult.Session session, bool? inRussian)
     {
-        var russian = MarketLearningContent.InRussian(session.Theory ?? session.Topic + session.Question);
+        var russian = inRussian ?? MarketLearningContent.InRussian(session.Theory ?? session.Topic + session.Question);
         if (session.PendingExerciseId is { } lessonId)
         {
             var paused = session.Status == LessonStatus.Paused;
@@ -207,7 +213,8 @@ public static class TelegramLearningPresenter
         }
         if (session.Choice is { } choice)
             return [.. session.LastExplanation is { } last ? new[] { last } : [],
-                .. SourceNotice(session.LastExplanationProvenance, choice.InRussian), TelegramChoicePresenter.Render(choice)];
+                .. SourceNotice(session.LastExplanationProvenance, inRussian ?? choice.InRussian),
+                TelegramChoicePresenter.Render(choice with { InRussian = inRussian ?? choice.InRussian })];
         if (session.Content?.Kind is LearningContentKind.ReadingChoice or LearningContentKind.OpenWriting)
             return RenderRecap(session, !russian);
         var guidance = session.LastExplanation is { } saved
@@ -222,7 +229,7 @@ public static class TelegramLearningPresenter
 
     internal static IReadOnlyList<TelegramLearningReply> RenderRecap(LearningResult.Session session, bool english)
     {
-        if (session.PendingExerciseId is not null || session.Choice is not null) return RenderSession(session);
+        if (session.PendingExerciseId is not null || session.Choice is not null) return RenderSession(session, !english);
         var action = session.Status == LessonStatus.Paused
             ? english ? "Write “continue” to return to this exercise." : "Напишите «Продолжим», чтобы вернуться к этому вопросу."
             : english ? "Write your answer or ask for help." : "Напишите ответ или попросите помощь.";
@@ -255,9 +262,8 @@ public static class TelegramLearningPresenter
     private static IReadOnlyList<LearningAction> SessionActions(LearningResult.Session session) => session.Status == LessonStatus.Paused
         ? [new(LearningActionKind.Continue)] : LearningActionProvider.ForExercise();
 
-    private static string ChoiceContinuationFallback(LearningResult.ChoiceReply choice)
+    private static string ChoiceContinuationFallback(LearningResult.ChoiceReply choice, bool russian)
     {
-        var russian = MarketLearningContent.InRussian(choice.Message);
         return (choice.Continuation, russian) switch
         {
             (LearningContinuation.Review, true) => "\nСледующая проверка — открытое интервальное повторение. Текстом — «что повторить».",

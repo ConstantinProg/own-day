@@ -134,6 +134,19 @@ Enter the text (up to 200 characters), or a period to keep it.
   <data name="kind.waiting" xml:space="preserve">
     <value>Waiting item</value>
   </data>
+  <data name="settings.title"><value>Settings</value></data>
+  <data name="settings.usage"><value>Use /settings to view your settings.</value></data>
+  <data name="language.title"><value>Interface language</value></data>
+  <data name="language.current"><value>Current language: {0} ({1}).</value></data>
+  <data name="language.name.en"><value>English</value></data>
+  <data name="language.name.ru"><value>Russian</value></data>
+  <data name="language.source.explicit"><value>set by you</value></data>
+  <data name="language.source.automatic"><value>automatic</value></data>
+  <data name="language.choices"><value>Choose a language below or send /language en or /language ru.</value></data>
+  <data name="language.usage"><value>Use /language to view your language, or choose /language en or /language ru.</value></data>
+  <data name="language.expired"><value>This language menu is out of date. Open /language again or use /language en or /language ru.</value></data>
+  <data name="help.settingsCommands" xml:space="preserve"><value>/settings — view your settings.
+/language — choose English or Russian.</value></data>
   <data name="language.changed" xml:space="preserve">
     <value>Language changed to English.</value>
   </data>

@@ -254,6 +254,7 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
             b.Property<long>("UserId").ValueGeneratedNever().HasColumnType("bigint").HasColumnName("user_id");
             b.Property<string>("Locale").HasMaxLength(2).HasColumnType("character varying(2)").HasColumnName("locale");
             b.Property<DateTime?>("SelectionExpiresAt").HasColumnType("timestamp with time zone").HasColumnName("selection_expires_at");
+            b.Property<int?>("SelectionUpdateId").HasColumnType("integer").HasColumnName("selection_update_id");
             b.HasKey("UserId");
             b.ToTable("telegram_user_languages", t =>
             {

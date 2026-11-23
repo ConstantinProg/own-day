@@ -115,6 +115,11 @@ public sealed class LearningProviderExecutor(IServiceScopeFactory scopes, IOptio
             await using var scope = scopes.CreateAsyncScope();
             var services = scope.ServiceProvider;
             usage = services.GetRequiredService<LearningProviderUsage>();
+            using (var input = JsonDocument.Parse(step.Input))
+            {
+                if (input.RootElement.TryGetProperty("preferredLocale", out var locale))
+                    usage.PreferredLocale = locale.GetString();
+            }
             var providerOptions = services.GetRequiredService<IOptions<OpenAIInboxAnalysisOptions>>().Value;
             usage.LedgerAttemptId = await services.GetRequiredService<IOpenAIRequestLedger>().AdmitLearningAsync(attemptId,
                 new InboxAnalyzerDescriptor(providerOptions.Model, step.Kind + "-v" + step.Version,

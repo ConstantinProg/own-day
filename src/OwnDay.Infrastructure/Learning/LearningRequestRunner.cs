@@ -38,12 +38,15 @@ public sealed partial class LearningRequestRunner(IServiceScopeFactory scopes, I
                 var db = services.GetRequiredService<OwnDayDbContext>();
                 var steps = await db.Set<LearningProviderStep>().AsNoTracking()
                     .Where(step => step.RequestId == lease.RequestId).OrderBy(step => step.Ordinal).ToListAsync(token);
-                var session = new LearningProviderSession(steps, () => TargetStamp(db), () => TargetIdentities(db));
-                var handler = CreateHandler(services, session, lease.RequestId);
                 return await services.GetRequiredService<EfLearningRequestStore>().ApplyAsync(lease, async (request, cancellationToken) =>
                 {
-                    var execution = await ExecuteRequestAsync(services, db, request, session, handler, maxAttempts, cancellationToken);
-                    return await PrepareCompletionAsync(services, db, request, execution, cancellationToken);
+                    var language = ReadLanguage(request);
+                    bool? russian = language is null ? null : language.Locale == "ru";
+                    var session = new LearningProviderSession(steps, () => TargetStamp(db), () => TargetIdentities(db),
+                        language is { IsExplicit: true } ? language.Locale : null);
+                    var handler = CreateHandler(services, session, lease.RequestId, russian);
+                    var execution = await ExecuteRequestAsync(services, db, request, session, handler, maxAttempts, russian, cancellationToken);
+                    return await PrepareCompletionAsync(services, db, request, execution, russian, cancellationToken);
                 }, token);
             }
             catch (LearningProviderRequiredException required) { pending = required.Step; }
@@ -56,7 +59,9 @@ public sealed partial class LearningRequestRunner(IServiceScopeFactory scopes, I
                         await SynchronizeTerminalDialogueAsync(scope.ServiceProvider, request, cancellationToken);
                         return new LearningRequestCompletion("stale_target")
                         {
-                            Replies = ["Learning context changed while the request was being processed. No result was applied. Check the current lesson or repeat the original command."]
+                            Replies = [ReadLanguage(request)?.Locale == "ru"
+                                ? "Учебный контекст изменился во время обработки. Результат не применён. Проверьте текущий урок или повторите исходную команду."
+                                : "Learning context changed while the request was being processed. No result was applied. Check the current lesson or repeat the original command."]
                         };
                     }, token);
             }
@@ -77,7 +82,9 @@ public sealed partial class LearningRequestRunner(IServiceScopeFactory scopes, I
                         await SynchronizeTerminalDialogueAsync(scope.ServiceProvider, request, cancellationToken);
                         return new LearningRequestCompletion("provider_outcome_unknown")
                         {
-                            Replies = ["The provider outcome is unknown. No result was applied or answer assessed. Check the current lesson before explicitly retrying the original command."]
+                            Replies = [ReadLanguage(request)?.Locale == "ru"
+                                ? "Не удалось узнать результат запроса. Изменения не применены, ответ не оценён. Проверьте текущий урок перед повтором исходной команды."
+                                : "The provider outcome is unknown. No result was applied or answer assessed. Check the current lesson before explicitly retrying the original command."]
                         };
                     }, token);
             }
@@ -93,17 +100,30 @@ public sealed partial class LearningRequestRunner(IServiceScopeFactory scopes, I
         throw new InvalidOperationException("Learning command exceeded its phase limit.");
     }
 
+    private sealed record LanguageEnvelope(LearningReplyLanguage? Language);
+
+    private static LearningReplyLanguage? ReadLanguage(LearningRequest request)
+    {
+        try
+        {
+            var language = JsonSerializer.Deserialize<LanguageEnvelope>(request.NormalizedInput, JsonSerializerOptions.Web)?.Language;
+            return language?.Locale is "en" or "ru" ? language : null;
+        }
+        catch (JsonException) { return null; }
+    }
+
     private async Task<LearningRequestExecution> ExecuteRequestAsync(IServiceProvider services, OwnDayDbContext db,
-        LearningRequest request, LearningProviderSession session, TelegramLearningCommandHandler handler, int maxAttempts, CancellationToken token)
+        LearningRequest request, LearningProviderSession session, TelegramLearningCommandHandler handler, int maxAttempts,
+        bool? russian, CancellationToken token)
     {
         if (request.AttemptCount > maxAttempts) return new("attempts_exhausted");
         if (request.PayloadKind == "learning_action" && request.PayloadVersion == 1)
-            return await ExecuteActionAsync(services, db, request, session, handler, options.Value, token);
+            return await ExecuteActionAsync(services, db, request, session, handler, options.Value, russian, token);
         if (request.PayloadKind == "learning_choice" && request.PayloadVersion == 1)
-            return await ExecuteChoiceAsync(services, db, request, session, token);
+            return await ExecuteChoiceAsync(services, db, request, session, russian, token);
         if (request.PayloadKind == "learning_text" && request.PayloadVersion == 1 ||
             request.PayloadKind == "learning_command" && request.PayloadVersion == 3)
-            return await ExecuteDialogueAsync(services, db, request, session, handler, options.Value, token);
+            return await ExecuteDialogueAsync(services, db, request, session, handler, options.Value, russian, token);
         if (request.PayloadKind != "learning_command" || request.PayloadVersion is not (1 or 2)) return new("unsupported_payload");
         LearningCommandInput? input;
         try { input = JsonSerializer.Deserialize<LearningCommandInput>(request.NormalizedInput, JsonSerializerOptions.Web); }
@@ -117,32 +137,35 @@ public sealed partial class LearningRequestRunner(IServiceScopeFactory scopes, I
                 return new("stale_target",
                     ["The addressed question is no longer current or was not available when the command arrived. Check the current lesson and repeat the command; no answer was assessed."]);
         }
-        var replies = await handler.HandleAsync(new(input.Name, input.Arguments, request.UserId), token);
+        var replies = await handler.HandleAsync(new(input.Name, input.Arguments, request.UserId), token, inRussian: russian);
         session.EnsureComplete();
         return new("reply_committed", replies);
     }
 
     private async Task<LearningRequestCompletion> PrepareCompletionAsync(IServiceProvider services, OwnDayDbContext db,
-        LearningRequest request, LearningRequestExecution execution, CancellationToken token)
+        LearningRequest request, LearningRequestExecution execution, bool? russian, CancellationToken token)
     {
         var replies = execution.Replies;
+        if (replies is null && russian == true)
+            replies = ["Не удалось обработать учебный запрос. Повторите исходную команду. Ответ не был оценён."];
         if (request.ChatId == request.UserId.Value && replies?.Any(reply => reply.Actions is { Count: > 0 }) == true)
         {
             var dialogue = await services.GetRequiredService<IDialogueStore>().FindAsync(request.UserId, token);
             var lesson = await services.GetRequiredService<ILessonStore>().FindActiveAsync(request.UserId, token);
             var now = await NowAsync(db, token);
-            replies = replies.Select(reply => keyboard.Render(reply, request.UserId.Value, request.ChatId, now, dialogue, lesson)).ToArray();
+            replies = replies.Select(reply => keyboard.Render(russian.HasValue ? reply with { InRussian = russian } : reply,
+                request.UserId.Value, request.ChatId, now, dialogue, lesson)).ToArray();
         }
         return new(execution.Outcome, replies?.Select(reply => new TelegramOutboxIntent(reply.Text, reply.ReplyMarkupJson, reply.EditMessageId)).ToArray())
             { DialogueOutcomeJson = execution.DialogueOutcomeJson };
     }
 
-    private static TelegramLearningCommandHandler CreateHandler(IServiceProvider services, LearningProviderSession session, Guid operationId)
+    private static TelegramLearningCommandHandler CreateHandler(IServiceProvider services, LearningProviderSession session, Guid operationId, bool? russian)
     {
         var knowledge = services.GetRequiredService<KnowledgeService>();
         var lessons = services.GetRequiredService<ILessonStore>();
         var programs = services.GetRequiredService<ICurriculumStore>();
-        var learning = new LearningService(lessons, session, knowledge, operationId, programs);
+        var learning = new LearningService(lessons, session, knowledge, operationId, programs, russian);
         var curriculum = CreateCurriculum(services, session);
         var study = new StudyService(services.GetRequiredService<IStudyScheduleStore>(), lessons, programs,
             services.GetRequiredService<IKnowledgeStore>(), learning, curriculum, services.GetRequiredService<TimeProvider>());
@@ -161,7 +184,7 @@ public sealed partial class LearningRequestRunner(IServiceScopeFactory scopes, I
             CreateCurriculum(services, session));
 
     private static async Task<LearningRequestExecution> ExecuteChoiceAsync(IServiceProvider services, OwnDayDbContext db,
-        LearningRequest request, LearningProviderSession session, CancellationToken token)
+        LearningRequest request, LearningProviderSession session, bool? russian, CancellationToken token)
     {
         ChoiceInput? input;
         try { input = JsonSerializer.Deserialize<ChoiceInput>(request.NormalizedInput, JsonSerializerOptions.Web); }
@@ -169,7 +192,7 @@ public sealed partial class LearningRequestRunner(IServiceScopeFactory scopes, I
         if (input is null || request.ChatId != request.UserId.Value || !Enum.IsDefined(input.Action))
             return new("unsupported_payload");
 
-        return await ApplyChoiceAsync(services, request, session, input, null, await NowAsync(db, token), token);
+        return await ApplyChoiceAsync(services, request, session, input, null, await NowAsync(db, token), russian, token);
     }
 
     private static async Task<DateTimeOffset> NowAsync(OwnDayDbContext db, CancellationToken token) =>
@@ -177,7 +200,7 @@ public sealed partial class LearningRequestRunner(IServiceScopeFactory scopes, I
 
     private static async Task<LearningRequestExecution> ExecuteActionAsync(IServiceProvider services, OwnDayDbContext db,
         LearningRequest request, LearningProviderSession session, TelegramLearningCommandHandler handler,
-        LearningRequestProcessingOptions processing, CancellationToken token)
+        LearningRequestProcessingOptions processing, bool? russian, CancellationToken token)
     {
         LearningActionInput? input;
         try { input = JsonSerializer.Deserialize<LearningActionInput>(request.NormalizedInput, JsonSerializerOptions.Web); }
@@ -188,7 +211,7 @@ public sealed partial class LearningRequestRunner(IServiceScopeFactory scopes, I
         var now = await NowAsync(db, token);
         if (now >= input.ExpiresAt) return ActionUnavailable(input.InRussian);
         if (input.Action.ToChoiceInput() is { } choice)
-            return await ApplyChoiceAsync(services, request, session, choice, input.Action, now, token);
+            return await ApplyChoiceAsync(services, request, session, choice, input.Action, now, russian, token);
 
         StudySchedule? invitationSchedule = null;
         if (input.Action.Kind is LearningActionKind.StartInvitation or LearningActionKind.PostponeInvitation or LearningActionKind.SkipInvitation)
@@ -201,7 +224,7 @@ public sealed partial class LearningRequestRunner(IServiceScopeFactory scopes, I
                 return ActionUnavailable(input.InRussian);
         }
 
-        var execution = await ExecuteDialogueAsync(services, db, request, session, handler, processing, token, input);
+        var execution = await ExecuteDialogueAsync(services, db, request, session, handler, processing, russian, token, input);
         if (execution.Outcome is "stale_target" or "unsupported_payload") return execution;
         var remove = execution.RemoveSourceKeyboard;
         if (invitationSchedule is not null)
@@ -220,12 +243,12 @@ public sealed partial class LearningRequestRunner(IServiceScopeFactory scopes, I
 
     private static async Task<LearningRequestExecution> ApplyChoiceAsync(IServiceProvider services,
         LearningRequest request, LearningProviderSession session, ChoiceInput input, LearningAction? action, DateTimeOffset now,
-        CancellationToken token)
+        bool? russian, CancellationToken token)
     {
         var lessons = services.GetRequiredService<ILessonStore>();
         var lesson = await lessons.FindActiveAsync(request.UserId, token);
         var learning = new LearningService(lessons, session, services.GetRequiredService<KnowledgeService>(), request.Id,
-            services.GetRequiredService<ICurriculumStore>());
+            services.GetRequiredService<ICurriculumStore>(), russian);
         var dialogue = new LearningDialogueService(services.GetRequiredService<IDialogueStore>(), session,
             sessions: services.GetRequiredService<LearningSessionService>());
         var turn = new DialogueTurn(request.Id, request.UserId, null, "", input.LessonId, null,
@@ -239,7 +262,7 @@ public sealed partial class LearningRequestRunner(IServiceScopeFactory scopes, I
             ? await CreatePractice(services, session).AfterAnswerAsync(lesson, reply, session, token)
             : new LearningAnswerFollowUp.None();
         var replies = TelegramLearningPresenter.RenderAnswerWithFollowUp(reply, followUp,
-            lesson is not null && MarketLearningContent.InRussian(lesson.Theory));
+            russian ?? (lesson is not null && MarketLearningContent.InRussian(lesson.Theory)), russian);
         if (followUp is LearningAnswerFollowUp.Lesson or LearningAnswerFollowUp.Route or LearningAnswerFollowUp.Practice { Value.Lesson: not null })
         {
             var context = await services.GetRequiredService<IDialogueStore>().FindAsync(request.UserId, token);
@@ -258,7 +281,7 @@ public sealed partial class LearningRequestRunner(IServiceScopeFactory scopes, I
 
     private static async Task<LearningRequestExecution> ExecuteDialogueAsync(IServiceProvider services, OwnDayDbContext db,
         LearningRequest request, LearningProviderSession session, TelegramLearningCommandHandler handler,
-        LearningRequestProcessingOptions processing, CancellationToken token, LearningActionInput? actionInput = null)
+        LearningRequestProcessingOptions processing, bool? russian, CancellationToken token, LearningActionInput? actionInput = null)
     {
         LearningCommandInput? command = null;
         LearningTextInput? text = null;
@@ -286,7 +309,7 @@ public sealed partial class LearningRequestRunner(IServiceScopeFactory scopes, I
                 !handler.Handles(command.Name) && command.Name != "cancel")) return new("unsupported_payload");
         if (command?.Name is "learn_invite_later" or "learn_invite_skip")
         {
-            var invitationReply = await handler.HandleAsync(new(command.Name, command.Arguments, request.UserId), token);
+            var invitationReply = await handler.HandleAsync(new(command.Name, command.Arguments, request.UserId), token, inRussian: russian);
             session.EnsureComplete();
             return new("reply_committed", invitationReply);
         }
@@ -327,21 +350,22 @@ public sealed partial class LearningRequestRunner(IServiceScopeFactory scopes, I
             session.EnsureComplete();
             var completed = FirstGoalConsultation.CompleteCreation(decision.Context, result, turn);
             return new(completed.Audit!.Code)
-                { Replies = Introduce(introduce, TelegramDialoguePresenter.Render(completed.Reply!), completed.Reply!.InEnglish) };
+                { Replies = Introduce(introduce, TelegramDialoguePresenter.Render(completed.Reply!, russian),
+                    russian is null ? completed.Reply!.InEnglish : russian == false) };
         }
         if (decision.Execute is not { } operation)
         {
             var reply = decision.Reply ?? new(DialogueReplyKind.Unavailable);
-            var dialogueReplies = TelegramDialoguePresenter.Render(reply);
+            var dialogueReplies = TelegramDialoguePresenter.Render(reply, russian);
             if (decision.SuggestReviewsOnReturn && reply.Kind == DialogueReplyKind.Recap)
             {
                 var suggestions = await CreateCurriculum(services, session).SuggestReviewsAsync(request.UserId, token);
                 if (suggestions.FirstOrDefault() is { } suggestion)
-                    dialogueReplies = [.. dialogueReplies, TelegramKnowledgePresenter.ReviewAfterResume(suggestion)];
+                    dialogueReplies = [.. dialogueReplies, TelegramKnowledgePresenter.ReviewAfterResume(suggestion, russian ?? true)];
             }
             session.EnsureComplete();
             return new(decision.Audit?.Code ?? "dialogue_reply")
-                { Replies = Introduce(introduce, dialogueReplies, reply.InEnglish), DialogueOutcomeJson = audit };
+                { Replies = Introduce(introduce, dialogueReplies, russian is null ? reply.InEnglish : russian == false), DialogueOutcomeJson = audit };
         }
         if (operation == DialogueOperationKind.ReviewSuggestions || decision.SuggestReviewsOnReturn)
         {
@@ -349,7 +373,7 @@ public sealed partial class LearningRequestRunner(IServiceScopeFactory scopes, I
             if (suggestions.Count > 0 || operation == DialogueOperationKind.ReviewSuggestions)
             {
                 session.EnsureComplete();
-                return new("review_suggestions") { Replies = Introduce(introduce, [.. TelegramKnowledgePresenter.Suggestions(suggestions)]) };
+                return new("review_suggestions") { Replies = Introduce(introduce, TelegramKnowledgePresenter.Suggestions(suggestions, russian ?? true), russian == false) };
             }
         }
         if (operation is DialogueOperationKind.ViewRoute or DialogueOperationKind.EditRoute)
@@ -365,7 +389,7 @@ public sealed partial class LearningRequestRunner(IServiceScopeFactory scopes, I
             session.EnsureComplete();
             if (operation == DialogueOperationKind.EditRoute) decision.Context.Synchronize(lesson, now, turn.SourceOrder);
             return new(result is CurriculumResult.RouteEditRejected ? "route_rejected" : "route_reply")
-                { Replies = Introduce(introduce, TelegramCurriculumPresenter.Render(result)), DialogueOutcomeJson = audit };
+                { Replies = Introduce(introduce, TelegramCurriculumPresenter.Render(result, russian), russian == false), DialogueOutcomeJson = audit };
         }
         if (operation is DialogueOperationKind.ProposeGoalUpdate or DialogueOperationKind.ApplyGoalUpdate)
         {
@@ -376,19 +400,19 @@ public sealed partial class LearningRequestRunner(IServiceScopeFactory scopes, I
             if (operation == DialogueOperationKind.ApplyGoalUpdate && decision.Audit?.Confirmation?.Target is { ProgramId: { } programId, RouteVersion: { } version })
                 result = await curriculum.ApplyGoalUpdateAsync(request.UserId, programId, version, decision.Arguments, token);
             session.EnsureComplete();
-            var goalReplies = TelegramCurriculumPresenter.Render(result);
+            var goalReplies = TelegramCurriculumPresenter.Render(result, russian);
             if (result is CurriculumResult.GoalUpdateOffered proposal)
             {
                 var confirmation = LearningGoalChange.OpenUpdate(decision.Context, turn, program!, lesson, pedagogicalStamp, proposal);
                 goalReplies = [.. goalReplies, .. TelegramDialoguePresenter.Render(new(DialogueReplyKind.ConfirmGoalUpdate,
-                    [confirmation.Label!, confirmation.Code]))];
+                    [confirmation.Label!, confirmation.Code]), russian)];
                 audit = JsonSerializer.Serialize(new DialogueAudit("confirmation_published", Confirmation: confirmation,
                     OriginalRequestId: turn.RequestId), JsonSerializerOptions.Web);
             }
             else if (operation == DialogueOperationKind.ApplyGoalUpdate)
                 decision.Context.Synchronize(lesson, now, turn.SourceOrder);
             return new(result is CurriculumResult.GoalEditRejected ? "goal_update_rejected" : "goal_update_reply")
-                { Replies = Introduce(introduce, goalReplies), DialogueOutcomeJson = audit };
+                { Replies = Introduce(introduce, goalReplies, russian == false), DialogueOutcomeJson = audit };
         }
         if (operation is DialogueOperationKind.ExplainAssessment or DialogueOperationKind.AppealAssessment)
         {
@@ -399,7 +423,8 @@ public sealed partial class LearningRequestRunner(IServiceScopeFactory scopes, I
                 : await assessments.ExplainAsync(request.UserId, program?.Id, decision.Arguments, token);
             session.EnsureComplete();
             return new("assessment_review")
-                { Replies = [.. TelegramAssessmentReviewPresenter.Render(result, FirstGoalConsultation.InEnglish(lesson?.Theory ?? program?.Goal))] };
+                { Replies = [.. TelegramAssessmentReviewPresenter.Render(result,
+                    russian.HasValue ? !russian.Value : FirstGoalConsultation.InEnglish(lesson?.Theory ?? program?.Goal))] };
         }
         if (operation == DialogueOperationKind.PreviousTopic)
         {
@@ -407,7 +432,8 @@ public sealed partial class LearningRequestRunner(IServiceScopeFactory scopes, I
                 program.Id, lesson?.ProgramId == program.Id ? lesson.TopicCode : null, token);
             session.EnsureComplete();
             return new("previous_topic")
-                { Replies = TelegramLearningPresenter.RenderPreviousTopic(previous, lesson, FirstGoalConsultation.InEnglish(program?.Goal ?? lesson?.Theory)) };
+                { Replies = TelegramLearningPresenter.RenderPreviousTopic(previous, lesson,
+                    russian.HasValue ? !russian.Value : FirstGoalConsultation.InEnglish(program?.Goal ?? lesson?.Theory)) };
         }
         if (operation == DialogueOperationKind.Diagnose && program?.HasEnglishDiagnostic == true && lesson is null)
         {
@@ -420,7 +446,7 @@ public sealed partial class LearningRequestRunner(IServiceScopeFactory scopes, I
                     value.Status is LessonStatus.AwaitingAnswer or LessonStatus.Paused);
                 decision.Context.Synchronize(current, now, turn.SourceOrder);
             }
-            return new(result.Outcome) { Replies = Introduce(introduce, TelegramCurriculumPresenter.Render(result.Result)) };
+            return new(result.Outcome) { Replies = Introduce(introduce, TelegramCurriculumPresenter.Render(result.Result, russian), russian == false) };
         }
         if (operation == DialogueOperationKind.CompleteDiagnostic)
         {
@@ -437,9 +463,9 @@ public sealed partial class LearningRequestRunner(IServiceScopeFactory scopes, I
                 decision.Context.Synchronize(current, now, turn.SourceOrder);
             }
             session.EnsureComplete();
-            var russian = MarketLearningContent.InRussian(program?.Goal ?? turn.Text);
+            var diagnosticRussian = russian ?? MarketLearningContent.InRussian(program?.Goal ?? turn.Text);
             return new(result is CurriculumResult.ProviderUnavailable ? "diagnostic_provider_unavailable" : "diagnostic_reply")
-                { Replies = Introduce(introduce, TelegramCurriculumPresenter.Render(result, russian), !russian) };
+                { Replies = Introduce(introduce, TelegramCurriculumPresenter.Render(result, diagnosticRussian), !diagnosticRussian) };
         }
         if (operation is DialogueOperationKind.SwitchProgram or DialogueOperationKind.SwitchGoal or DialogueOperationKind.SwitchGoalWithCriterion or
             DialogueOperationKind.SwitchCreateProgram or DialogueOperationKind.SwitchCreateProjectProgram)
@@ -454,19 +480,19 @@ public sealed partial class LearningRequestRunner(IServiceScopeFactory scopes, I
                     englishDiagnostic: processing.EnglishDiagnosticEnabled || text?.EnglishDiagnosticAllowed == true || program?.HasEnglishDiagnostic == true,
                     suspendCurrent: true, goalCriterion: goal.Length == 2 ? goal[1] : null);
                 var reply = LearningGoalChange.Complete(decision.Context, result, turn);
-                switched = result is CurriculumResult.Program ? TelegramDialoguePresenter.Render(reply) : TelegramCurriculumPresenter.Render(result);
+                switched = result is CurriculumResult.Program ? TelegramDialoguePresenter.Render(reply, russian) : TelegramCurriculumPresenter.Render(result, russian);
             }
             else
             {
                 var switchName = operation == DialogueOperationKind.SwitchProgram ? "learn_select" :
                     operation == DialogueOperationKind.SwitchCreateProgram ? "learn_request" : "learn_project";
                 switched = await new TelegramCurriculumCommandHandler(CreateCurriculum(services, session))
-                    .HandleAsync(new(switchName, decision.Arguments, request.UserId), token, suspendCurrent: true);
+                    .HandleAsync(new(switchName, decision.Arguments, request.UserId), token, suspendCurrent: true, inRussian: russian);
             }
             session.EnsureComplete();
             var restored = await services.GetRequiredService<ILessonStore>().FindActiveAsync(request.UserId, token);
             if (decision.Context.DiagnosticTarget is null) decision.Context.Synchronize(restored, now, turn.SourceOrder);
-            if (restored is not null) switched = [.. switched, .. TelegramLearningPresenter.Render(LearningService.Session(restored))];
+            if (restored is not null) switched = [.. switched, .. TelegramLearningPresenter.Render(LearningService.Session(restored), russian)];
             return new(decision.Audit?.Code ?? "program_switched") { Replies = switched, DialogueOutcomeJson = audit };
         }
         if (operation is DialogueOperationKind.BeginPractice or DialogueOperationKind.NextPractice or DialogueOperationKind.PausePractice or
@@ -477,7 +503,7 @@ public sealed partial class LearningRequestRunner(IServiceScopeFactory scopes, I
             var current = db.Set<Lesson>().Local.SingleOrDefault(value => value.UserId == request.UserId &&
                 value.Status is LessonStatus.AwaitingAnswer or LessonStatus.Paused);
             decision.Context.Synchronize(current, now, turn.SourceOrder);
-            return new("practice_reply") { Replies = TelegramPracticePresenter.Render(result) };
+            return new("practice_reply") { Replies = TelegramPracticePresenter.Render(result, inRussian: russian) };
         }
         if (actionInput?.Action is { Kind: LearningActionKind.Hint or LearningActionKind.Solution or
             LearningActionKind.ExplainMaterial or LearningActionKind.ShowExample } help)
@@ -486,43 +512,44 @@ public sealed partial class LearningRequestRunner(IServiceScopeFactory scopes, I
             session.EnsureComplete();
             var consumed = result is LearningResult.Explanation or LearningResult.ChoiceReply or LearningResult.Session;
             if (consumed) decision.Context.Synchronize(lesson, now, turn.SourceOrder);
-            var russian = MarketLearningContent.InRussian(lesson?.Theory ?? program?.Goal ?? turn.Text);
-            var helpReplies = TelegramLearningPresenter.Render(result, russian);
+            var helpRussian = russian ?? MarketLearningContent.InRussian(lesson?.Theory ?? program?.Goal ?? turn.Text);
+            var helpReplies = TelegramLearningPresenter.Render(result, helpRussian);
             if (operation == DialogueOperationKind.RevealSolution && lesson?.Status == LessonStatus.Completed &&
                 await CreatePractice(services, session).SynchronizeAsync(request.UserId, operation, token) is { } completedPractice)
-                helpReplies = [.. helpReplies, .. TelegramPracticePresenter.Render(completedPractice)];
+                helpReplies = [.. helpReplies, .. TelegramPracticePresenter.Render(completedPractice, inRussian: russian)];
             if (result is LearningResult.ProviderUnavailable && decision.Context.Revision != help.Revision)
-                helpReplies = [helpReplies.Single() with { Actions = [new(help.Kind)], InRussian = russian }];
-            return new("reply_committed", Introduce(introduce, helpReplies)) { RemoveSourceKeyboard = consumed };
+                helpReplies = [helpReplies.Single() with { Actions = [new(help.Kind)], InRussian = helpRussian }];
+            return new("reply_committed", Introduce(introduce, helpReplies, russian == false)) { RemoveSourceKeyboard = consumed };
         }
         IReadOnlyList<TelegramLearningReply> replies;
-        var languageIsRussian = MarketLearningContent.InRussian(lesson?.Theory ?? program?.Goal ?? turn.Text);
+        var languageIsRussian = russian ?? MarketLearningContent.InRussian(lesson?.Theory ?? program?.Goal ?? turn.Text);
         if (decision.ExerciseFormat is { } format)
         {
             var learning = new LearningService(services.GetRequiredService<ILessonStore>(), session, services.GetRequiredService<KnowledgeService>(),
-                curriculum: services.GetRequiredService<ICurriculumStore>());
+                curriculum: services.GetRequiredService<ICurriculumStore>(), replyInRussian: russian);
             replies = TelegramLearningPresenter.Render(await learning.ChangeFormatAsync(request.UserId, format, token), languageIsRussian);
         }
         else if (operation is DialogueOperationKind.Clarify or DialogueOperationKind.Explain && lesson?.Status != LessonStatus.AwaitingAnswer)
         {
             var learning = new LearningService(services.GetRequiredService<ILessonStore>(), session, services.GetRequiredService<KnowledgeService>(),
-                curriculum: services.GetRequiredService<ICurriculumStore>());
+                curriculum: services.GetRequiredService<ICurriculumStore>(), replyInRussian: russian);
             replies = TelegramLearningPresenter.Render(await learning.ExplainContextAsync(request.UserId, decision.Arguments, token), languageIsRussian);
         }
         else if (operation == DialogueOperationKind.Answer)
         {
             var result = await handler.ExecuteLessonAsync(new("answer", decision.Arguments, request.UserId), token);
             var followUp = await CreatePractice(services, session).AfterAnswerAsync(lesson, result, session, token);
-            replies = TelegramLearningPresenter.RenderAnswerWithFollowUp(result, followUp, languageIsRussian);
+            replies = TelegramLearningPresenter.RenderAnswerWithFollowUp(result, followUp, languageIsRussian, russian);
         }
         else if (operation == DialogueOperationKind.PracticeLastSkill)
         {
             var learning = new LearningService(services.GetRequiredService<ILessonStore>(), session, services.GetRequiredService<KnowledgeService>(),
-                curriculum: services.GetRequiredService<ICurriculumStore>());
+                curriculum: services.GetRequiredService<ICurriculumStore>(), replyInRussian: russian);
             var practice = await learning.PracticeLastAsync(request.UserId, program?.Id, token);
             replies = practice is LearningResult.NoActiveLesson
-                ? ["Сначала откройте упражнение. После ответа можно попросить следующее задание по тому же навыку."]
-                : TelegramLearningPresenter.Render(practice);
+                ? [languageIsRussian ? "Сначала откройте упражнение. После ответа можно попросить следующее задание по тому же навыку."
+                    : "Open an exercise first. After answering, you can request another exercise on the same skill."]
+                : TelegramLearningPresenter.Render(practice, russian);
         }
         else
         {
@@ -532,13 +559,13 @@ public sealed partial class LearningRequestRunner(IServiceScopeFactory scopes, I
         }
         var practiceResult = operation == DialogueOperationKind.Answer ? null
             : await CreatePractice(services, session).SynchronizeAsync(request.UserId, operation, token);
-        if (practiceResult is not null) replies = [.. replies, .. TelegramPracticePresenter.Render(practiceResult)];
+        if (practiceResult is not null) replies = [.. replies, .. TelegramPracticePresenter.Render(practiceResult, inRussian: russian)];
         session.EnsureComplete();
         var active = db.Set<Lesson>().Local.SingleOrDefault(value => value.UserId == request.UserId &&
             value.Status is LessonStatus.AwaitingAnswer or LessonStatus.Paused);
         if (operation is not (DialogueOperationKind.Progress or DialogueOperationKind.PreferenceView or DialogueOperationKind.PreferenceSet or DialogueOperationKind.PreferenceReset))
             decision.Context.Synchronize(active, now, turn.SourceOrder);
-        return new(decision.Audit?.Code ?? "reply_committed") { Replies = Introduce(introduce, replies), DialogueOutcomeJson = audit };
+        return new(decision.Audit?.Code ?? "reply_committed") { Replies = Introduce(introduce, replies, russian == false), DialogueOutcomeJson = audit };
     }
 
     private static IReadOnlyList<TelegramLearningReply> Introduce(bool introduce, IReadOnlyList<TelegramLearningReply> replies, bool english = false) => introduce

@@ -308,7 +308,7 @@ public sealed partial class PostgresLearningProviderTests
 
     private async Task SendEnglishAsync(HttpClient client, int id, string text)
     {
-        using var response = await PostPublicAsync(client, id, text);
+        using var response = await PostPublicAsync(client, id, text, clientLanguage: "ru");
         response.EnsureSuccessStatusCode();
         await WaitAllPublicAsync(id);
     }

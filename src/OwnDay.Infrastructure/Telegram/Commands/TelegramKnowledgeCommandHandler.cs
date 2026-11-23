@@ -11,7 +11,8 @@ public sealed class TelegramKnowledgeCommandHandler(KnowledgeService knowledge, 
         "learn_reviews" or "learn_review" or "learn_review_later" or "learn_review_skip" or
         "learn_preferences" or "learn_preference" or "learn_preference_reset";
 
-    public async Task<IReadOnlyList<TelegramLearningReply>> HandleAsync(ProcessIncomingCommand command, CancellationToken token, string? currentDiscipline = null)
+    public async Task<IReadOnlyList<TelegramLearningReply>> HandleAsync(ProcessIncomingCommand command, CancellationToken token,
+        string? currentDiscipline = null, bool? inRussian = null)
     {
         if (command.Name is "learn_preferences" or "learn_preference" or "learn_preference_reset")
         {
@@ -57,12 +58,12 @@ public sealed class TelegramKnowledgeCommandHandler(KnowledgeService knowledge, 
         if (!Guid.TryParse(command.Arguments.Trim(), out var id) || id == Guid.Empty)
             return [$"Use /{command.Name} <skill id>. /learn_skills or /learn_reviews"];
         if (command.Name == "learn_review")
-            return TelegramLearningPresenter.Render(await learning.ReviewAsync(command.UserId, id, token));
+            return TelegramLearningPresenter.Render(await learning.ReviewAsync(command.UserId, id, token), inRussian);
         if (command.Name is "learn_review_later" or "learn_review_skip")
             return TelegramLearningPresenter.Render(await learning.DeferReviewAsync(command.UserId, id,
-                command.Name == "learn_review_skip" ? ReviewDeferral.Skip : ReviewDeferral.Postpone, token));
+                command.Name == "learn_review_skip" ? ReviewDeferral.Skip : ReviewDeferral.Postpone, token), inRussian);
         if (command.Name == "learn_practice")
-            return TelegramLearningPresenter.Render(await learning.PracticeAsync(command.UserId, id, token));
+            return TelegramLearningPresenter.Render(await learning.PracticeAsync(command.UserId, id, token), inRussian);
         var status = await knowledge.StatusAsync(command.UserId, id, token);
         return status is null ? ["Skill not found. /learn_skills"] : [.. TelegramKnowledgePresenter.Status(status)];
     }

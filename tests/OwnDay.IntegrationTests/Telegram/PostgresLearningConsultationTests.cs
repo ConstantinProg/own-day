@@ -357,7 +357,7 @@ public sealed partial class PostgresLearningProviderTests
         Assert.Null(draft.PracticalUse);
         Assert.Empty(await result.InboxItems.ToListAsync());
         Assert.Empty(await result.Set<LearningProgram>().ToListAsync());
-        Assert.Equal(1, await result.TelegramOutboxMessages.CountAsync(message => message.Text == OwnDay.Infrastructure.Telegram.Commands.TelegramDialoguePresenter.Introduction));
+        Assert.Equal(1, await result.TelegramOutboxMessages.CountAsync(message => message.Text == OwnDay.Infrastructure.Telegram.Commands.TelegramDialoguePresenter.EnglishIntroduction));
         Assert.Equal(0, probe.Calls);
     }
 
@@ -391,7 +391,7 @@ public sealed partial class PostgresLearningProviderTests
             await WaitAllPublicAsync(1);
             await using var observer = Open();
             Assert.Empty(await observer.Set<LearningProgram>().ToListAsync());
-            Assert.Contains(await observer.TelegramOutboxMessages.ToListAsync(), message => message.Text.Contains("Для чего", StringComparison.Ordinal));
+            Assert.Contains(await observer.TelegramOutboxMessages.ToListAsync(), message => message.Text.Contains("Where would you use", StringComparison.Ordinal));
         }
         using (var host = ConsultationHost(probe))
         using (var client = host.CreateClient())

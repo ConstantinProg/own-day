@@ -10,43 +10,52 @@ public static class TelegramDialoguePresenter
     public const string EnglishIntroduction = "Tell me what you'd like to learn, answer an exercise, or ask a question in your own words.";
 
     public static IReadOnlyList<string> Help(bool introduce, bool consultation = false, OwnDay.Domain.Dialogue.DialogueContext? context = null,
-        Guid? selectedProgramId = null, string? releaseCommandsLocale = null)
+        Guid? selectedProgramId = null, string locale = "ru", bool listCommands = false)
     {
-        var replies = RenderHelp(introduce, consultation, context, selectedProgramId);
-        return releaseCommandsLocale is not null && replies.Count > 0
-            ? [.. replies.SkipLast(1), replies[^1] + "\n\n" + TelegramTexts.Get(releaseCommandsLocale, "help.releaseCommands")]
+        var replies = RenderHelp(introduce, consultation, context, selectedProgramId, locale == "en");
+        return listCommands && replies.Count > 0
+            ? [.. replies.SkipLast(1), replies[^1] + "\n\n" + TelegramTexts.Get(locale, "help.settingsCommands") +
+                "\n" + TelegramTexts.Get(locale, "help.releaseCommands")]
             : replies;
     }
 
     private static IReadOnlyList<string> RenderHelp(bool introduce, bool consultation, OwnDay.Domain.Dialogue.DialogueContext? context,
-        Guid? selectedProgramId)
+        Guid? selectedProgramId, bool english)
     {
         if (context?.DiagnosticTarget is not null)
-            return ["Диагностика и ответы сохранены. Напишите «Продолжим», чтобы увидеть текущее задание; можно попросить «помощь» или написать «пропустим»."];
+            return [english ? "Your diagnostic and answers are saved. Write “continue” to see the current task. You can also write “help” or “skip”."
+                : "Диагностика и ответы сохранены. Напишите «Продолжим», чтобы увидеть текущее задание; можно попросить «помощь» или написать «пропустим»."];
+        var introduction = english ? EnglishIntroduction : Introduction;
         if (consultation && context?.TargetLessonId is null &&
             (selectedProgramId is null || selectedProgramId == context?.Consultation?.CreatedProgramId))
         {
             var prompt = context?.Consultation is { CreatedProgramId: not null } completed
                 ? RenderText(new(DialogueReplyKind.FirstProgramReady, [completed.OriginalGoal, completed.PracticalUse!],
-                    FirstGoalConsultation.InEnglish(completed.OriginalGoal)))
+                    english))
                 : RenderText(new(context?.Consultation is null ? DialogueReplyKind.AskGoal :
                     context.Consultation.PracticalUse is null ? DialogueReplyKind.AskPracticalUse :
-                    context.Consultation.Experience is null ? DialogueReplyKind.AskExperience : DialogueReplyKind.ConsultationRetry));
-            return introduce ? [Introduction, .. prompt] : prompt;
+                    context.Consultation.Experience is null ? DialogueReplyKind.AskExperience : DialogueReplyKind.ConsultationRetry, InEnglish: english));
+            return introduce ? [introduction, .. prompt] : prompt;
         }
-        const string help = "Для текущего упражнения напишите «Продолжим», затем ответьте или задайте вопрос обычным текстом. " +
+        var help = english
+            ? "Write “continue” to open the current exercise, then answer or ask a question in your own words. " +
+                "Finishing an exercise or switching programs requires a separate confirmation code. " +
+                "To request a new program, use /learn_request <goal> | <experience>."
+            : "Для текущего упражнения напишите «Продолжим», затем ответьте или задайте вопрос обычным текстом. " +
             "Завершение упражнения и смена программы требуют отдельного кода подтверждения. " +
             "Новая программа: /learn_request <цель> | <опыт>. Для возврата к диалогу напишите «Продолжим».";
-        return introduce ? [Introduction, help] : [help];
+        return introduce ? [introduction, help] : [help];
     }
 
-    public static IReadOnlyList<TelegramLearningReply> Render(DialogueReply reply)
+    public static IReadOnlyList<TelegramLearningReply> Render(DialogueReply reply, bool? inRussian = null)
     {
+        if (inRussian.HasValue) reply = reply with { InEnglish = !inRussian.Value };
         if (reply.Recap is { } recap) return TelegramLearningPresenter.RenderRecap(recap, reply.InEnglish);
         if (reply.ProgramChoices is { } choices)
-            return ["Подходят несколько программ. Выберите программу ниже или уточните запрос. Все программы доступны через /learn_programs.",
+            return [reply.InEnglish ? "Several programs match. Pick one below or clarify your request. Use /learn_programs to see all programs."
+                : "Подходят несколько программ. Выберите программу ниже или уточните запрос. Все программы доступны через /learn_programs.",
                 .. choices.Select(item => TelegramLearningReply.WithActions($"{item.Goal} ({item.Discipline})\n/learn_select {item.Id}",
-                    [new(LearningActionKind.SelectProgram, item.Id)], inRussian: true))];
+                    [new(LearningActionKind.SelectProgram, item.Id)], inRussian: !reply.InEnglish))];
         var text = RenderText(reply);
         var actions = reply.Kind == DialogueReplyKind.FirstProgramReady
             ? reply.Values is { Count: > 3 } values && values[3] == "start"
@@ -84,6 +93,24 @@ public static class TelegramDialoguePresenter
                 DialogueReplyKind.Paused => "The exercise is on pause. Write “continue” to return to the same question.",
                 DialogueReplyKind.NeedBinding => "Write “continue” to open the current exercise, then send your message again.",
                 DialogueReplyKind.ChooseAnswerOrQuestion => "Is that your answer to the exercise or a question about it? Write “answer” or “question”.",
+                DialogueReplyKind.ChooseQuestionOrGoal => "Is this a question about the current lesson or a request to change your goal? Write “question” or “goal”.",
+                DialogueReplyKind.ChoosePauseOrResume => "Write “pause” or “resume” to choose what to do.",
+                DialogueReplyKind.Interrupted => "This message arrived before the input mode changed. Finish the current input, then write “continue”.",
+                DialogueReplyKind.Cancelled => "Proposal cancelled. Your current lesson is saved.",
+                DialogueReplyKind.ConfirmationRejected => "The confirmation is missing, expired, or for another proposal. Repeat the original request.",
+                DialogueReplyKind.ChoiceUnbound => "This choice is for another prompt. Read the latest question and choose again.",
+                DialogueReplyKind.ChoiceExpired => "The prompt expired or your choice arrived before the question. Check the current lesson and choose again.",
+                DialogueReplyKind.OriginalStale => "The original message is for an earlier exercise. No answer was assessed.",
+                DialogueReplyKind.NeedActualInput => "There is no choice pending. Send your answer or question about the exercise.",
+                DialogueReplyKind.MustFinishLesson => "Finish the current exercise and confirm before switching programs. Pausing saves the exercise for later.",
+                DialogueReplyKind.MustEndPractice => "End the current practice first. Write “end practice” to save your answers and open another exercise.",
+                DialogueReplyKind.ProgramUnavailable => "Program unavailable. Use /learn_programs.",
+                DialogueReplyKind.GoalDeferred => "Your plan to change goals is saved. Switching is currently unavailable. Your exercise and program are saved.",
+                DialogueReplyKind.GoalChanged => $"New goal — {values[0]}. Your previous program and question are saved. Write “continue” to start working toward the new goal.",
+                DialogueReplyKind.ConsultationUnavailable => "Your first program is ready and its goal is saved. Write “continue” to return to it.",
+                DialogueReplyKind.Unavailable => "Learning dialogue is temporarily unavailable. Try again later.",
+                DialogueReplyKind.RouteEditHelp => "Use a topic code from /learn_route tree.\n" +
+                    "/learn_route_edit skip <code> · unskip <code> · brief <code> · detailed <code> · standard <code> · before <code> <code> · restore <version>",
                 _ => null
             };
             if (english is not null) return [english];
@@ -92,6 +119,21 @@ public static class TelegramDialoguePresenter
             DialogueReplyKind.ConfirmProgramCreation or DialogueReplyKind.ConfirmGoalIntent or DialogueReplyKind.ConfirmProgramSwitch or
             DialogueReplyKind.ConfirmGoalSwitch or DialogueReplyKind.ConfirmRouteEdit or DialogueReplyKind.ConfirmGoalUpdate)
         {
+            if (reply.InEnglish)
+            {
+                var summaryInEnglish = reply.Kind switch
+                {
+                    DialogueReplyKind.ConfirmFinish => $"Finish “{values[0]}” without an assessment? Your history will be saved.",
+                    DialogueReplyKind.ConfirmProgramSelection => $"Select “{values[0]}” in place of the current program?",
+                    DialogueReplyKind.ConfirmProgramSwitch => $"Switch to “{values[0]}”? Your current question, help and answers will be saved. Any active practice will end.",
+                    DialogueReplyKind.ConfirmGoalSwitch => $"Create and select a program for “{values[0]}”? Your current question and help will be saved. Any active practice will end.",
+                    DialogueReplyKind.ConfirmGoalIntent => $"Save your plan to change goals to “{values[0]}”? Your current exercise and program will be saved.",
+                    DialogueReplyKind.ConfirmRouteEdit => values[0],
+                    DialogueReplyKind.ConfirmGoalUpdate => $"Apply the proposed route to the current program and set the goal to “{values[0]}”?",
+                    _ => $"Create and select a program for “{values[0]}”? Your previous program history will be saved."
+                };
+                return [$"{summaryInEnglish}\n\nBy text, use /learn_confirm {values[1]} or /cancel. The code expires in 10 minutes."];
+            }
             var summary = reply.Kind switch
             {
                 DialogueReplyKind.ConfirmFinish => "Завершить упражнение «" + values[0] + "» без оценки, сохранив историю?",
@@ -109,7 +151,8 @@ public static class TelegramDialoguePresenter
             return ["Укажите код темы из /learn_route tree. Например, «пропустить тему basics» или «перенеси тему examples перед practice».\n" +
                 "/learn_route_edit skip <код> · unskip <код> · brief <код> · detailed <код> · standard <код> · before <код> <код> · restore <версия>"];
         if (reply.Kind == DialogueReplyKind.ChooseMatchingProgram)
-            return ["Подходят несколько программ. Выберите нужную командой под названием или уточните запрос. Все программы доступны через /learn_programs.", .. values];
+            return [reply.InEnglish ? "Several programs match. Select one using the command under its name, or clarify your request. Use /learn_programs to see all programs."
+                : "Подходят несколько программ. Выберите нужную командой под названием или уточните запрос. Все программы доступны через /learn_programs.", .. values];
         return [reply.Kind switch
         {
             DialogueReplyKind.Interrupted => "Учебная реплика поступила до смены режима ввода и устарела. Завершите текущий ввод, затем напишите «Продолжим».",

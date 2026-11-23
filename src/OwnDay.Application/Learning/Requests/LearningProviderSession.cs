@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using OwnDay.Domain;
 using OwnDay.Domain.Learning;
@@ -99,7 +100,7 @@ public sealed class StaleLearningPreparationException : Exception;
 // only a complete invocation may commit Domain effects. This keeps one set of
 // use-case rules for legacy commands and the worker, including conditional Adapt.
 public sealed class LearningProviderSession(IReadOnlyList<LearningProviderStep> steps, Func<string> targetStamp,
-    Func<string>? targets = null)
+    Func<string>? targets = null, string? preferredLocale = null)
     : ILessonTeacher, ICurriculumPlanner, ITeachingPlanner, ILearningIntentResolver
 {
     private const int RequiredStepLimit = 2;
@@ -167,6 +168,12 @@ public sealed class LearningProviderSession(IReadOnlyList<LearningProviderStep> 
     {
         token.ThrowIfCancellationRequested();
         var json = JsonSerializer.Serialize(input, JsonSerializerOptions.Web);
+        if (preferredLocale is "en" or "ru" && kind is "generate" or ContinuationStep or "assess" or "explain" or "plan" or "teach")
+        {
+            var localized = JsonNode.Parse(json)!.AsObject();
+            localized["preferredLocale"] = preferredLocale;
+            json = localized.ToJsonString(JsonSerializerOptions.Web);
+        }
         var fingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(json)));
         var stamp = targetStamp();
         if (RemainingSteps <= 0 || _ordinal >= MaxSteps)

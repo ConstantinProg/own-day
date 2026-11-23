@@ -1,11 +1,11 @@
 # Telegram UX consolidation
 
-## Current interface: learning dialogue only
+## Current interface: Learning-first Telegram
 
 Telegram now opens learning dialogue for every user, including users without a
 DialogueContext. Ordinary text is committed as a durable Learning request; it
 never falls back to Inbox. Old Inbox and language editors are closed before
-acceptance. Old productivity commands and callback buttons show dialogue help
+acceptance. Retired productivity commands and callback buttons show dialogue help
 without executing their former actions. Start/help have no Inbox keyboard.
 Existing Inbox records are retained.
 The host has retired Inbox analysis, automatic application and the operator
@@ -16,10 +16,31 @@ outbox messages still drain through the shared deliverer.
 in `/help`. The command leaves the learning dialogue untouched.
 `/changes` shows release notes for the running bot version and links to the
 [full changelog](../../../CHANGELOG.md). It is listed in `/help` and leaves the learning dialogue untouched.
-The release notes and release command descriptions use the Telegram client language from the update.
-Russian clients receive Russian text. Other clients receive English text.
+Release notes and help use the effective interface language.
 Both release commands use the transactional outbox. A retry of the same
 webhook update does not queue a second reply.
+
+### Language settings
+
+`/settings` shows the current interface language and whether it was selected
+explicitly or determined automatically. `/language` opens the same language
+choices. Use the **Русский** and **English** buttons or send `/language ru`
+or `/language en`. The confirmation uses the newly selected language.
+
+An explicit choice takes priority over the Telegram client locale. Russian
+and English client locales, including regional variants, are supported.
+English is the fallback when the client locale is unavailable or unsupported.
+The explicit choice survives restarts in the existing user language table.
+
+The signed buttons belong to the private chat and expire after ten minutes.
+Opening a newer menu, completing a selection or returning to ordinary
+dialogue closes the earlier selection. The text commands also work when a
+button has expired. Settings commands work independently of Learning intake
+and preserve the current lesson, dialogue and pending learning confirmation.
+The webhook commits a language change, deduplication and its outbox reply together.
+Apply migration `20261122120000_BindTelegramLanguagePicker` before starting the
+updated Host. It adds the current picker's update ID to the existing language
+table and preserves saved preferences.
 
 Authorized users in Tester Mode can request `/export`, `/export recent` and `/export last` in their private chat. Telegram delivers the result as a document through the outbox. [Diagnostic export](../diagnostics.md)
 
@@ -116,7 +137,67 @@ Learning journey with Russian and English content.
 
 Manual Telegram Desktop and NVDA acceptance requires a test bot.
 
-The inventory and target model below describe the historical Inbox interface.
+## Telegram command menu registration
+
+There is no existing command registration worker. Use BotFather `/setcommands` for the deployed bot,
+replacing the old menu (also remove obsolete per-language/scope overrides). Register these EN entries:
+
+```text
+help - How to use OwnDay
+settings - View your settings
+language - Choose English or Russian
+cancel - Cancel the current action
+version - Show the running version
+changes - Show changes in this version
+```
+
+The corresponding Russian menu text is:
+
+```text
+help - Как пользоваться OwnDay
+settings - Посмотреть настройки
+language - Выбрать русский или английский
+cancel - Отменить текущее действие
+version - Версия OwnDay
+changes - Изменения в этой версии
+```
+
+Registration is an operator deployment step, not performed against a live bot by repository tests.
+For language-specific menus, call `setMyCommands` with `language_code` `en` and `ru`, plus the same
+English commands for the default language (omit `language_code`). Use the command/description
+pairs above in the `commands` array and the private-chat scope:
+
+```json
+{
+  "scope": { "type": "all_private_chats" },
+  "language_code": "ru",
+  "commands": [
+    { "command": "help", "description": "Как пользоваться OwnDay" },
+    { "command": "settings", "description": "Посмотреть настройки" },
+    { "command": "language", "description": "Выбрать русский или английский" },
+    { "command": "cancel", "description": "Отменить текущее действие" },
+    { "command": "version", "description": "Версия OwnDay" },
+    { "command": "changes", "description": "Изменения в этой версии" }
+  ]
+}
+```
+
+Submit the JSON from a local operator file, with the bot token supplied only at runtime:
+
+```powershell
+$menuBody = Get-Content -LiteralPath ./commands.ru.json -Raw -Encoding utf8
+Invoke-RestMethod -Method Post -ContentType 'application/json; charset=utf-8' `
+    -Uri ('https://api.telegram.org/bot' + $env:TELEGRAM_BOT_TOKEN + '/setMyCommands') `
+    -Body ([System.Text.Encoding]::UTF8.GetBytes($menuBody))
+```
+
+Verify default/EN/RU menus with `getMyCommands` for the same scopes. Clear obsolete narrower chat
+overrides using `deleteMyCommands`, otherwise Telegram can continue showing a more specific old menu.
+Telegram uses its client language for these menus. The OwnDay preference
+controls replies and in-message keyboards.
+
+The Inbox inventory, examples and verification notes below are historical.
+Use the current interface section above for supported commands and behavior.
 
 ## Audit and target model (recorded before implementation)
 
@@ -221,58 +302,6 @@ Background notifications still use the existing outbox and existing saved owner/
 Automatic interpretation still requires the existing configured analyzer and background processing;
 this change does not enable a provider or supply credentials. With analysis disabled, captured entries
 remain available through `/inbox` and manual processing.
-
-## Command menu registration
-
-There is no existing command registration worker. Use BotFather `/setcommands` for the deployed bot,
-replacing the old menu (also remove obsolete per-language/scope overrides). Register these EN entries:
-
-```text
-help - How to use OwnDay
-cancel - Cancel the current action
-version - Show the running version
-changes - Show changes in this version
-```
-
-The corresponding Russian menu text is:
-
-```text
-help - Как пользоваться OwnDay
-cancel - Отменить текущее действие
-version - Версия OwnDay
-changes - Изменения в этой версии
-```
-
-Registration is an operator deployment step, not performed against a live bot by repository tests.
-For language-specific menus, call `setMyCommands` with `language_code` `en` and `ru`, plus the same
-English commands for the default language (omit `language_code`). Use the command/description
-pairs above in the `commands` array and the private-chat scope:
-
-```json
-{
-  "scope": { "type": "all_private_chats" },
-  "language_code": "ru",
-  "commands": [
-    { "command": "help", "description": "Как пользоваться OwnDay" },
-    { "command": "cancel", "description": "Отменить текущее действие" },
-    { "command": "version", "description": "Версия OwnDay" },
-    { "command": "changes", "description": "Изменения в этой версии" }
-  ]
-}
-```
-
-Submit the JSON from a local operator file, with the bot token supplied only at runtime:
-
-```powershell
-$menuBody = Get-Content -LiteralPath ./commands.ru.json -Raw -Encoding utf8
-Invoke-RestMethod -Method Post -ContentType 'application/json; charset=utf-8' `
-    -Uri ('https://api.telegram.org/bot' + $env:TELEGRAM_BOT_TOKEN + '/setMyCommands') `
-    -Body ([System.Text.Encoding]::UTF8.GetBytes($menuBody))
-```
-
-Verify default/EN/RU menus with `getMyCommands` for the same scopes. Clear obsolete narrower chat
-overrides using `deleteMyCommands`, otherwise Telegram can continue showing a more specific old menu.
-Telegram uses its client language for these menus.
 
 ### Russian dialog example
 

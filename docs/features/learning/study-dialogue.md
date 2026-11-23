@@ -23,7 +23,10 @@ Bare yes/later does not select an invitation. Expired, foreign and consumed IDs
 remain subject to existing owner/currentness checks. Starting material stays in
 the prepare/provider/apply lane; schedule mutation, operation marker, replies and
 completion commit together. No LLM interprets a schedule or chooses opt-in defaults.
-An active Inbox/language editor retains priority. Existing slash commands remain.
+Telegram routes `/settings` and `/language` independently of study scheduling.
+New invitations use the saved interface language. The dispatcher uses English
+when it has no explicit preference or Telegram update locale. Topic titles
+and previously queued replies remain in their original language.
 
 No new schema or delivery topology is introduced. Existing Domain DST/window rules
 and dispatcher transaction locks remain authoritative. Immediately before invitation

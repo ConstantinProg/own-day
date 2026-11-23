@@ -163,8 +163,6 @@ public sealed class TelegramDialogueOnlyTests
     [InlineData("/unknown")]
     [InlineData("/help")]
     [InlineData("/help commands")]
-    [InlineData("/language")]
-    [InlineData("/language ru")]
     [InlineData("/inbox")]
     [InlineData("/inbox 1")]
     [InlineData("/capture old note")]
@@ -180,7 +178,6 @@ public sealed class TelegramDialogueOnlyTests
     [InlineData("/notes")]
     [InlineData("/wait old item")]
     [InlineData("/waiting")]
-    [InlineData("/settings")]
     [InlineData("/stats")]
     [InlineData("/process 1 task")]
     [InlineData("/discard 1")]
@@ -221,7 +218,7 @@ public sealed class TelegramDialogueOnlyTests
         var saved = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
         var replies = await saved.TelegramOutboxMessages.OrderBy(reply => reply.CreatedAt).ToListAsync();
         Assert.Equal(2, replies.Count);
-        Assert.Equal(TelegramDialoguePresenter.Introduction, replies[0].Text);
+        Assert.Equal(TelegramDialoguePresenter.EnglishIntroduction, replies[0].Text);
         Assert.All(replies, reply =>
         {
             Assert.DoesNotContain("/capture", reply.Text, StringComparison.Ordinal);

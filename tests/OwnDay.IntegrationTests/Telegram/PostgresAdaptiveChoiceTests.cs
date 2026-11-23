@@ -850,11 +850,11 @@ public sealed partial class PostgresLearningProviderTests
 
     private static async Task SendChoiceTextAsync(HttpClient client, int id, string text)
     {
-        using var response = await PostPublicAsync(client, id, text);
+        using var response = await PostPublicAsync(client, id, text, clientLanguage: "ru");
         response.EnsureSuccessStatusCode();
     }
 
-    private static async Task PostChoiceCallbackAsync(HttpClient client, int update, string data, long owner = 101)
+    private static async Task PostChoiceCallbackAsync(HttpClient client, int update, string data, long owner = 101, string clientLanguage = "ru")
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, "/telegram/webhook");
         request.Headers.Add("X-Telegram-Bot-Api-Secret-Token", "integration-test-webhook-secret");
@@ -864,7 +864,7 @@ public sealed partial class PostgresLearningProviderTests
             callback_query = new
             {
                 id = $"choice-{update}",
-                from = new { id = owner, is_bot = false, first_name = "Ученик" },
+                from = new { id = owner, is_bot = false, first_name = "Ученик", language_code = clientLanguage },
                 message = new
                 {
                     message_id = 1, date = 1790244000, chat = new { id = owner, type = "private" },

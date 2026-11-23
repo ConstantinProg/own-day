@@ -292,7 +292,7 @@ public sealed class LearningDialogueService(IDialogueStore store, ILearningInten
                 return new(context, DialogueOperationKind.PracticeInfo, "");
             if (anotherExercise && program.PracticeStatus is LearningPracticeStatus.Running or LearningPracticeStatus.Paused)
                 return PracticeAction(context, turn, DialogueOperationKind.NextPractice);
-            if (command is null && (normalized is "хватит практики" or "закончим практику") &&
+            if (command is null && (normalized is "хватит практики" or "закончим практику" or "end practice") &&
                 (program.PracticeStatus is LearningPracticeStatus.Running or LearningPracticeStatus.Paused))
                 return PracticeAction(context, turn, DialogueOperationKind.StopPractice);
             if (PracticeNavigation(program.PracticeStatus, command ?? naturalAction, lesson) is { } practiceAction)

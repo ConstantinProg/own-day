@@ -121,7 +121,7 @@ public sealed partial class LearningService
             throw new ArgumentException("The lesson belongs to another learner.", nameof(lesson));
         if (lesson is null || !input.Matches(lesson))
         {
-            var russian = lesson is null || MarketLearningContent.InRussian(lesson.Theory);
+            var russian = replyInRussian ?? (lesson is null || MarketLearningContent.InRussian(lesson.Theory));
             return new(new LearningResult.ChoiceReply(russian
                 ? "Эта кнопка устарела. Используйте последние варианты или напишите «Продолжим»."
                 : "This button is out of date. Use the latest options or write “continue”.",
@@ -174,7 +174,7 @@ public sealed partial class LearningService
         }
         if (exercise.IsValidSelection(selection))
             return await SubmitChoiceAsync(lesson, selection, token, answer);
-        return new LearningResult.ChoiceReply(MarketLearningContent.InRussian(lesson.Theory)
+        return new LearningResult.ChoiceReply((replyInRussian ?? MarketLearningContent.InRussian(lesson.Theory))
             ? "Не удалось однозначно связать ваш ответ с вариантами. Уточните, какой вариант вы имеете в виду, или выберите его ниже."
             : "I couldn't match your answer to the options with confidence. Clarify which option you mean, or select it below.",
             ChoicePrompt.From(lesson));
@@ -182,7 +182,7 @@ public sealed partial class LearningService
 
     private async Task<LearningResult> SubmitChoiceAsync(Lesson lesson, ImmutableArray<int> selection, CancellationToken token, string? answer = null)
     {
-        var russian = MarketLearningContent.InRussian(lesson.Theory);
+        var russian = replyInRussian ?? MarketLearningContent.InRussian(lesson.Theory);
         var attempt = lesson.SubmitChoice(selection, operationId, answer);
         var verdict = attempt.Outcome switch
         {
@@ -212,7 +212,7 @@ public sealed partial class LearningService
 
     private async Task<LearningResult> CompleteChoiceAsync(Lesson lesson, string verdict, CancellationToken token)
     {
-        var russian = MarketLearningContent.InRussian(lesson.Theory);
+        var russian = replyInRussian ?? MarketLearningContent.InRussian(lesson.Theory);
         var state = lesson.Choice!;
         var attempt = state.Attempts[^1];
         var solution = attempt.Outcome == ChoiceOutcome.Correct ? state.Exercise.Explanation : ChoiceSolution(state.Exercise, russian);
@@ -265,16 +265,16 @@ public sealed partial class LearningService
         return hint;
     }
 
-    private static LearningResult.ChoiceReply InvalidChoice(Lesson lesson)
+    private LearningResult.ChoiceReply InvalidChoice(Lesson lesson)
     {
-        var russian = MarketLearningContent.InRussian(lesson.Theory);
+        var russian = replyInRussian ?? MarketLearningContent.InRussian(lesson.Theory);
         return new(russian ? "Выберите допустимый непустой ответ из вариантов ниже."
             : "Choose a valid, nonempty answer from the options below.", ChoicePrompt.From(lesson));
     }
 
     private async Task<LearningResult> ExplainChoiceAsync(Lesson lesson, string request, LessonInteractionKind kind, CancellationToken token)
     {
-        var russian = MarketLearningContent.InRussian(lesson.Theory);
+        var russian = replyInRussian ?? MarketLearningContent.InRussian(lesson.Theory);
         var choice = lesson.Choice!;
         if (kind == LessonInteractionKind.FullAnswer)
         {

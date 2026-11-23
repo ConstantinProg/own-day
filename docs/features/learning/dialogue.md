@@ -1,12 +1,20 @@
 # Current-exercise dialogue
 
-`Learning:Processing:DialogueEnabled` enrolls users in Learning-first text input.
-It defaults to false and requires the enabled durable worker and ingress. The
-existing command interface remains available. Explicit Inbox capture, Inbox editors
-and language selection retain priority; the introductory reply names `/capture` as
-the escape for notes. Enrollment is sticky through the owner context or committed
-dialogue request, including while the first provider call is in flight. Disabling
-the producer flag does not turn enrolled users' pending learning text into Inbox.
+Learning-first text input is active for every Telegram user. The Host requires
+the durable worker, ingress and dialogue configuration. See the [current
+Telegram interface](../telegram/ux.md) for the supported system commands.
+`/settings` and `/language` run outside the Learning queue and preserve the
+current question, dialogue revision and pending clarification or confirmation.
+Ordinary text continues entering the dialogue while the picker is visible.
+
+New Learning receipts capture the effective interface language at intake
+(explicit preference, supported client locale, then English). The worker uses
+that value to localize reply templates and buttons and commits the rendered
+reply to the outbox. An explicit preference also guides newly generated
+learner-facing material and feedback. Exercise language requirements, saved
+questions, source quotes and earlier explanations remain as stored. Receipts
+created before language capture remain readable and can use the existing
+dialogue and lesson language inference.
 
 `DialogueContext` owns conversation expectations, prompt identity, revision and
 one bounded pending clarification or confirmation. It does not replace Lesson,

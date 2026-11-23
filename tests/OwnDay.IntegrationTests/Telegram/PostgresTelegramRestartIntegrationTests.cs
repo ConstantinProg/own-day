@@ -22,7 +22,6 @@ public sealed class PostgresTelegramRestartIntegrationTests
 {
     [Theory]
     [InlineData("/start")]
-    [InlineData("/language")]
     [InlineData("/inbox 1")]
     [InlineData("/done 1")]
     [Trait("Requires", "PostgreSQL via OWNDAY_TEST_POSTGRES_CONNECTION")]

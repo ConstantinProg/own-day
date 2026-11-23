@@ -298,7 +298,7 @@ public sealed partial class PostgresLearningProviderTests : IAsyncLifetime
         using (var host = DialogueHost(probe))
         using (var client = host.CreateClient())
         {
-            using var response = await PostPublicAsync(client, 1, "/learn " + topic);
+            using var response = await PostPublicAsync(client, 1, "/learn " + topic, clientLanguage: "ru");
             response.EnsureSuccessStatusCode();
             await WaitAllPublicAsync(1);
         }
@@ -312,10 +312,10 @@ public sealed partial class PostgresLearningProviderTests : IAsyncLifetime
         }
         using var restarted = DialogueHost(probe);
         using var restartedClient = restarted.CreateClient();
-        using var clarification = await PostPublicAsync(restartedClient, 2, "Какой код расчётов для акций Московской биржи?");
+        using var clarification = await PostPublicAsync(restartedClient, 2, "Какой код расчётов для акций Московской биржи?", clientLanguage: "ru");
         clarification.EnsureSuccessStatusCode();
         await WaitAllPublicAsync(2);
-        using var duplicate = await PostPublicAsync(restartedClient, 2, "Какой код расчётов для акций Московской биржи?");
+        using var duplicate = await PostPublicAsync(restartedClient, 2, "Какой код расчётов для акций Московской биржи?", clientLanguage: "ru");
         duplicate.EnsureSuccessStatusCode();
         await using var observer = Open();
         var persisted = await observer.Set<Lesson>().Include(lesson => lesson.Interactions).SingleAsync();

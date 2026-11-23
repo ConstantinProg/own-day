@@ -145,7 +145,7 @@ public sealed partial class PostgresTesterModeTests
         Assert.True((await saved.Set<TesterModeState>().SingleAsync()).Authorized);
         Assert.Equal(Tester, (await saved.Set<DialogueContext>().SingleAsync()).UserId);
         Assert.Contains(await saved.TelegramOutboxMessages.Select(message => message.Text).ToListAsync(),
-            text => text == OwnDay.Infrastructure.Telegram.Commands.TelegramDialoguePresenter.Introduction);
+            text => text == OwnDay.Infrastructure.Telegram.Commands.TelegramDialoguePresenter.EnglishIntroduction);
         Assert.Equal(1, await saved.Database.SqlQuery<long>($"""
             SELECT call_count AS "Value" FROM openai_budget_carryover WHERE user_id = {Tester.Value}
             """).SingleAsync());

@@ -81,7 +81,7 @@ public sealed partial class PostgresLearningProviderTests
             Assert.Equal(revision, (await failed.Set<DialogueContext>().SingleAsync()).Revision);
             Assert.False(await failed.TelegramOutboxMessages.AnyAsync(message => message.EditMessageId != null));
             Assert.Contains(await failed.TelegramOutboxMessages.Select(message => message.Text).ToListAsync(),
-                text => text.Contains("Try again", StringComparison.Ordinal));
+                text => text.Contains("Повторите запрос", StringComparison.Ordinal));
         }
 
         await PostChoiceCallbackAsync(client, 3, button);
@@ -233,7 +233,7 @@ public sealed partial class PostgresLearningProviderTests
 
         await using var saved = Open();
         Assert.Null((await saved.Set<StudySchedule>().SingleAsync()).InvitationId);
-        Assert.Single(await saved.TelegramOutboxMessages.Where(message => message.Text.StartsWith("Invitation postponed")).ToListAsync());
+        Assert.Single(await saved.TelegramOutboxMessages.Where(message => message.Text.StartsWith("Приглашение отложено")).ToListAsync());
         Assert.Empty(await saved.Set<Lesson>().ToListAsync());
     }
 

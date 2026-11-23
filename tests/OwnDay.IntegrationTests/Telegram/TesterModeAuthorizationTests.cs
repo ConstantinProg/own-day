@@ -45,6 +45,34 @@ public sealed class TesterModeAuthorizationTests
     }
 
     [Fact]
+    public async Task Post_LanguageDuringTesterPrompt_PreservesPromptAndLocalizesReplies()
+    {
+        using var root = new OwnDayHostFactory();
+        using var host = root.WithWebHostBuilder(builder =>
+        {
+            builder.UseSetting("TesterMode:Enabled", "true");
+            builder.UseSetting("TesterMode:SecretHash", SecretHash);
+        });
+        using var client = host.CreateClient();
+        await PostAsync(client, 1, "/tester");
+        await PostAsync(client, 2, "/language ru");
+        await PostAsync(client, 3, "/language " + Secret);
+        await PostAsync(client, 4, Secret);
+        await PostAsync(client, 5, "/start");
+        await PostAsync(client, 6, "/help");
+
+        using var read = host.Services.CreateScope();
+        var db = read.ServiceProvider.GetRequiredService<OwnDayDbContext>();
+        var replies = await db.TelegramOutboxMessages.Select(message => message.Text).ToListAsync();
+        Assert.Contains(replies, reply => reply.StartsWith("Текущий язык можно посмотреть", StringComparison.Ordinal));
+        Assert.Contains(replies, reply => reply.StartsWith("Режим тестировщика активен.", StringComparison.Ordinal));
+        Assert.All(replies, reply => Assert.DoesNotContain(Secret, reply, StringComparison.Ordinal));
+        Assert.Contains(replies, reply => reply.StartsWith("Пишите обычным текстом", StringComparison.Ordinal));
+        Assert.Contains(replies, reply => reply.Contains("/settings — посмотреть настройки.", StringComparison.Ordinal));
+        Assert.True((await db.Set<TesterModeState>().SingleAsync()).Authorized);
+    }
+
+    [Fact]
     public async Task Post_SecretAttemptAndReactivation_PreservesAuthorizationUntilRevoked()
     {
         using var root = new OwnDayHostFactory();

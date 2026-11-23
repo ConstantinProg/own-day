@@ -114,7 +114,7 @@ public sealed partial class PostgresTesterModeTests : IAsyncLifetime
         var replies = await saved.TelegramOutboxMessages.Where(message => message.ChatId == Tester.Value)
             .Select(message => message.Text).ToListAsync();
         Assert.Single(replies, text => text.StartsWith("Your state was reset.", StringComparison.Ordinal));
-        Assert.Single(replies, text => text == OwnDay.Infrastructure.Telegram.Commands.TelegramDialoguePresenter.Introduction);
+        Assert.Single(replies, text => text == OwnDay.Infrastructure.Telegram.Commands.TelegramDialoguePresenter.EnglishIntroduction);
     }
 
     private OwnDayDbContext Open() => new(new DbContextOptionsBuilder<OwnDayDbContext>().UseNpgsql(_connection).Options);

@@ -283,7 +283,8 @@ public sealed partial class PostgresLearningProviderTests
         Assert.Equal(1, probe.Calls);
     }
 
-    private static Task<HttpResponseMessage> PostPublicAsync(HttpClient client, int id, string text, int? messageId = null)
+    private static Task<HttpResponseMessage> PostPublicAsync(HttpClient client, int id, string text, int? messageId = null,
+        string? clientLanguage = null)
     {
         var request = new HttpRequestMessage(HttpMethod.Post, "/telegram/webhook");
         request.Headers.Add("X-Telegram-Bot-Api-Secret-Token", "integration-test-webhook-secret");
@@ -291,7 +292,7 @@ public sealed partial class PostgresLearningProviderTests
         {
             update_id = id,
             message = new { message_id = messageId ?? id, date = 1700000000, chat = new { id = 101, type = "private" },
-                from = new { id = 101, is_bot = false, first_name = "Test" }, text }
+                from = new { id = 101, is_bot = false, first_name = "Test", language_code = clientLanguage }, text }
         });
         return client.SendAsync(request);
     }

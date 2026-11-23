@@ -4,6 +4,7 @@ using OwnDay.Domain;
 using OwnDay.Domain.Dialogue;
 using OwnDay.Domain.Learning;
 using OwnDay.Application.Learning;
+using OwnDay.Application.Learning.Requests;
 
 namespace OwnDay.Application.Dialogue;
 
@@ -38,7 +39,8 @@ public interface ILearningIntentResolver
 }
 
 public sealed record LearningTextInput(string Text, Guid? LessonId, Guid? PromptId, long? DialogueRevision, bool ConsultationAllowed = false,
-    bool EnglishDiagnosticAllowed = false, bool PracticeAllowed = false, bool ProgramSwitchAllowed = false);
+    bool EnglishDiagnosticAllowed = false, bool PracticeAllowed = false, bool ProgramSwitchAllowed = false,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] LearningReplyLanguage? Language = null);
 public sealed record DialogueProgramSnapshot(Guid Id, string Goal, string Discipline, int RouteVersion, uint Version = 0,
     bool HasEnglishDiagnostic = false, LearningPracticeStatus? PracticeStatus = null,
     Guid? SuspendedLessonId = null, uint? SuspendedLessonVersion = null, [property: JsonIgnore] string? PendingDiagnosticQuestion = null,

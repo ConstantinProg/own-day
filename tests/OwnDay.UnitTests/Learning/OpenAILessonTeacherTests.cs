@@ -146,6 +146,31 @@ public sealed partial class OpenAILessonTeacherTests
     }
 
     [Fact]
+    public async Task GenerateAsync_ExplicitLanguage_SetsInstructionWithoutRewritingLessonInput()
+    {
+        using var handler = new ResponseHandler(JsonSerializer.Serialize(new
+        {
+            id = "test", model = "test", created = 1, @object = "chat.completion",
+            choices = new[] { new { index = 0, finish_reason = "stop",
+                message = new { role = "assistant", content = Generated("Теория", "Задание") } } }
+        }));
+        using var http = new HttpClient(handler);
+        var usage = new LearningProviderUsage { LedgerAttemptId = Guid.NewGuid(), PreferredLocale = "ru" };
+        var teacher = new OpenAILessonTeacher(() => new ChatClient("test", new ApiKeyCredential("dummy"), new OpenAIClientOptions
+        {
+            Transport = new HttpClientPipelineTransport(http), RetryPolicy = new ClientRetryPolicy(0)
+        }), Options.Create(new OpenAIInboxAnalysisOptions { Enabled = true, ApiKey = "dummy" }), new RecordingLogger(), usage: usage);
+
+        await teacher.GenerateAsync(new("Algebra"), default);
+
+        using var body = JsonDocument.Parse(handler.RequestBody!);
+        var messages = body.RootElement.GetProperty("messages");
+        Assert.Contains("The learner explicitly chose Russian", messages[0].GetProperty("content").GetString());
+        using var input = JsonDocument.Parse(messages[1].GetProperty("content").GetString()!);
+        Assert.Equal("Algebra", input.RootElement.GetProperty("Topic").GetString());
+    }
+
+    [Fact]
     public async Task GenerateAsync_PersonalizationAndTransfer_UsesExplicitChoicesAndOnlyRepeatedUnconflictedEvidence()
     {
         using var handler = new ResponseHandler(JsonSerializer.Serialize(new

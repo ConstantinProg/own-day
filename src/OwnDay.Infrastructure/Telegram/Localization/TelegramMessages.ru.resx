@@ -134,6 +134,19 @@
   <data name="kind.waiting" xml:space="preserve">
     <value>Ожидание</value>
   </data>
+  <data name="settings.title"><value>Настройки</value></data>
+  <data name="settings.usage"><value>Используйте /settings, чтобы посмотреть настройки.</value></data>
+  <data name="language.title"><value>Язык интерфейса</value></data>
+  <data name="language.current"><value>Текущий язык: {0} ({1}).</value></data>
+  <data name="language.name.en"><value>английский</value></data>
+  <data name="language.name.ru"><value>русский</value></data>
+  <data name="language.source.explicit"><value>выбран вами</value></data>
+  <data name="language.source.automatic"><value>определён автоматически</value></data>
+  <data name="language.choices"><value>Выберите язык кнопкой или отправьте /language ru или /language en.</value></data>
+  <data name="language.usage"><value>Текущий язык можно посмотреть через /language. Для выбора отправьте /language ru или /language en.</value></data>
+  <data name="language.expired"><value>Это меню устарело. Откройте /language снова или отправьте /language ru или /language en.</value></data>
+  <data name="help.settingsCommands" xml:space="preserve"><value>/settings — посмотреть настройки.
+/language — выбрать русский или английский.</value></data>
   <data name="language.changed" xml:space="preserve">
     <value>Язык изменён на русский.</value>
   </data>

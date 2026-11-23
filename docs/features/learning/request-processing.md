@@ -22,6 +22,12 @@ updates acknowledge their existing receipt even while acceptance is paused.
 Worker cancellation is independent of the completed HTTP request token. Queued
 commands remain visible in chat; receipt does not wait for command deletion.
 
+For Telegram, the command, text and action payloads may include a language
+snapshot. Retries and recovered requests use the language captured at receipt.
+An explicit choice also travels with provider steps that write lesson content
+or feedback. Existing payload versions remain readable. `/settings` and
+`/language` use the webhook outbox transaction without adding a Learning receipt.
+
 The diagnostic journal links receipt, worker attempts, provider calls, decisions,
 transaction outcomes and outbound delivery using the Learning request ID. Export
 reads the current committed status without waiting for Learning to finish.

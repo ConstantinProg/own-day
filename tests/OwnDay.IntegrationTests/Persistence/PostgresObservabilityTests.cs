@@ -120,7 +120,7 @@ public sealed partial class PostgresObservabilityTests : IAsyncLifetime
             var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
             var replies = await db.TelegramOutboxMessages.OrderBy(reply => reply.CreatedAt).ToListAsync();
             Assert.Equal(2, replies.Count);
-            Assert.Equal(OwnDay.Infrastructure.Telegram.Commands.TelegramDialoguePresenter.Introduction, replies[0].Text);
+            Assert.Equal(OwnDay.Infrastructure.Telegram.Commands.TelegramDialoguePresenter.EnglishIntroduction, replies[0].Text);
             Assert.Single(await db.Set<OwnDay.Domain.Dialogue.DialogueContext>().ToListAsync());
             Assert.Single(await db.ProcessedTelegramUpdates.ToListAsync());
         }

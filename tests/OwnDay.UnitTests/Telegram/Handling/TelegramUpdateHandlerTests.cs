@@ -10,6 +10,7 @@ using OwnDay.Application.StructuredItems;
 using OwnDay.Domain.Dialogue;
 using OwnDay.Infrastructure;
 using OwnDay.Infrastructure.Persistence;
+using OwnDay.Infrastructure.Telegram.Actions;
 using OwnDay.Infrastructure.Telegram.Cleanup;
 using OwnDay.Infrastructure.Telegram.Commands;
 using OwnDay.Infrastructure.Telegram.Configuration;
@@ -33,7 +34,6 @@ public sealed class TelegramUpdateHandlerTests
     [InlineData("/ping", "ru")]
     [InlineData("/unknown", "ru")]
     [InlineData("/help", "en")]
-    [InlineData("/language", "ru")]
     [InlineData("/add Buy groceries", "en")]
     public async Task HandleAsync_LegacyCommand_IntroducesDialogueWithoutLegacyEffects(string command, string locale)
     {
@@ -43,8 +43,8 @@ public sealed class TelegramUpdateHandlerTests
 
         var replies = await fixture.DbContext.TelegramOutboxMessages.OrderBy(reply => reply.CreatedAt).ToListAsync();
         Assert.Equal(2, replies.Count);
-        Assert.Equal(TelegramDialoguePresenter.Introduction, replies[0].Text);
-        Assert.Contains("Чему вы хотите научиться", replies[1].Text, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(locale == "ru" ? TelegramDialoguePresenter.Introduction : TelegramDialoguePresenter.EnglishIntroduction, replies[0].Text);
+        Assert.Contains(locale == "ru" ? "Чему вы хотите научиться" : "What would you like to learn", replies[1].Text, StringComparison.OrdinalIgnoreCase);
         Assert.All(replies, reply =>
         {
             Assert.Equal(1, reply.ChatId);
@@ -74,7 +74,8 @@ public sealed class TelegramUpdateHandlerTests
 
         var replies = await fixture.DbContext.TelegramOutboxMessages.ToListAsync();
         Assert.Equal(3, replies.Count);
-        Assert.Single(replies, reply => reply.Text == TelegramDialoguePresenter.Introduction);
+        Assert.Single(replies, reply => reply.Text == TelegramDialoguePresenter.EnglishIntroduction);
+        Assert.Single(replies, reply => reply.Text.Contains("/settings", StringComparison.Ordinal) && reply.Text.Contains("/language", StringComparison.Ordinal));
         Assert.Single(replies, reply => reply.Text.Contains("/version", StringComparison.Ordinal));
         Assert.Single(replies, reply => reply.Text.Contains(description, StringComparison.Ordinal));
         Assert.Single(fixture.DbContext.Set<DialogueContext>());
@@ -367,9 +368,14 @@ public sealed class TelegramUpdateHandlerTests
                     .Options);
             await dbContext.Database.EnsureCreatedAsync();
 
-            var router = new TelegramUpdateRouter(
-                new TelegramCommandParser(),
-                Options.Create(new TelegramOptions { BotUsername = "OwnDayBot" }));
+            var options = Options.Create(new TelegramOptions
+            {
+                BotUsername = "OwnDayBot",
+                BotToken = "123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi",
+                CallbackSigningKey = Convert.ToBase64String(new byte[32])
+            });
+            var codec = new TelegramActionCodec(options);
+            var router = new TelegramUpdateRouter(new TelegramCommandParser(), options, codec);
             var cleaner = new RecordingTelegramMessageCleaner();
             var teacher = new OwnDay.Infrastructure.OpenAIAnalysis.OpenAILessonTeacher(
                 () => throw new InvalidOperationException("Provider is disabled."),
@@ -380,10 +386,11 @@ public sealed class TelegramUpdateHandlerTests
             var curriculum = new OwnDay.Application.Learning.CurriculumService(new EfCurriculumStore(dbContext), teacher,
                 new EfLessonStore(dbContext), teacher,
                 new StructuredItemService(new EfStructuredItemStore(dbContext), timeProvider), knowledge, teacher, new EfActionStore(dbContext));
+            var languages = new EfUserLanguageStore(dbContext);
             var handler = new TelegramUpdateHandler(
                 router,
                 new EfInboxDraftStore(dbContext),
-                new TelegramLanguageFlow(dbContext, timeProvider),
+                new TelegramLanguageFlow(languages, new OwnDay.Application.Settings.UserLanguageSettings(languages), timeProvider, codec),
                 dbContext,
                 timeProvider,
                 cleaner,

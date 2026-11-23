@@ -8,7 +8,8 @@ public sealed class TelegramCurriculumCommandHandler(CurriculumService service)
     public bool Handles(string name) => name is "learn_request" or "learn_program" or "learn_project" or "learn_diagnose" or "learn_route" or "learn_next" or "learn_adapt" or "learn_focus"
         or "learn_programs" or "learn_select" or "learn_link" or "learn_links" or "learn_project_report" or "learn_project_practice" or "learn_transfer" or "learn_progress";
 
-    public async Task<IReadOnlyList<TelegramLearningReply>> HandleAsync(ProcessIncomingCommand command, CancellationToken token, bool suspendCurrent = false)
+    public async Task<IReadOnlyList<TelegramLearningReply>> HandleAsync(ProcessIncomingCommand command, CancellationToken token,
+        bool suspendCurrent = false, bool? inRussian = null)
     {
         CurriculumResult result;
         if (command.Name == "learn_progress")
@@ -17,7 +18,8 @@ public sealed class TelegramCurriculumCommandHandler(CurriculumService service)
             if ((!string.IsNullOrWhiteSpace(command.Arguments) &&
                  !int.TryParse(command.Arguments, System.Globalization.NumberStyles.None,
                      System.Globalization.CultureInfo.InvariantCulture, out page)) || page is < 1 or > CurriculumService.MaxPageNumber)
-                return ["Use /learn_progress [page] with a positive page number."];
+                return [inRussian == true ? "Укажите положительный номер страницы: /learn_progress [страница]."
+                    : "Use /learn_progress [page] with a positive page number."];
             result = await service.ProgressAsync(command.UserId, page, token);
         }
         else if (command.Name == "learn_transfer")
@@ -32,7 +34,7 @@ public sealed class TelegramCurriculumCommandHandler(CurriculumService service)
         {
             var page = 1;
             if (!string.IsNullOrWhiteSpace(command.Arguments) && !int.TryParse(command.Arguments, out page))
-                return TelegramCurriculumPresenter.Render(new CurriculumResult.InvalidInput());
+                return TelegramCurriculumPresenter.Render(new CurriculumResult.InvalidInput(), inRussian);
             result = command.Name == "learn_programs" ? await service.ListAsync(command.UserId, page, token)
                 : await service.ProjectReportAsync(command.UserId, page, token);
         }
@@ -40,28 +42,28 @@ public sealed class TelegramCurriculumCommandHandler(CurriculumService service)
         {
             var parts = command.Arguments.Split('|', 2, StringSplitOptions.TrimEntries);
             if (parts.Length != 2 || !long.TryParse(parts[1], out var id))
-                return TelegramCurriculumPresenter.Render(new CurriculumResult.InvalidInput());
+                return TelegramCurriculumPresenter.Render(new CurriculumResult.InvalidInput(), inRussian);
             result = await service.ProjectPracticeAsync(command.UserId, parts[0], id, token);
         }
         else if (command.Name == "learn_select")
         {
-            if (!Guid.TryParse(command.Arguments.Trim(), out var id)) return TelegramCurriculumPresenter.Render(new CurriculumResult.InvalidInput());
+            if (!Guid.TryParse(command.Arguments.Trim(), out var id)) return TelegramCurriculumPresenter.Render(new CurriculumResult.InvalidInput(), inRussian);
             result = await service.SelectAsync(command.UserId, id, token, suspendCurrent);
         }
         else if (command.Name == "learn_link")
         {
             var parts = command.Arguments.Split('|', 3, StringSplitOptions.TrimEntries);
-            if (parts.Length != 3 || !Guid.TryParse(parts[1], out var id)) return TelegramCurriculumPresenter.Render(new CurriculumResult.InvalidInput());
+            if (parts.Length != 3 || !Guid.TryParse(parts[1], out var id)) return TelegramCurriculumPresenter.Render(new CurriculumResult.InvalidInput(), inRussian);
             result = await service.LinkAsync(command.UserId, parts[0], id, parts[2], token);
         }
         else if (command.Name is "learn_request" or "learn_program" or "learn_project")
         {
             var parts = command.Arguments.Split('|', 2, StringSplitOptions.TrimEntries);
-            if (parts.Length != 2) return TelegramCurriculumPresenter.Render(new CurriculumResult.InvalidInput());
+            if (parts.Length != 2) return TelegramCurriculumPresenter.Render(new CurriculumResult.InvalidInput(), inRussian);
             long? projectId = null;
             if (command.Name == "learn_project")
             {
-                if (!long.TryParse(parts[0], out var id) || id <= 0) return TelegramCurriculumPresenter.Render(new CurriculumResult.InvalidInput());
+                if (!long.TryParse(parts[0], out var id) || id <= 0) return TelegramCurriculumPresenter.Render(new CurriculumResult.InvalidInput(), inRussian);
                 projectId = id;
             }
             result = await service.CreateAsync(command.UserId, parts[0], parts[1], projectId, token, suspendCurrent: suspendCurrent);
@@ -74,12 +76,12 @@ public sealed class TelegramCurriculumCommandHandler(CurriculumService service)
         {
             var code = command.Arguments.Trim();
             if (code.Length is < 1 or > OwnDay.Domain.Learning.CurriculumTopic.MaxCodeLength)
-                return TelegramCurriculumPresenter.Render(new CurriculumResult.InvalidInput());
+                return TelegramCurriculumPresenter.Render(new CurriculumResult.InvalidInput(), inRussian);
             result = await service.FocusAsync(command.UserId, code, token);
         }
         else
         {
-            if (!string.IsNullOrWhiteSpace(command.Arguments)) return TelegramCurriculumPresenter.Render(new CurriculumResult.InvalidInput());
+            if (!string.IsNullOrWhiteSpace(command.Arguments)) return TelegramCurriculumPresenter.Render(new CurriculumResult.InvalidInput(), inRussian);
             result = command.Name switch
             {
                 "learn_next" => await service.NextAsync(command.UserId, token),
@@ -88,6 +90,6 @@ public sealed class TelegramCurriculumCommandHandler(CurriculumService service)
                 _ => await service.ShowAsync(command.UserId, token)
             };
         }
-        return TelegramCurriculumPresenter.Render(result);
+        return TelegramCurriculumPresenter.Render(result, inRussian);
     }
 }

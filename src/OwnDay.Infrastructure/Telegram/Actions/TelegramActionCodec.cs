@@ -14,6 +14,7 @@ public sealed class TelegramActionCodec
     private const int PayloadSize = 30;
     private const int TagSize = 12;
     private const int TesterKindOffset = 128;
+    private const byte LanguageKind = 192;
     private const int EncodedSize = (PayloadSize + TagSize) / 3 * 4;
     private readonly byte[] _key;
 
@@ -94,6 +95,29 @@ public sealed class TelegramActionCodec
         var id = new Guid(bytes[1..17]);
         if (!Enum.IsDefined(operation) || id == Guid.Empty) return false;
         confirmation = new(id, operation, expiresAt);
+        return true;
+    }
+
+    internal string EncodeLanguage(string language, long owner, int menuUpdateId, DateTimeOffset expiresAt)
+    {
+        Span<byte> bytes = stackalloc byte[PayloadSize + TagSize];
+        bytes.Clear();
+        bytes[0] = LanguageKind;
+        bytes[1] = language switch { "en" => 1, "ru" => 2, _ => throw new ArgumentException("Unsupported language.", nameof(language)) };
+        BinaryPrimitives.WriteInt32BigEndian(bytes[2..6], menuUpdateId);
+        return Sign(bytes, owner, owner, expiresAt);
+    }
+
+    internal bool TryDecodeLanguage(string data, long owner, long chat, out string language, out int menuUpdateId, out DateTimeOffset expiresAt)
+    {
+        language = "";
+        menuUpdateId = default;
+        Span<byte> bytes = stackalloc byte[PayloadSize + TagSize];
+        if (!TryReadSigned(data, owner, chat, bytes, out expiresAt) || bytes[0] != LanguageKind ||
+            bytes[1] is not (1 or 2))
+            return false;
+        menuUpdateId = BinaryPrimitives.ReadInt32BigEndian(bytes[2..6]);
+        language = bytes[1] == 1 ? "en" : "ru";
         return true;
     }
 

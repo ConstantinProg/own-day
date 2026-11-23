@@ -53,7 +53,7 @@ public sealed class TelegramWebhookPingIntegrationTests
         var dbContext = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
         var replies = await dbContext.TelegramOutboxMessages.OrderBy(reply => reply.CreatedAt).ToListAsync();
         Assert.Equal(2, replies.Count);
-        Assert.Equal(TelegramDialoguePresenter.Introduction, replies[0].Text);
+        Assert.Equal(TelegramDialoguePresenter.EnglishIntroduction, replies[0].Text);
         Assert.All(replies, reply =>
         {
             Assert.Equal(ChatId, reply.ChatId);
@@ -113,7 +113,7 @@ public sealed class TelegramWebhookPingIntegrationTests
     }
 
     [Fact]
-    public async Task Post_LegacyLanguageCommand_DoesNotConsumeTextAsLanguageSelection()
+    public async Task Post_LanguagePicker_DoesNotConsumeTextAsLanguageSelection()
     {
         using var host = new OwnDayHostFactory();
         using var factory = CreateFactory(host, new RecordingTelegramMessageSender());
@@ -132,7 +132,9 @@ public sealed class TelegramWebhookPingIntegrationTests
 
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<OwnDayDbContext>();
-        Assert.Empty(await db.TelegramUserLanguages.ToListAsync());
+        var preference = await db.TelegramUserLanguages.SingleAsync();
+        Assert.Null(preference.Locale);
+        Assert.Null(preference.SelectionExpiresAt);
         var replies = await db.TelegramOutboxMessages.ToListAsync();
         Assert.Equal(3, replies.Count);
         Assert.Single(replies, reply => reply.Text == TelegramDialoguePresenter.Introduction);

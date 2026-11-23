@@ -111,7 +111,8 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
 
         if (route is TelegramUpdateRouteResult.UnavailableAction unavailable)
         {
-            await AcknowledgeAsync(update, cancellationToken, unavailable.InRussian
+            var language = await _languageFlow.ResolveAsync(unavailable.UserId, update.CallbackQuery?.From.LanguageCode, cancellationToken);
+            await AcknowledgeAsync(update, cancellationToken, language.Locale == "ru"
                 ? "Действие недоступно. Откройте последнее сообщение или напишите «Продолжим»."
                 : "Action unavailable. Use the latest message or write “continue”.");
             return;
@@ -123,8 +124,9 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         }
         catch (LearningAcceptanceUnavailableException) when (route is TelegramUpdateRouteResult.Action)
         {
-            var russian = update.CallbackQuery?.From.LanguageCode?.StartsWith("ru", StringComparison.OrdinalIgnoreCase) == true;
-            await AcknowledgeAsync(update, cancellationToken, russian
+            var language = await _languageFlow.ResolveAsync(((TelegramUpdateRouteResult.Action)route).UserId,
+                update.CallbackQuery?.From.LanguageCode, cancellationToken);
+            await AcknowledgeAsync(update, cancellationToken, language.Locale == "ru"
                 ? "Сейчас не удалось принять действие. Попробуйте чуть позже."
                 : "The action could not be accepted right now. Try again shortly.");
             throw;
@@ -146,6 +148,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         {
             TelegramUpdateRouteResult.Action action => action.UserId,
             TelegramUpdateRouteResult.TesterAction action => action.UserId,
+            TelegramUpdateRouteResult.LanguageAction action => action.UserId,
             TelegramUpdateRouteResult.Text text => text.UserId,
             TelegramUpdateRouteResult.Dispatch dispatch => dispatch.Command.UserId,
             _ => throw new InvalidOperationException("Unexpected route.")
@@ -190,7 +193,8 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
             await HandleExportAsync(update, (TelegramUpdateRouteResult.Dispatch)route, user, now, transaction, cancellationToken);
             return;
         }
-        if (await TryHandleTesterModeAsync(update, route, user, transaction, cancellationToken))
+        if (commandName is not ("settings" or "language") &&
+            await TryHandleTesterModeAsync(update, route, user, transaction, cancellationToken))
             return;
 
         await _dbContext.ProcessedTelegramUpdates.Where(row => row.UpdateId == update.Id)
@@ -222,10 +226,27 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
     private async Task HandleUserUpdateAsync(Update update, TelegramUpdateRouteResult route, UserId user, Guid correlation, DateTime now,
         long started, IDbContextTransaction transaction, CancellationToken cancellationToken)
     {
+        var (locale, isExplicit) = await _languageFlow.ResolveAsync(user,
+            update.Message?.From?.LanguageCode ?? update.CallbackQuery?.From.LanguageCode, cancellationToken);
+        if (route is TelegramUpdateRouteResult.Dispatch { Command.Name: "settings" or "language" } settings)
+        {
+            var command = settings.Command;
+            var reply = await _languageFlow.HandleAsync(user, command.Name, command.Arguments, update.Id, locale, isExplicit, cancellationToken);
+            await CommitRepliesAsync(update, settings.ChatId, [reply], now, transaction, cancellationToken,
+                deleteCommand: TesterModeService.ContainsSecretPrefix(update.Message?.Text));
+            return;
+        }
+        if (route is TelegramUpdateRouteResult.LanguageAction languageAction)
+        {
+            var reply = await _languageFlow.SelectAsync(user, languageAction.Language, languageAction.MenuUpdateId,
+                languageAction.ExpiresAt, locale, cancellationToken);
+            await CommitRepliesAsync(update, user.Value, [reply], now, transaction, cancellationToken);
+            return;
+        }
         if (route is TelegramUpdateRouteResult.Dispatch { Command.Name: "version" or "changes" } release)
         {
             var reply = release.Command.Name == "changes"
-                ? await _changes.RenderAsync(TelegramTexts.ResolveLocale(update.Message?.From?.LanguageCode), cancellationToken)
+                ? await _changes.RenderAsync(locale, cancellationToken)
                 : $"OwnDay {_applicationVersion.Version}";
             await CommitRepliesAsync(update, release.ChatId, [reply], now, transaction, cancellationToken,
                 deleteCommand: release.Command.Name == "version");
@@ -246,6 +267,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         if (practice is { Supported: false })
             throw new InvalidOperationException("A compatible practice reader is required before accepting updates for this owner.");
         var introduceDialogue = false;
+        var replyLanguage = new LearningReplyLanguage(locale, isExplicit);
 
         async Task CommitReceiptAsync(DateTime acceptedAt)
         {
@@ -263,8 +285,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
             var databaseNow = await EnsureLearningAcceptanceAsync(cancellationToken);
             await AddReceiptAsync(update, user, contextual.ChatId,
                 new LearningActionInput(contextual.Value, contextual.ExpiresAt,
-                    update.CallbackQuery?.From.LanguageCode?.StartsWith("ru", StringComparison.OrdinalIgnoreCase) == true,
-                    _processing.ProgramSwitchEnabled),
+                    locale == "ru", _processing.ProgramSwitchEnabled, replyLanguage),
                 "learning_action", 1, databaseNow, ready: true, correlation, cancellationToken);
             await CommitReceiptAsync(databaseNow);
             return;
@@ -283,14 +304,14 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
             if (TelegramStudyCommandHandler.ParseText(ordinary.Value, user) is { } study)
             {
                 await AddReceiptAsync(update, user, chatId,
-                    new LearningCommandInput(study.Name, study.Arguments, lessonId, dialogue?.PromptId, dialogue?.Revision),
+                    new LearningCommandInput(study.Name, study.Arguments, lessonId, dialogue?.PromptId, dialogue?.Revision, Language: replyLanguage),
                     "learning_command", 3, databaseNow, ready: true, correlation, cancellationToken);
             }
             else
             {
                 await AddReceiptAsync(update, user, chatId, new LearningTextInput(ordinary.Value, lessonId,
                     dialogue?.PromptId, dialogue?.Revision, true,
-                    _processing.EnglishDiagnosticEnabled, _processing.PracticeEnabled, _processing.ProgramSwitchEnabled),
+                    _processing.EnglishDiagnosticEnabled, _processing.PracticeEnabled, _processing.ProgramSwitchEnabled, replyLanguage),
                     "learning_text", 1, databaseNow, ready: true, correlation, cancellationToken);
             }
             await CommitReceiptAsync(databaseNow);
@@ -307,7 +328,7 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
             {
                 var databaseNow = await EnsureLearningAcceptanceAsync(cancellationToken);
                 await AddLearningRequestAsync(update, dispatch, databaseNow, ready: true, correlation, cancellationToken,
-                    dialogueMode: true, dialogue: dialogue);
+                    dialogueMode: true, dialogue: dialogue, language: replyLanguage);
                 await CommitReceiptAsync(databaseNow);
                 return;
             }
@@ -322,20 +343,18 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
                 introduceDialogue = true;
             }
             // Old commands and buttons explain the current dialogue without executing legacy actions.
-            var releaseCommandsLocale = command.Name == "help"
-                ? TelegramTexts.ResolveLocale(update.Message?.From?.LanguageCode ?? update.CallbackQuery?.From.LanguageCode)
-                : null;
-            var help = TelegramDialoguePresenter.Help(false, true, dialogue, selectedProgramForHelp, releaseCommandsLocale);
+            var help = TelegramDialoguePresenter.Help(false, true, dialogue, selectedProgramForHelp, locale,
+                listCommands: command.Name == "help");
             replies = [.. help.Select(text => new TelegramLearningReply(text))];
             if (command.Name is "start" or "help" && help.Count > 0 &&
                 (selectedProgramForHelp is not null || dialogue.TargetLessonId is not null || dialogue.Consultation is not null))
             {
-                var button = TelegramLearningReply.WithActions(help[^1], [new(LearningActionKind.Continue)], inRussian: true);
+                var button = TelegramLearningReply.WithActions(help[^1], [new(LearningActionKind.Continue)], inRussian: locale == "ru");
                 replies = [.. replies.SkipLast(1), _keyboard?.Render(button, user.Value, chatId, new(now), dialogue) ?? button];
             }
         }
 
-        if (introduceDialogue) replies = [TelegramDialoguePresenter.Introduction, .. replies];
+        if (introduceDialogue) replies = [locale == "ru" ? TelegramDialoguePresenter.Introduction : TelegramDialoguePresenter.EnglishIntroduction, .. replies];
 
         await CommitRepliesAsync(update, chatId, replies, now, transaction, cancellationToken);
     }
@@ -343,7 +362,8 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
     private async Task HandleExportAsync(Update update, TelegramUpdateRouteResult.Dispatch dispatch, UserId user,
         DateTime now, IDbContextTransaction transaction, CancellationToken token)
     {
-        var russian = update.Message?.From?.LanguageCode?.StartsWith("ru", StringComparison.OrdinalIgnoreCase) == true;
+        var language = await _languageFlow.ResolveAsync(user, update.Message?.From?.LanguageCode, token);
+        var russian = language.Locale == "ru";
         string? reply = null;
         if (_testerMode is null || !await _testerMode.CanExportAsync(user, token))
             reply = russian ? "Экспорт доступен только в активном режиме тестировщика." : "Export requires active Tester Mode.";
@@ -369,21 +389,21 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         var command = (route as TelegramUpdateRouteResult.Dispatch)?.Command;
         TesterModeResponse? result;
         DateTime now;
-        string? language;
+        bool russian;
         if (route is TelegramUpdateRouteResult.TesterAction action)
         {
             now = await DatabaseNowAsync(token);
+            russian = (await _languageFlow.ResolveAsync(user, update.CallbackQuery?.From.LanguageCode, token)).Locale == "ru";
             result = await _testerMode.ConfirmAsync(user, action.Confirmation, update.Id, new(now), token);
-            language = update.CallbackQuery?.From.LanguageCode;
         }
         else if (update.Message is { From: { } from } message && message.Chat.Id == user.Value &&
             (TesterModeService.ContainsSecretPrefix(message.Text) || TesterModeService.IsTesterCommand(command?.Name) ||
              _testerMode.Enabled && (route is TelegramUpdateRouteResult.Text || command?.Name == "cancel")))
         {
             now = await DatabaseNowAsync(token);
+            russian = (await _languageFlow.ResolveAsync(user, from.LanguageCode, token)).Locale == "ru";
             result = await _testerMode.HandleAsync(user, update.Id, command?.Name, message.Text,
                 !string.IsNullOrEmpty(command?.Arguments), new(now), token);
-            language = from.LanguageCode;
         }
         else
         {
@@ -399,7 +419,6 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
             await _dbContext.TelegramOutboxMessages.Where(message => message.ChatId == user.Value &&
                 message.DocumentName != null && message.Status == OutboxMessageStatus.Pending).ExecuteDeleteAsync(token);
         }
-        var russian = language?.StartsWith("ru", StringComparison.OrdinalIgnoreCase) == true;
         await CommitRepliesAsync(update, user.Value, [RenderTesterReply(result, russian, user.Value)], now, transaction, token);
         return true;
     }
@@ -528,14 +547,15 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
         .Select(lesson => (Guid?)lesson.Id).SingleOrDefaultAsync(token);
 
     private async Task<LearningRequest> AddLearningRequestAsync(Update update, TelegramUpdateRouteResult.Dispatch dispatch,
-        DateTime receivedAt, bool ready, Guid correlation, CancellationToken token, bool dialogueMode = false, DialogueContext? dialogue = null)
+        DateTime receivedAt, bool ready, Guid correlation, CancellationToken token, bool dialogueMode = false, DialogueContext? dialogue = null,
+        LearningReplyLanguage? language = null)
     {
         var command = dispatch.Command;
         Guid? lessonId = null;
         if (ready && (dialogueMode || command.Name is "answer" or "learn_ask" or "learn_explain"))
             lessonId = await CurrentLessonIdAsync(command.UserId, token);
         return await AddReceiptAsync(update, command.UserId, dispatch.ChatId,
-            new LearningCommandInput(command.Name, command.Arguments, lessonId, dialogue?.PromptId, dialogue?.Revision, _processing.ProgramSwitchEnabled),
+            new LearningCommandInput(command.Name, command.Arguments, lessonId, dialogue?.PromptId, dialogue?.Revision, _processing.ProgramSwitchEnabled, language),
             "learning_command", ready ? dialogueMode ? 3 : 2 : 1, receivedAt, ready, correlation, token);
     }
 

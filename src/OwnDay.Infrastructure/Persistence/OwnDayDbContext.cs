@@ -146,6 +146,7 @@ public sealed class OwnDayDbContext(DbContextOptions<OwnDayDbContext> options)
             entity.Property(preference => preference.UserId).ValueGeneratedNever().HasColumnName("user_id");
             entity.Property(preference => preference.Locale).HasMaxLength(2).HasColumnName("locale");
             entity.Property(preference => preference.SelectionExpiresAt).HasColumnName("selection_expires_at");
+            entity.Property(preference => preference.SelectionUpdateId).HasColumnName("selection_update_id");
         });
 
         modelBuilder.Entity<InboxDraft>(entity =>

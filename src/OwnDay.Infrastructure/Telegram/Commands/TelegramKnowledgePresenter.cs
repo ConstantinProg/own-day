@@ -6,12 +6,26 @@ namespace OwnDay.Infrastructure.Telegram.Commands;
 
 public static class TelegramKnowledgePresenter
 {
-    public static TelegramLearningReply ReviewAfterResume(ReviewSuggestion suggestion) =>
-        TelegramLearningReply.WithActions($"После перерыва можно повторить «{suggestion.Skill.Title}». Текущий вопрос сохранён. Текстом — «что повторить».",
-            [new(LearningActionKind.ReviewSuggestions)], inRussian: true);
+    public static TelegramLearningReply ReviewAfterResume(ReviewSuggestion suggestion, bool inRussian = true) =>
+        TelegramLearningReply.WithActions(inRussian
+            ? $"После перерыва можно повторить «{suggestion.Skill.Title}». Текущий вопрос сохранён. Текстом — «что повторить»."
+            : $"You could review “{suggestion.Skill.Title}” after the break. Your current question is saved. Write “what should I review”.",
+            [new(LearningActionKind.ReviewSuggestions)], inRussian);
 
-    public static IReadOnlyList<TelegramLearningReply> Suggestions(IReadOnlyList<ReviewSuggestion> suggestions)
+    public static IReadOnlyList<TelegramLearningReply> Suggestions(IReadOnlyList<ReviewSuggestion> suggestions, bool inRussian = true)
     {
+        if (!inRussian)
+        {
+            var title = suggestions.Count == 0 ? "There are no suitable reviews right now." : "Review suggestions for your next session.";
+            return [TelegramLearningReply.WithActions(title + " Write “next” to open the next topic.", [new(LearningActionKind.Next)], false),
+                .. suggestions.Select(item => item.DueAt is { } dueAt
+                    ? TelegramLearningReply.WithActions($"{item.Skill.Title}\nDue since {dueAt:yyyy-MM-dd HH:mm} UTC.\n" +
+                        $"/learn_review {item.Skill.Id} · /learn_review_later {item.Skill.Id} · /learn_review_skip {item.Skill.Id}",
+                        LearningActionProvider.ForReview(item.Skill.Id, due: true), false)
+                    : TelegramLearningReply.WithActions($"{item.Skill.Title}\n" + (item.SupportsTopic is { } topic
+                        ? $"Useful for “{topic}”." : $"Needed for {item.DependentTopics} later topic(s).") + $"\n/learn_practice {item.Skill.Id}",
+                        LearningActionProvider.ForReview(item.Skill.Id, due: false), false))];
+        }
         var heading = suggestions.Count == 0 ? "Сейчас подходящих повторений нет." : "Что можно повторить перед следующим занятием.";
         return [TelegramLearningReply.WithActions(heading + " Текстом — «дальше» для перехода к следующей теме.",
             [new(LearningActionKind.Next)], inRussian: true),

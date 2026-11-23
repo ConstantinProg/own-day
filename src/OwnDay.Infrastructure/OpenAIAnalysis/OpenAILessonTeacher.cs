@@ -82,7 +82,7 @@ public sealed partial class OpenAILessonTeacher(Func<ChatClient> createClient, I
             MarketLearningContent.Identify(request, lesson.Topic + " " + lesson.FactCheckDiscipline);
         if (fact != MarketFactRequest.None)
         {
-            var russian = MarketLearningContent.InRussian(lesson.Theory);
+            var russian = PreferredRussian ?? MarketLearningContent.InRussian(lesson.Theory);
             var provenance = await CheckMarketFactAsync(fact, russian, token);
             return new(MarketLearningContent.Explanation(fact, russian)) { Provenance = provenance };
         }
@@ -106,7 +106,7 @@ public sealed partial class OpenAILessonTeacher(Func<ChatClient> createClient, I
         if (fact != MarketFactRequest.None && !request.IsReview && request.PracticeEvidenceKind is null &&
             request.Teaching?.Action != TeachingAction.Practice)
         {
-            var russian = MarketLearningContent.InRussian(request.Topic + " " + request.Program?.Goal);
+            var russian = PreferredRussian ?? MarketLearningContent.InRussian(request.Topic + " " + request.Program?.Goal);
             return MarketLearningContent.Material(fact, russian, await CheckMarketFactAsync(fact, russian, token));
         }
         var source = fact == MarketFactRequest.None && sourceReader is not null && options.Value.Enabled && !string.IsNullOrWhiteSpace(options.Value.ApiKey)
@@ -252,6 +252,8 @@ public sealed partial class OpenAILessonTeacher(Func<ChatClient> createClient, I
     private static LessonRubricEvaluation? ActiveClarification(LessonSnapshot lesson) =>
         lesson.RubricEvaluation is { Final: false, AwaitingCorrection: false, Clarification: not null } clarification ? clarification : null;
 
+    private bool? PreferredRussian => usage?.PreferredLocale switch { "ru" => true, "en" => false, _ => null };
+
     private async Task<(T Result, string Model)> RequestAsync<T>(string prompt, object input, string schema, CancellationToken token,
         Func<string, T>? parse = null, int? maxOutputTokens = null, string? reasoningEffort = null)
     {
@@ -263,6 +265,13 @@ public sealed partial class OpenAILessonTeacher(Func<ChatClient> createClient, I
             throw new LessonProviderException();
         }
         RequireAdmission();
+        if (PreferredRussian is { } russian)
+        {
+            var language = russian ? "Russian" : "English";
+            prompt += $" The learner explicitly chose {language}. Use {language} for newly written learner-facing text, " +
+                "overriding any language inferred from the goal, lesson or answer. Preserve quoted material and fixed fields, " +
+                "and keep any language required by the exercise or an explicit request for a language example.";
+        }
         var serializedInput = JsonSerializer.Serialize(input);
         if (Encoding.UTF8.GetByteCount(prompt) + Encoding.UTF8.GetByteCount(serializedInput) + Encoding.UTF8.GetByteCount(schema) >
             options.Value.MaxInputUtf8Bytes)

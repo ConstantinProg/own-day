@@ -7,5 +7,6 @@ namespace OwnDay.Infrastructure.Learning;
 public sealed class LearningProviderUsage
 {
     public Guid? LedgerAttemptId { get; set; }
+    public string? PreferredLocale { get; set; }
     public InboxAnalyzerResponse? Response { get; set; }
 }

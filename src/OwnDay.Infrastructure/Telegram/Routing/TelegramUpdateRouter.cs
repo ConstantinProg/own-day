@@ -42,11 +42,13 @@ public sealed class TelegramUpdateRouter
                     return new TelegramUpdateRouteResult.Action(owner, source.Chat.Id, action!, expiresAt);
                 if (_actions.TryDecodeTester(actionData, owner.Value, source.Chat.Id, out var confirmation))
                     return new TelegramUpdateRouteResult.TesterAction(owner, confirmation!);
+                if (_actions.TryDecodeLanguage(actionData, owner.Value, source.Chat.Id, out var language, out var menuUpdateId, out var languageExpiry))
+                    return new TelegramUpdateRouteResult.LanguageAction(owner, language, menuUpdateId, languageExpiry);
             }
-            return new TelegramUpdateRouteResult.UnavailableAction(IsRussian(callbackAction.From.LanguageCode));
+            return new TelegramUpdateRouteResult.UnavailableAction(new UserId(callbackAction.From.Id));
         }
 
-        if (update.CallbackQuery is { From.IsBot: false, Message.Chat.Type: ChatType.Private, Data: { } navigation } nav &&
+        if (update.CallbackQuery is { From: { IsBot: false, Id: > 0 }, Message.Chat.Type: ChatType.Private, Data: { } navigation } nav &&
             nav.Message.Chat.Id == nav.From.Id && navigation.StartsWith("nav:", StringComparison.Ordinal) &&
             navigation[4..] is "list" or "inbox" or "tasks" or "projects" or "ideas" or "notes" or "waiting" or "settings" or "help")
         {
@@ -106,6 +108,9 @@ public sealed class TelegramUpdateRouter
 
         var command = parseResult.Command!;
 
+        if (command.Name is "settings" or "language" && (message.From.Id <= 0 || message.Chat.Id != message.From.Id))
+            return new TelegramUpdateRouteResult.Ignore();
+
         if (command.BotUsername is not null &&
             !string.Equals(
                 command.BotUsername,
@@ -124,6 +129,4 @@ public sealed class TelegramUpdateRouter
             }, command.Arguments, new UserId(message.From.Id)),
             message.Chat.Id);
     }
-
-    private static bool IsRussian(string? language) => language?.StartsWith("ru", StringComparison.OrdinalIgnoreCase) == true;
 }

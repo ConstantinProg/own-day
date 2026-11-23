@@ -1,4 +1,5 @@
 using OwnDay.Domain;
+using System.Text.Json.Serialization;
 
 namespace OwnDay.Application.Learning.Requests;
 
@@ -10,10 +11,14 @@ public enum LearningRequestStatus
     Running
 }
 
-public sealed record LearningCommandInput(string Name, string Arguments, Guid? LessonId = null,
-    Guid? PromptId = null, long? DialogueRevision = null, bool ProgramSwitchAllowed = false);
+public sealed record LearningReplyLanguage(string Locale, bool IsExplicit);
 
-public sealed record LearningActionInput(LearningAction Action, DateTimeOffset ExpiresAt, bool InRussian, bool ProgramSwitchAllowed = false);
+public sealed record LearningCommandInput(string Name, string Arguments, Guid? LessonId = null,
+    Guid? PromptId = null, long? DialogueRevision = null, bool ProgramSwitchAllowed = false,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] LearningReplyLanguage? Language = null);
+
+public sealed record LearningActionInput(LearningAction Action, DateTimeOffset ExpiresAt, bool InRussian, bool ProgramSwitchAllowed = false,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] LearningReplyLanguage? Language = null);
 
 public sealed class LearningRequest
 {

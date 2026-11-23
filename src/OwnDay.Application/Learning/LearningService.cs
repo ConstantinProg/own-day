@@ -199,7 +199,7 @@ public abstract record LearningResult
 }
 
 public sealed partial class LearningService(ILessonStore store, ILessonTeacher teacher, KnowledgeService knowledge, Guid? operationId = null,
-    ICurriculumStore? curriculum = null)
+    ICurriculumStore? curriculum = null, bool? replyInRussian = null)
 {
     public async Task<LearningResult> StartAsync(UserId user, string topic, CancellationToken token)
     {

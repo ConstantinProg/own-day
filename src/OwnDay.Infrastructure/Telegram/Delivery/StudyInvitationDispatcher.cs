@@ -5,11 +5,12 @@ using OwnDay.Infrastructure.Diagnostics;
 using OwnDay.Infrastructure.Persistence;
 using OwnDay.Infrastructure.Telegram.Actions;
 using OwnDay.Infrastructure.Telegram.Commands;
+using OwnDay.Infrastructure.Telegram.Handling;
 
 namespace OwnDay.Infrastructure.Telegram.Delivery;
 
 public sealed class StudyInvitationDispatcher(OwnDayDbContext db, StudyService service, TimeProvider clock, TelegramActionKeyboard keyboard,
-    DiagnosticJournal? journal = null, DiagnosticText? diagnosticText = null)
+    TelegramLanguageFlow language, DiagnosticJournal? journal = null, DiagnosticText? diagnosticText = null)
 {
     public async Task<BatchProcessingResult> DispatchBatchAsync(CancellationToken token)
     {
@@ -31,7 +32,8 @@ public sealed class StudyInvitationDispatcher(OwnDayDbContext db, StudyService s
             if (invitation is not null)
             {
                 var at = clock.GetUtcNow().UtcDateTime;
-                var reply = keyboard.Render(TelegramStudyCommandHandler.Invitation(invitation), user.Value, user.Value, new(at), null);
+                var locale = await language.ResolveAsync(user, null, token);
+                var reply = keyboard.Render(TelegramStudyCommandHandler.Invitation(invitation, locale.Locale == "ru"), user.Value, user.Value, new(at), null);
                 intent = new TelegramOutboxMessage
                 {
                     Id = Guid.NewGuid(), ChatId = user.Value, Text = reply.Text, ReplyMarkupJson = reply.ReplyMarkupJson,

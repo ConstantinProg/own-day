@@ -19,5 +19,7 @@ public abstract record TelegramUpdateRouteResult
 
     public sealed record TesterAction(UserId UserId, TesterModeConfirmation Confirmation) : TelegramUpdateRouteResult;
 
-    public sealed record UnavailableAction(bool InRussian) : TelegramUpdateRouteResult;
+    public sealed record LanguageAction(UserId UserId, string Language, int MenuUpdateId, DateTimeOffset ExpiresAt) : TelegramUpdateRouteResult;
+
+    public sealed record UnavailableAction(UserId UserId) : TelegramUpdateRouteResult;
 }

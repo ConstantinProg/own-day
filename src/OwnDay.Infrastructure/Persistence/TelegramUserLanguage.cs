@@ -7,4 +7,6 @@ public sealed class TelegramUserLanguage
     public string? Locale { get; set; }
 
     public DateTime? SelectionExpiresAt { get; set; }
+
+    public int? SelectionUpdateId { get; set; }
 }
