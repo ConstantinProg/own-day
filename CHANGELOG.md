@@ -2,6 +2,34 @@
 
 Здесь собраны пользовательские изменения по выпущенным версиям OwnDay. Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/).
 
+## [0.4.0] - 2026-11-23
+
+### Добавлено
+
+- В Telegram можно посмотреть настройки командой `/settings` и выбрать русский или английский через `/language`. Выбор сохраняется и не прерывает текущий урок.
+- В режиме тестировщика появились журнал диагностических событий и выгрузки `/export`, `/export recent` и `/export last`. Они показывают текущее состояние и историю до 30 дней. Выгрузки доступны авторизованным тестировщикам в личном чате, а в истории возможны пробелы.
+
+### Изменено
+
+- Бот использует выбранный язык для новых ответов и кнопок, а также учитывает его при подготовке новых учебных материалов и обратной связи.
+
+### Исправлено
+
+- Сбои провайдера при диагностике знаний теперь отражаются как ошибки в журнале и выгрузках.
+
+### Added
+
+- Use `/settings` to view your Telegram settings and `/language` to choose Russian or English. Your choice is saved without interrupting your current lesson.
+- Tester Mode adds a diagnostic event journal and the `/export`, `/export recent`, and `/export last` commands. Exports include the current state and up to 30 days of retained history. Authorized testers can request them in private chats, and the journal can contain gaps.
+
+### Changed
+
+- The bot uses your selected language for new replies and buttons and takes it into account when generating new learning material and feedback.
+
+### Fixed
+
+- Provider failures during skill diagnostics now appear as failures in the journal and exports.
+
 ## [0.3.1] - 2026-11-22
 
 ### Добавлено
@@ -66,6 +94,7 @@
 
 - Inbox and the Telegram commands for managing tasks and records have been retired. The old commands open learning chat help.
 
+[0.4.0]: https://github.com/ConstantinProg/own-day/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/ConstantinProg/own-day/compare/v0.2.0...v0.3.1
 [0.2.0]: https://github.com/ConstantinProg/own-day/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/ConstantinProg/own-day/tree/v0.1.0
