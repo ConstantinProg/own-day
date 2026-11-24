@@ -13,7 +13,8 @@ namespace OwnDay.Infrastructure.Diagnostics;
 internal sealed record DiagnosticFields(string? Status = null, string? Error = null, long? DurationMs = null,
     long? WaitMs = null, string? Kind = null, int? UpdateId = null, int? MessageId = null, int? Step = null,
     string? Provider = null, string? Model = null, int? InputTokens = null, int? OutputTokens = null,
-    int? MaxOutputTokens = null, string? ReasoningEffort = null, int? HttpStatus = null, int? PromptVersion = null);
+    int? MaxOutputTokens = null, string? ReasoningEffort = null, int? HttpStatus = null, int? PromptVersion = null,
+    string? CancellationSource = null, int? DeadlineSeconds = null);
 
 public sealed class DiagnosticJournal(IServiceScopeFactory scopes, IOptions<DiagnosticOptions> options,
     TesterModeOptions tester, TimeProvider clock)

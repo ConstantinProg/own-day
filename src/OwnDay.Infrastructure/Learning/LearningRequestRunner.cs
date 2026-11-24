@@ -82,9 +82,7 @@ public sealed partial class LearningRequestRunner(IServiceScopeFactory scopes, I
                         await SynchronizeTerminalDialogueAsync(scope.ServiceProvider, request, cancellationToken);
                         return new LearningRequestCompletion("provider_outcome_unknown")
                         {
-                            Replies = [ReadLanguage(request)?.Locale == "ru"
-                                ? "Не удалось узнать результат запроса. Изменения не применены, ответ не оценён. Проверьте текущий урок перед повтором исходной команды."
-                                : "The provider outcome is unknown. No result was applied or answer assessed. Check the current lesson before explicitly retrying the original command."]
+                            Replies = [UnknownProviderReply(pending, ReadLanguage(request)?.Locale == "ru")]
                         };
                     }, token);
             }
@@ -98,6 +96,23 @@ public sealed partial class LearningRequestRunner(IServiceScopeFactory scopes, I
             }
         }
         throw new InvalidOperationException("Learning command exceeded its phase limit.");
+    }
+
+    private static string UnknownProviderReply(LearningProviderStep step, bool russian)
+    {
+        if (step.Kind == "generate")
+        {
+            if (step.ReadInput<LessonRequest>().Program is not null) return russian
+                ? "Программа сохранена. Новый урок не создан. Откройте программу и повторите запуск урока."
+                : "Your program is saved. No new lesson was created. Open the program to start the lesson again.";
+            return russian ? "Новый урок не создан. Можно повторить команду запуска урока."
+                : "No new lesson was created. You can repeat the command to start the lesson.";
+        }
+        if (step.Kind == "assess") return russian
+            ? "Ответ не оценён. Проверьте текущий урок перед повторной отправкой ответа."
+            : "Your answer was not assessed. Check the current lesson before submitting your answer again.";
+        return russian ? "Результат запроса неизвестен. Проверьте текущий контекст перед повтором команды."
+            : "The provider outcome is unknown. Check your current learning context before repeating the command.";
     }
 
     private sealed record LanguageEnvelope(LearningReplyLanguage? Language);

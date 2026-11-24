@@ -351,8 +351,12 @@ public sealed partial class OpenAILessonTeacher(Func<ChatClient> createClient, I
             LogFailure(reason, (exception as ClientResultException)?.Status, stopwatch.ElapsedMilliseconds);
             journal?.Write("llm", reason == LessonProviderFailure.InvalidResponse ? "llm_validation_failed" : "llm_call_failed",
                 fields with { Error = reason.ToString(), HttpStatus = (exception as ClientResultException)?.Status,
-                    DurationMs = FailureDuration() }, "error", context?.Invocation);
-            throw new LessonProviderException(reason);
+                    CancellationSource = exception is OperationCanceledException
+                        ? timeout.IsCancellationRequested ? "adapter_deadline" : "transport_cancellation" : null,
+                    DeadlineSeconds = options.Value.TimeoutSeconds, DurationMs = FailureDuration() }, "error", context?.Invocation);
+            var uncertain = exception is HttpRequestException or OperationCanceledException ||
+                exception is ClientResultException { Status: <= 0 or 408 or >= 500 };
+            throw new LessonProviderException(reason, uncertain);
         }
         catch (LessonProviderException exception)
         {

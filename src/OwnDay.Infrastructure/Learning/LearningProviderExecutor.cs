@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -64,7 +65,7 @@ public sealed class LearningProviderExecutor(IServiceScopeFactory scopes, IOptio
             {
                 await using var scope = scopes.CreateAsyncScope();
                 admission = await scope.ServiceProvider.GetRequiredService<EfLearningRequestStore>().BeginAttemptAsync(
-                    lease, step.Ordinal, options.Value.MaxProviderAttempts, TimeSpan.FromSeconds(options.Value.LeaseSeconds), token);
+                    lease, step.Ordinal, options.Value.MaxProviderAttempts, TimeSpan.FromSeconds(options.Value.ProviderTimeoutSeconds + options.Value.LeaseSeconds), token);
             }
             catch { gate.Release(); throw; }
             if (admission.Id is not { } attemptId)
@@ -74,30 +75,37 @@ public sealed class LearningProviderExecutor(IServiceScopeFactory scopes, IOptio
             }
             // The underlying task owns both its scope and slot, even if the caller
             // stops waiting. No tracked preparation objects enter that scope.
-            var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
-            deadline.CancelAfter(TimeSpan.FromSeconds(options.Value.ProviderTimeoutSeconds));
+            var started = Stopwatch.GetTimestamp();
+            var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(options.Value.ProviderTimeoutSeconds));
+            var timeoutToken = timeout.Token;
+            var deadline = CancellationTokenSource.CreateLinkedTokenSource(token, timeoutToken);
             var invocationToken = deadline.Token;
             using var diagnostics = DiagnosticJournal.Enter(DiagnosticJournal.Active is { } context
                 ? context with { Invocation = attemptId, Step = step.Ordinal, Purpose = step.Kind,
                     PromptVersion = step.Version, Attempt = admission.Number } : null);
             journal?.Write("llm", "provider_attempt_admitted", new(Kind: step.Kind, Step: step.Ordinal,
                 PromptVersion: step.Version), entity: attemptId);
-            var physical = InvokePhysicalAsync(attemptId, step, deadline);
+            var physical = InvokePhysicalAsync(attemptId, step, deadline, timeout);
             LearningProviderExecution result;
             try { result = await physical.WaitAsync(invocationToken); }
-            catch (OperationCanceledException) when (!token.IsCancellationRequested)
-            {
-                gate.MarkUnresponsive(physical);
-                journal?.Write("llm", "provider_outcome_unknown", new(Kind: step.Kind, Step: step.Ordinal),
-                    "warning", attemptId);
-                return new(Unknown: true);
-            }
             catch (OperationCanceledException)
             {
                 gate.MarkUnresponsive(physical);
-                throw;
+                var source = (token.IsCancellationRequested, timeoutToken.IsCancellationRequested) switch
+                {
+                    (true, true) => "caller_and_worker_deadline",
+                    (true, false) => "caller",
+                    (false, true) => "worker_deadline",
+                    _ => "unknown"
+                };
+                journal?.Write("llm", "provider_outcome_unknown", new(Kind: step.Kind, Step: step.Ordinal,
+                    CancellationSource: source, DeadlineSeconds: options.Value.ProviderTimeoutSeconds,
+                    DurationMs: (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds, Status: "unknown"),
+                    "warning", attemptId);
+                token.ThrowIfCancellationRequested();
+                return new(Unknown: true);
             }
-            if (result.Failure is not (LessonProviderFailure.HttpError or LessonProviderFailure.Timeout) ||
+            if (result.Unknown || result.Failure != LessonProviderFailure.HttpError ||
                 retry + 1 == options.Value.MaxProviderAttempts) return result;
             journal?.Write("llm", "provider_retry_scheduled", new(Kind: step.Kind, Step: step.Ordinal, WaitMs: 200),
                 "warning", attemptId);
@@ -106,7 +114,7 @@ public sealed class LearningProviderExecutor(IServiceScopeFactory scopes, IOptio
         return new(Failure: LessonProviderFailure.Unavailable);
     }
 
-    private async Task<LearningProviderExecution> InvokePhysicalAsync(Guid attemptId, LearningProviderStep step, CancellationTokenSource deadline)
+    private async Task<LearningProviderExecution> InvokePhysicalAsync(Guid attemptId, LearningProviderStep step, CancellationTokenSource deadline, CancellationTokenSource timeout)
     {
         var outcome = "unexpected_failure";
         LearningProviderUsage? usage = null;
@@ -129,6 +137,7 @@ public sealed class LearningProviderExecutor(IServiceScopeFactory scopes, IOptio
                     TimeoutSeconds: providerOptions.TimeoutSeconds), deadline.Token);
             if (usage.LedgerAttemptId is null) throw new LessonProviderException(LessonProviderFailure.BudgetLimit);
             var result = await InvokeAsync(scope.ServiceProvider, step, deadline.Token);
+            deadline.Token.ThrowIfCancellationRequested();
             outcome = "succeeded";
             return new(Result: result);
         }
@@ -136,7 +145,12 @@ public sealed class LearningProviderExecutor(IServiceScopeFactory scopes, IOptio
         {
             journal?.Write("llm", "provider_attempt_failed", new(Error: failure.Reason.ToString(), Kind: step.Kind,
                 Step: step.Ordinal), "error", attemptId);
-            outcome = failure.Reason is LessonProviderFailure.HttpError or LessonProviderFailure.Timeout
+            if (failure.OutcomeUnknown || failure.Reason == LessonProviderFailure.Timeout)
+            {
+                outcome = "outcome_unknown";
+                return new(Unknown: true);
+            }
+            outcome = failure.Reason == LessonProviderFailure.HttpError
                 ? "transient_failure" : "permanent_failure";
             return new(Failure: failure.Reason);
         }
@@ -165,6 +179,7 @@ public sealed class LearningProviderExecutor(IServiceScopeFactory scopes, IOptio
                 logger.LogWarning("Learning attempt {AttemptId} remains unknown ({ErrorType}).", attemptId, exception.GetType().Name);
             }
             deadline.Dispose();
+            timeout.Dispose();
             gate.Release();
         }
     }

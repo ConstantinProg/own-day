@@ -15,6 +15,6 @@ public sealed class LearningRequestProcessingOptions
     public int PollMilliseconds { get; set; } = 1000;
     public int LeaseSeconds { get; set; } = 30;
     public int MaxAttempts { get; set; } = 3;
-    public int ProviderTimeoutSeconds { get; set; } = 15;
+    public int ProviderTimeoutSeconds { get; set; } = 75;
     public int MaxProviderAttempts { get; set; } = 2;
 }

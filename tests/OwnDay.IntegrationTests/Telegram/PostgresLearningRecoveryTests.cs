@@ -44,6 +44,29 @@ public sealed partial class PostgresLearningProviderTests
     }
 
     [Fact]
+    public async Task Process_SlowGenerationWithinDefaultDeadline_CommitsOneLesson()
+    {
+        await EnqueueAsync("learn", "English");
+        var probe = new Probe("generate");
+        using var host = Host(probe, worker: false, configure: options => options.LeaseSeconds = 10);
+        using var scope = host.Services.CreateScope();
+        var store = scope.ServiceProvider.GetRequiredService<ILearningRequestStore>();
+        var lease = (await store.ClaimAsync(TimeSpan.FromSeconds(30), default))!;
+        var processing = scope.ServiceProvider.GetRequiredService<LearningRequestProcessor>().ProcessAsync(lease, 3, default);
+        try
+        {
+            await probe.Started.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            await Task.Delay(TimeSpan.FromSeconds(16));
+            Assert.Null(await store.ClaimAsync(TimeSpan.FromSeconds(30), default));
+        }
+        finally { probe.Release.TrySetResult(); }
+        Assert.True(await processing.WaitAsync(TimeSpan.FromSeconds(10)));
+        await using var observer = Open();
+        Assert.Single(await observer.Set<Lesson>().ToListAsync());
+        Assert.Equal(1, probe.Calls);
+    }
+
+    [Fact]
     public async Task Process_UnknownPhysicalCall_StopsAdmissionUntilActualCompletion()
     {
         await EnqueueAsync("learn", "English");
@@ -159,6 +182,7 @@ public sealed partial class PostgresLearningProviderTests
 
     [Theory]
     [InlineData(LessonProviderFailure.HttpError, 2)]
+    [InlineData(LessonProviderFailure.Timeout, 1)]
     [InlineData(LessonProviderFailure.InvalidResponse, 1)]
     [InlineData(LessonProviderFailure.PermanentHttpError, 1)]
     public async Task Process_ProviderFailure_RetriesOnlyKnownTransientFailuresWithDistinctBoundedAttempts(LessonProviderFailure reason, int expectedCalls)

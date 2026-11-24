@@ -126,9 +126,10 @@ public enum LessonProviderFailure
     BudgetLimit
 }
 
-public sealed class LessonProviderException(LessonProviderFailure reason = LessonProviderFailure.Unavailable) : Exception
+public sealed class LessonProviderException(LessonProviderFailure reason = LessonProviderFailure.Unavailable, bool outcomeUnknown = false) : Exception
 {
     public LessonProviderFailure Reason { get; } = reason;
+    public bool OutcomeUnknown { get; } = outcomeUnknown;
 }
 
 public abstract record LearningResult

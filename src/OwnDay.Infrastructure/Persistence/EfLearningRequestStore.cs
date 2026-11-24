@@ -27,7 +27,7 @@ public sealed class EfLearningRequestStore(OwnDayDbContext db, DiagnosticJournal
         if (fenced == 0) return new(null, false, true);
         var attempts = await db.Set<LearningProviderAttempt>().Where(a => a.RequestId == lease.RequestId && a.Ordinal == ordinal)
             .OrderBy(a => a.Number).ToListAsync(token);
-        if (attempts.Any(a => a.FinishedAt is null || a.Outcome == "unexpected_failure")) return new(null, true, false);
+        if (attempts.Any(a => a.FinishedAt is null || a.Outcome is "unexpected_failure" or "cancelled" or "outcome_unknown")) return new(null, true, false);
         if (attempts.Count >= maxAttempts || attempts.LastOrDefault()?.Outcome == "permanent_failure") return new(null, false, false);
         var now = await db.Database.SqlQuery<DateTime>($"SELECT clock_timestamp() AS \"Value\"").SingleAsync(token);
         var attempt = new LearningProviderAttempt

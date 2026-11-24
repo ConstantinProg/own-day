@@ -184,8 +184,14 @@ Project/Action readers explicitly project xmin for compatibility with this mappi
 Preparation runs the same Application use case until the next external boundary,
 then rolls back and disposes its scope. A fenced transaction persists that step
 before any network call. Provider/source I/O uses an independent scope and a linked
-finite timeout (`ProviderTimeoutSeconds`, default 15, range 1–120). The worker awaits
-the actual adapter task; it does not release its slot by abandoning a running task.
+finite timeout (`ProviderTimeoutSeconds`, default 75, range 1–120). The worker awaits
+only until cancellation, while the physical adapter retains its slot through reconciliation.
+At admission PostgreSQL extends the fenced lease by the outer deadline plus one normal lease interval.
+The default 60-second OpenAI network/adapter limit fits inside the 75-second worker limit.
+An explicit shorter worker setting caps the entire invocation, including source reads and admission.
+A lost response, adapter timeout or interrupted call can retain a financial reservation. Recovery
+treats recorded cancellation and unknown outcomes as ambiguous. Only a known transient rejection
+is eligible for an automatic retry. A lost lease is detected at the next database fence.
 New scopes revalidate inputs and targets while consuming saved results. A changed
 branch or row stamp yields `stale_target`, with no use-case effects; the user gets
 an explicit instruction to inspect the current lesson or repeat the command.
