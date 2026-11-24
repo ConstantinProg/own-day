@@ -24,6 +24,31 @@ namespace OwnDay.IntegrationTests.Telegram;
 public sealed partial class PostgresLearningProviderTests
 {
     [Fact]
+    public async Task CompletedTopicsAsync_CorrectRecognitionOnBroadTopic_RequiresADeeperCheck()
+    {
+        const string question = "Name the intermediary who submits an order.";
+        var program = LearningProgram.Create(_user, "Understand an exchange", "Beginner", null, "Markets",
+            [new("trading", "Execute and explain a trade", [])], null);
+        var content = new LearningContent(LearningContent.GeneratedExerciseId, "rubric-v2", LearningContentKind.StructuredExercise,
+            "Trading", question, question, new(ExerciseRubric.QuestionScopedVersion, ExerciseEvidenceKind.Recognition,
+                [new("role", question)]));
+        var lesson = Lesson.Start(_user, "Trading", "A broker submits orders.", question, content: content);
+        lesson.LinkToProgram(program, "trading");
+        await using var db = Open();
+        db.AddRange(program, lesson);
+        await db.SaveChangesAsync();
+        lesson.ApplyRubricAssessment("Broker", "Correct", new([new("role", RubricCriterionResult.Met, "Named the role.")]), Guid.NewGuid());
+        var store = new EfCurriculumStore(db);
+        Assert.Empty(await store.CompletedTopicsAsync(_user, program.Id, 1, default));
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+        Assert.Empty(await store.CompletedTopicsAsync(_user, program.Id, 1, default));
+        Assert.True((await db.Set<Lesson>().SingleAsync()).IsCorrect);
+        await Assert.ThrowsAsync<Npgsql.PostgresException>(() =>
+            db.GetService<IMigrator>().MigrateAsync("20261122120000_BindTelegramLanguagePicker"));
+    }
+
+    [Fact]
     public async Task Post_MultipleChoiceConcurrentCallbacksAndRestart_PersistsDraftAndCommitsOneAssessment()
     {
         var probe = new Probe("") { Material = ChoiceMaterial(ChoiceFormat.MultipleChoice) };

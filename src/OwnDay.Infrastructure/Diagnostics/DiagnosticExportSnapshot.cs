@@ -67,7 +67,7 @@ internal sealed partial class DiagnosticExportReader
             topic = text.Filter(row.Topic), theory = text.Filter(row.Theory), question = text.Filter(row.Question),
             answer = text.Filter(row.Answer), feedback = text.Filter(row.Feedback), expectedAnswer = text.Filter(row.ExpectedAnswer),
             row.ReferenceKind, row.AssessmentStatus, row.IsCorrect, row.AiIsCorrect, row.DeterministicIsCorrect,
-            row.Assistance, row.TheorySkipped, row.ExercisePending, exercise = Safe(row.Choice),
+            row.Assistance, row.RecognitionOnly, row.TheorySkipped, row.ExercisePending, exercise = Safe(row.Choice),
             rubricEvaluation = Safe(row.RubricEvaluation), content = Safe(row.Content), provenance = Safe(row.Provenance)
         });
         await Rows("interactions", db.Set<LessonInteraction>().AsNoTracking()

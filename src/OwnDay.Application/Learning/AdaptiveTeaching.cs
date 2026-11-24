@@ -29,7 +29,8 @@ public static class AdaptiveTeaching
     internal static bool NeedsOpenCheck(LearningEvidence? evidence) => evidence?.ChoiceEvidence is not null ||
         evidence is { Content.Id: LearningContent.GeneratedExerciseId,
             Content.StructuredRubric.Version: ExerciseRubric.QuestionScopedVersion, RubricEvidence: not null } &&
-        (!evidence.EffectiveCorrect || evidence.Assistance == AnswerAssistance.Assisted);
+        (evidence.Content.StructuredRubric.Kind == ExerciseEvidenceKind.Recognition ||
+            !evidence.EffectiveCorrect || evidence.Assistance == AnswerAssistance.Assisted);
 
     internal static bool IsValidFollowUp(LessonMaterial material, IEnumerable<string> previousQuestions, ExerciseEvidenceKind requiredKind)
     {

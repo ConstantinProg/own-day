@@ -657,6 +657,8 @@ public sealed partial class LearningRequestRunner(IServiceScopeFactory scopes, I
                         nameof(LearningEvidence.RubricEvidence) or nameof(LearningEvidence.ChoiceEvidence) or
                         nameof(LearningEvidence.ReviewHistory) or nameof(LearningEvidence.ReassessmentCredit) or nameof(CurriculumRoute.Path) or
                         nameof(LearningPreference.ResetThrough) or nameof(LessonInteraction.ExplanationPreferences)) || entry.OriginalValues[property] is not null)
+                    .Where(property => entry.Entity is not Lesson || property.Name != nameof(Lesson.RecognitionOnly) ||
+                        entry.OriginalValues[property] is true)
                     .Where(property => property.Name != nameof(LearningPreference.Scope) || entry.OriginalValues[property] is not "")
                     .Where(property => entry.Entity is not StudySchedule || property.Name is not (nameof(StudySchedule.LessonId) or
                         nameof(StudySchedule.QuestionFingerprint) or nameof(StudySchedule.ReminderTypes)) || entry.OriginalValues[property] is not null)

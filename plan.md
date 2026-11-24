@@ -83,14 +83,14 @@ Acceptance: a synthetic failed-generation journey can be investigated from expor
 
 ## 6. Stage 3 --- Curriculum planning and mastery granularity
 
-Status: Pending. Issues: OD-003, OD-004, OD-014.
+Status: Completed. Issues: OD-003, OD-004, OD-014.
 
--   [ ] Reproduce generic success criterion from first-goal consultation (goal: understand the exchange using Moscow Exchange as example; purpose: independent investing; experience: beginner).
--   [ ] Improve goal criteria so they describe observable competencies aligned with user intent. Prefer a bounded structured planning proposal validated by Application; preserve confirmation, user intent and deterministic guards. Do not add an extra provider call unless justified.
--   [ ] Inspect the relationship between Topic, Skill, Lesson, Exercise, Evidence and route completion. Test whether a single narrow exercise can incorrectly credit a broad topic. Fix only demonstrated defects; preserve prior evidence and route history.
--   [ ] Improve topic granularity and prerequisite coherence within the existing route model. Add representative planning fixtures for small and broad goals, including the exchange scenario. Avoid hardcoding a fixed number of topics.
--   [ ] Investigate the 12-topic limit and document trade-offs for long curricula. Defer hierarchical modules or a Domain redesign unless separately approved; provide a proposal if evidence warrants it.
--   [ ] Validate goal/route contracts, invalid proposals, prerequisite checks, self-report versus demonstrated knowledge and compatibility with existing programs.
+-   [x] Reproduce generic success criterion from first-goal consultation (goal: understand the exchange using Moscow Exchange as example; purpose: independent investing; experience: beginner).
+-   [x] Improve goal criteria so they describe observable competencies aligned with user intent. Prefer a bounded structured planning proposal validated by Application; preserve confirmation, user intent and deterministic guards. Do not add an extra provider call unless justified.
+-   [x] Inspect the relationship between Topic, Skill, Lesson, Exercise, Evidence and route completion. Test whether a single narrow exercise can incorrectly credit a broad topic. Fix only demonstrated defects; preserve prior evidence and route history.
+-   [x] Improve topic granularity and prerequisite coherence within the existing route model. Add representative planning fixtures for small and broad goals, including the exchange scenario. Avoid hardcoding a fixed number of topics.
+-   [x] Investigate the 12-topic limit and document trade-offs for long curricula. Defer hierarchical modules or a Domain redesign unless separately approved; provide a proposal if evidence warrants it.
+-   [x] Validate goal/route contracts, invalid proposals, prerequisite checks, self-report versus demonstrated knowledge and compatibility with existing programs.
 
 Acceptance: fixtures demonstrate measurable goal criteria and coherent, appropriately scoped topics; mastery is not credited without the required evidence. Any remaining structural limitations are documented rather than hidden.
 
@@ -126,7 +126,7 @@ Acceptance: first lesson generation and the real learning journey are verified, 
   ------- --------- ----------------------- ----------------------------
   1       Completed   PostgreSQL slow call and recovery   Operator smoke pending
   2       Completed   See dated verification entry below
-  3       Pending   ---                     ---
+  3       Completed   See dated verification entry below
   4       Pending   ---                     ---
   5       Pending   ---                     Operator/test bot required
 
@@ -143,3 +143,11 @@ Release build passed with zero warnings. Seven focused PostgreSQL cases passed, 
 Post-commit review of b83b9ab checked fenced admission, reconciliation and failure paths. OD-007 reproduced before the fix with TelegramNavigation's actual serialized markup. Button field casing differs from raw Bot API JSON. Detailed capture now accepts both shapes and exports verified action metadata. Settings resolution, committed language changes, consultation inputs and the effective generation policy are observable; historical Telegram language and hidden model reasons are unavailable. Schema 1 additions use the existing read-only snapshot, redaction and owner fence. Monthly quota uses both retained attempts and carryover. Selected timeline attempt counts deduplicate by physical ID.
 
 Seven diagnostic unit tests passed in Release. All 15 PostgreSQL tester/export tests passed in Debug, including a synthetic worker deadline, both owners and all three modes. Review caught a missing financial source FK in the fixture; the corrected fixture uses a real provider attempt. No migration. Full real-provider diagnostic acceptance is pending.
+
+### 2026-11-24 — OD-003, OD-004, OD-014
+
+Post-commit review of 9f1bc9e checked owner predicates, carryover, redaction and the export receipt's locale provenance. The complete provider integration class against the reliability change passed 244 cases with one opt-in live test skipped.
+
+Confirmed a fixed generic criterion template. The existing planner response now accepts a bounded optional observable criterion and asks for task-sized topics and necessary prerequisites. The Application accepts it only in consultation; old proposals and invalid wording keep the consultation fallback. Exchange and geometry fixtures preserve the original goal and check concrete outcomes. Confirmed in PostgreSQL that one correct open recognition answer credited a broad topic before the fix. Newly assessed question-scoped recognition now requires deeper evidence to close that topic. Older committed credits and observations remain intact. Demonstrated mastery already requires independent evidence; no separate mastery defect reproduced. OD-014 remains a structural limit: keep the flat 12-topic introductory route; hierarchical curricula deferred.
+
+Three integration and 32 rubric, program and model cases passed in Debug. Release PostgreSQL regression also verified the migration refuses lossy downgrade. Review covered tracked and stored completion queries, follow-up selection, checkpoint stamps and old-row defaults.

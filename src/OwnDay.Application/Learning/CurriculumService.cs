@@ -25,7 +25,7 @@ public interface ICurriculumStore
 public sealed record CurriculumProposal(string Discipline, CurriculumTopic[] Topics, string? DiagnosticQuestion,
     string? DiagnosticInterpretation = null, DiagnosticStartingLevel? StartingLevel = null,
     DiagnosticAnswerKind? DiagnosticAnswerKind = null, ConsultationWording? Wording = null);
-public sealed record ConsultationWording(bool ClarifyPracticalUse);
+public sealed record ConsultationWording(bool ClarifyPracticalUse, string? ObservableCriterion = null);
 public sealed record CurriculumRequest(string Goal, string Experience, string? Question, string? Answer, string? Discipline = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] DiagnosticQuestionContext[]? PriorObservations = null)
 {
@@ -118,6 +118,10 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
             if (consultationUse is not null && proposal.Wording is { ClarifyPracticalUse: true } &&
                 LearningGoalText.Display(consultationUse) == consultationUse)
                 return new CurriculumResult.ClarifyPracticalUse();
+            if (consultationUse is not null && goalCriterion is not null &&
+                proposal.Wording?.ObservableCriterion?.Trim() is { Length: > 0 and <= LearningProgram.MaxGoalCriterionLength } criterion &&
+                !criterion.Any(char.IsControl))
+                goalCriterion = criterion;
             var program = LearningProgram.Create(user, goal, experience, projectId,
                 proposal.Discipline, proposal.Topics, proposal.DiagnosticQuestion, goalCriterion);
             if (authored) program.OfferEnglishDiagnostic();

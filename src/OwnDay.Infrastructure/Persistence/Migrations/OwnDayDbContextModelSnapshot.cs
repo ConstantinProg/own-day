@@ -1738,6 +1738,7 @@ public partial class OwnDayDbContextModelSnapshot : ModelSnapshot
         {
             b.Property<string>("RubricEvaluation").HasColumnType("jsonb");
             b.Property<string>("Choice").HasColumnType("jsonb");
+            b.Property<bool>("RecognitionOnly").HasColumnType("boolean");
             b.Property<bool>("ExercisePending").HasColumnType("boolean");
             b.Property<bool>("TheorySkipped").HasColumnType("boolean");
         });

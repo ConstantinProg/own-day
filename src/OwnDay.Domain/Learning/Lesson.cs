@@ -22,6 +22,7 @@ public sealed partial class Lesson
     public AnswerReferenceKind ReferenceKind { get; private set; }
     public LessonProvenance? Provenance { get; private set; }
     public LessonStatus Status { get; private set; }
+    public bool RecognitionOnly { get; private set; }
     public bool ExercisePending { get; private set; }
     public bool TheorySkipped { get; private set; }
     public bool AcceptsAnswer => Status == LessonStatus.AwaitingAnswer && !ExercisePending;
@@ -162,6 +163,7 @@ public sealed partial class Lesson
         var referenceCandidate = prior is { AwaitingCorrection: false, Clarification: not null }
             ? prior.ClarificationAnswer ?? prior.InitialAnswer : answer;
         CommitAssessment(answer, feedback, correct, referenceCandidate);
+        RecognitionOnly = rubric is { Version: ExerciseRubric.QuestionScopedVersion, Kind: ExerciseEvidenceKind.Recognition };
         if (unclear is not null)
         {
             AssessmentStatus = AnswerAssessmentStatus.Inconclusive;

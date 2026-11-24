@@ -39,9 +39,11 @@ public sealed partial class PostgresLearningProviderTests
     {
         const string original = "Хочу понять, как работает Московская биржа";
         const string practicalUse = "Хочу понять, как работает биржа, чтобы делать инвистиции";
+        const string criterion = practicalUse + ". На примере двух заявок определить цену исполнения и объяснить роль брокера.";
         var probe = new Probe("")
         {
-            Curriculum = new("Рыночная механика", [new("orders", "Биржевые заявки", [])], null),
+            Curriculum = new("Рыночная механика", [new("orders", "Биржевые заявки", []),
+                new("match", "Определить цену исполнения двух заявок", ["orders"])], null, Wording: new(false, criterion)),
             Material = new("Лимитная заявка задаёт предельную цену.", "Что ограничивает лимитная заявка?")
         };
         using var host = ConsultationHost(probe);
@@ -60,6 +62,7 @@ public sealed partial class PostgresLearningProviderTests
         Assert.Contains(practicalUse, program.Experience);
         Assert.DoesNotContain("короткие тексты", program.Experience);
         Assert.Contains(practicalUse, program.GoalCriterion);
+        Assert.Equal(criterion, program.GoalCriterion);
         var lesson = await db.Set<Lesson>().SingleAsync();
         Assert.Equal(probe.Material.Question, lesson.Question);
         Assert.True(lesson.ExercisePending);
@@ -136,7 +139,8 @@ public sealed partial class PostgresLearningProviderTests
     {
         var probe = new Probe("")
         {
-            Curriculum = new("Geometry", [new("angles", "Triangle angles", [])], null),
+            Curriculum = new("Geometry", [new("angles", "Triangle angles", [])], null,
+                Wording: new(false, "Calculate angles for a drawing and verify that the three interior angles sum to 180 degrees.")),
             Material = new("The angles of a planar triangle sum to 180 degrees.", "What is the third angle?")
         };
         using var host = ConsultationHost(probe);
@@ -152,6 +156,7 @@ public sealed partial class PostgresLearningProviderTests
         await using var db = Open();
         var program = await db.Set<LearningProgram>().SingleAsync();
         Assert.Contains(turns[1], program.GoalCriterion);
+        Assert.Contains("180 degrees", program.GoalCriterion);
         Assert.Equal(probe.Material.Question, (await db.Set<Lesson>().SingleAsync()).Question);
         var replies = await db.TelegramOutboxMessages.Select(message => message.Text).ToListAsync();
         Assert.Contains(replies, reply => reply.Contains("First topics — Triangle angles", StringComparison.Ordinal));
