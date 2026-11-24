@@ -74,6 +74,12 @@ public sealed partial class PostgresTesterModeTests
             Assert.True(await services.GetRequiredService<LearningRequestProcessor>().ProcessAsync(lease, 3, default));
         using var writer = ActivatorUtilities.CreateInstance<DiagnosticWriter>(services);
         await writer.StartAsync(default);
+        await EventuallyAsync(async () =>
+        {
+            await using var observer = Open();
+            return await observer.Set<DiagnosticEvent>().AnyAsync(row =>
+                row.RequestId == lease.RequestId && row.Code == "provider_outcome_unknown");
+        });
         await writer.StopAsync(default);
         var export = await services.GetRequiredService<DiagnosticExportReader>().BuildAsync(Job(DiagnosticExportMode.Last), default);
         using var json = JsonDocument.Parse(export.Bytes!);
