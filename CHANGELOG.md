@@ -2,6 +2,26 @@
 
 Здесь собраны пользовательские изменения по выпущенным версиям OwnDay. Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/).
 
+## [0.5.0] - 2026-11-24
+
+### Добавлено
+
+- Экспорт тестировщика показывает подписи кнопок, язык интерфейса, бюджет пользователя и причину отмены.
+
+### Изменено
+
+- Медленная генерация урока получила больше времени. Планировщик может предложить проверяемый критерий цели.
+- После верного ответа на узнавание для зачёта темы требуется более глубокая проверка.
+
+### Added
+
+- Tester exports include button labels, interface language, per-user budget and cancellation causes.
+
+### Changed
+
+- Slow lesson generation has more time to finish. The planner can propose a measurable goal criterion.
+- A correct recognition answer now requires a deeper check before the topic is credited.
+
 ## [0.4.0] - 2026-11-23
 
 ### Добавлено
