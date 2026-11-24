@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
@@ -19,32 +18,48 @@ namespace OwnDay.Infrastructure.Learning;
 // unresponsive call closes admission on this Host, including after logical timeout.
 public sealed class LearningProviderCallGate(IOptions<LearningRequestProcessingOptions> options) : IDisposable
 {
-    private readonly SemaphoreSlim _slots = new(options.Value.Parallelism);
-    private readonly ConcurrentDictionary<Task, byte> _unresponsive = new();
-    private int _stopped;
+    private readonly Lock _lock = new();
+    private readonly HashSet<Task> _unresponsive = [];
+    private int _activeCalls;
+    private bool _stopped;
 
-    public bool TryEnter() => Volatile.Read(ref _stopped) == 0 && _unresponsive.IsEmpty && _slots.Wait(0);
+    public bool TryEnter()
+    {
+        lock (_lock)
+        {
+            if (_stopped || _unresponsive.Count != 0 || _activeCalls >= options.Value.Parallelism) return false;
+            _activeCalls++;
+            return true;
+        }
+    }
+
     public void Release()
     {
-        _slots.Release();
-        if (Volatile.Read(ref _stopped) != 0 && _slots.CurrentCount == options.Value.Parallelism) _slots.Dispose();
+        lock (_lock)
+        {
+            if (_activeCalls == 0) throw new InvalidOperationException("No provider call owns a slot.");
+            _activeCalls--;
+        }
     }
 
     public void MarkUnresponsive(Task task)
     {
-        if (task.IsCompleted) return;
-        _unresponsive.TryAdd(task, 0);
+        if (task.IsCompleted)
+        {
+            _ = task.Exception;
+            return;
+        }
+        lock (_lock) _unresponsive.Add(task);
         task.ConfigureAwait(false).GetAwaiter().OnCompleted(() =>
         {
             _ = task.Exception; // Observe late faults; a late result never applies Domain state.
-            _unresponsive.TryRemove(task, out _);
+            lock (_lock) _unresponsive.Remove(task);
         });
     }
 
     public void Dispose()
     {
-        Interlocked.Exchange(ref _stopped, 1);
-        if (_slots.CurrentCount == options.Value.Parallelism) _slots.Dispose();
+        lock (_lock) _stopped = true;
     }
 }
 
@@ -91,10 +106,11 @@ public sealed class LearningProviderExecutor(IServiceScopeFactory scopes, IOptio
             catch (OperationCanceledException)
             {
                 gate.MarkUnresponsive(physical);
+                var caller = DiagnosticJournal.Active?.WorkerStoppingToken == token ? "worker_shutdown" : "caller";
                 var source = (token.IsCancellationRequested, timeoutToken.IsCancellationRequested) switch
                 {
-                    (true, true) => "caller_and_worker_deadline",
-                    (true, false) => "caller",
+                    (true, true) => caller + "_and_worker_deadline",
+                    (true, false) => caller,
                     (false, true) => "worker_deadline",
                     _ => "unknown"
                 };

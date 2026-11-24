@@ -483,10 +483,7 @@ public sealed partial class CurriculumService(ICurriculumStore store, ICurriculu
                 PracticeEvidenceKind = needsOpenCheck ? checkKind : null
             };
             var material = authored ? new LessonMaterial(EnglishLearningContent.LessonTheory, EnglishLearningContent.LessonQuestion)
-                : await teacher.GenerateAsync(request with
-                {
-                    PreferredChoice = ChoiceTeaching.Prefer(request, status?.Evidence)
-                }, token);
+                : await teacher.GenerateAsync(ChoiceTeaching.SelectFormat(request, status?.Evidence), token);
             if (needsOpenCheck && !AdaptiveTeaching.IsValidFollowUp(material, recent, checkKind) ||
                 answeredQuestion is not null && AdaptiveTeaching.RepeatsQuestion(material.Question, recent))
                 return new CurriculumResult.ProviderUnavailable();

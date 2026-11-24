@@ -35,21 +35,21 @@ public sealed record ChoiceApplication(LearningResult Reply, bool AttemptRecorde
 
 internal static class ChoiceTeaching
 {
-    public static ChoiceFormat? Prefer(LessonRequest request, IReadOnlyList<LearningEvidence>? history = null)
+    public static LessonRequest SelectFormat(LessonRequest request, IReadOnlyList<LearningEvidence>? history = null)
     {
         if (request is { IsReview: true } or { ProjectPractice: not null } or { Transfer: not null } or
             { SharedSkill.NeedsVerification: true } or { RouteDepth: CurriculumDepth.Detailed } or
             { PracticeEvidenceKind: ExerciseEvidenceKind.Application or ExerciseEvidenceKind.Understanding } ||
             AdaptiveTeaching.NeedsOpenCheck(history?.LastOrDefault()))
-            return null;
+            return request with { PreferredChoice = null, FormatReason = "requires_open_check" };
 
         var state = request.Teaching?.State ?? request.SharedSkill?.State;
         if (state?.RepeatedDifficulty == true || request.Teaching?.Action is TeachingAction.Simplify or TeachingAction.Hint)
-            return ChoiceFormat.TrueFalse;
+            return request with { PreferredChoice = ChoiceFormat.TrueFalse, FormatReason = "scaffolding" };
         if (state?.Mastery is SkillMastery.Developing or SkillMastery.Demonstrated ||
             history?.Any(item => item.EffectiveCorrect && item.Assistance == AnswerAssistance.Independent) == true)
-            return ChoiceFormat.MultipleChoice;
-        return ChoiceFormat.SingleChoice;
+            return request with { PreferredChoice = ChoiceFormat.MultipleChoice, FormatReason = "prior_skill_evidence" };
+        return request with { PreferredChoice = ChoiceFormat.SingleChoice, FormatReason = "initial_recognition_check" };
     }
 
     public static TeachingAction AfterAttempt(Lesson lesson, bool needsScaffolding)

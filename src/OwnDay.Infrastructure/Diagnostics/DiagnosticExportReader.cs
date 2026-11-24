@@ -197,6 +197,8 @@ internal sealed partial class DiagnosticExportReader(OwnDayDbContext db, TesterM
             {
                 Calls = rows.LongCount(), Charged = rows.Sum(row => row.ChargedTokens),
                 RecordedTokens = rows.Sum(row => (long)(row.InputTokens ?? 0) + (row.OutputTokens ?? 0)),
+                PendingKnownUsd = rows.Sum(row => row.FinishedAt == null ? row.ReservedUsd ?? 0 : 0),
+                PendingUnpriced = rows.LongCount(row => row.FinishedAt == null && row.ReservedUsd == null),
                 PendingTokens = rows.Sum(row => row.FinishedAt == null ? row.ReservedTokens : 0),
                 MissingEstimate = rows.LongCount(row => row.EstimatedUsd == null),
                 KnownEstimateUsd = rows.Sum(row => row.EstimatedUsd ?? 0)
@@ -205,6 +207,7 @@ internal sealed partial class DiagnosticExportReader(OwnDayDbContext db, TesterM
         var calls = (usage?.Calls ?? 0) + (carried?.CallCount ?? 0);
         return new { periodStartUtc = start, periodEndExclusiveUtc = end, calls, chargedTokens = charged,
             retainedRecordedTokens = usage?.RecordedTokens ?? 0, pendingReservedTokens = usage?.PendingTokens ?? 0,
+            knownPendingReservedUsd = usage?.PendingKnownUsd ?? 0, pendingUnpricedCalls = usage?.PendingUnpriced ?? 0,
             retainedCallsWithoutCostEstimate = usage?.MissingEstimate ?? 0, knownRetainedEstimateUsd = usage?.KnownEstimateUsd ?? 0,
             carriedCalls = carried?.CallCount ?? 0, carryoverHasUnpricedCharges = carried?.HasUnknownCost ?? false,
             remainingOwnerTokens = Math.Max(0, budget.Value.MonthlyUserTokenLimit - charged),
@@ -321,7 +324,8 @@ internal sealed partial class DiagnosticExportReader(OwnDayDbContext db, TesterM
                 {
                     string? Field(string name) => fields.TryGetProperty(name, out var value) &&
                         value.ValueKind == JsonValueKind.String ? value.GetString() : null;
-                    if (Field("error") == "Timeout" || Field("cancellationSource") is "worker_deadline" or "caller_and_worker_deadline")
+                    if (Field("cancellationSource") is "adapter_deadline" or "worker_deadline" or
+                        "caller_and_worker_deadline" or "worker_shutdown_and_worker_deadline")
                         _timeouts.Add(attempt);
                     if (Field("status") == "cancelled" || Field("cancellationSource") is not null)
                         _cancellations.Add(attempt);

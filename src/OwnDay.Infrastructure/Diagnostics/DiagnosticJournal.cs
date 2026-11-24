@@ -111,7 +111,7 @@ public sealed class DiagnosticJournal(IServiceScopeFactory scopes, IOptions<Diag
     }
 
     internal sealed record Context(long Owner, Guid Generation, bool Detailed, Guid Correlation, Guid? Request, int? Attempt,
-        Guid? Invocation = null, int? Step = null, string? Purpose = null, int? PromptVersion = null, Guid DetailGeneration = default);
+        Guid? Invocation = null, int? Step = null, string? Purpose = null, int? PromptVersion = null, Guid DetailGeneration = default, CancellationToken WorkerStoppingToken = default);
     private sealed record DiagnosticAccess(Guid Generation, Guid DetailGeneration, bool Authorized);
 
     private sealed class RestoreContext(Context? previous) : IDisposable

@@ -88,9 +88,10 @@ public sealed class LearningProviderStep
     };
 }
 
-public sealed class LearningProviderRequiredException(LearningProviderStep step) : Exception
+public sealed class LearningProviderRequiredException(LearningProviderStep step, LessonRequest? generation = null) : Exception
 {
     public LearningProviderStep Step { get; } = step;
+    public LessonRequest? Generation { get; } = generation;
 }
 
 public sealed class StaleLearningPreparationException : Exception;
@@ -184,7 +185,7 @@ public sealed class LearningProviderSession(IReadOnlyList<LearningProviderStep> 
             {
                 Ordinal = ordinal, Kind = kind, Input = json, Fingerprint = fingerprint, TargetStamp = stamp,
                 Targets = targets?.Invoke() ?? "[]"
-            });
+            }, input as LessonRequest);
         var step = steps[ordinal];
         if (step.Ordinal != ordinal || step.Version != 1 || step.Kind != kind || step.Fingerprint != fingerprint || step.TargetStamp != stamp)
             throw new StaleLearningPreparationException();

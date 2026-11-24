@@ -22,21 +22,25 @@ public sealed record LessonProgramContext(string Discipline, string Goal, string
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public string? PracticalUse { get; init; }
 
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? StartingLevelSource { get; init; }
+
     internal static LessonProgramContext From(LearningProgram program, bool includeDiagnostic = true)
     {
         var diagnostic = includeDiagnostic ? program.SubjectDiagnostic : null;
-        DiagnosticStartingLevel? level = diagnostic switch
+        (DiagnosticStartingLevel? level, string? source) = diagnostic switch
         {
             { Supported: true } when diagnostic.Observations.LastOrDefault()?.Kind == DiagnosticAnswerKind.StartWithFoundations
-                => DiagnosticStartingLevel.Foundation,
-            { Supported: true, StartingLevel: not DiagnosticStartingLevel.Unknown } => diagnostic.StartingLevel,
-            _ when LearnerExperience.IsBeginner(LearnerExperience.ReadSelfReport(program.Experience)) => DiagnosticStartingLevel.Foundation,
-            _ => null
+                => (DiagnosticStartingLevel.Foundation, "learner_requested_foundations"),
+            { Supported: true, StartingLevel: not DiagnosticStartingLevel.Unknown } => (diagnostic.StartingLevel, "subject_diagnostic"),
+            _ when LearnerExperience.IsBeginner(LearnerExperience.ReadSelfReport(program.Experience)) => (DiagnosticStartingLevel.Foundation, "beginner_self_report"),
+            _ => ((DiagnosticStartingLevel?)null, (string?)null)
         };
         return new(program.Discipline, program.Goal, program.Experience,
             includeDiagnostic ? program.DiagnosticQuestion : null, includeDiagnostic ? program.DiagnosticAnswer : null)
         {
             StartingLevel = level,
+            StartingLevelSource = source,
             PracticalUse = LearnerExperience.ReadPracticalUse(program.Experience)
         };
     }
@@ -55,6 +59,8 @@ public sealed record LessonRequest(string Topic, LessonProgramContext? Program =
     public ChoiceFormat? PreferredChoice { get; init; }
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public ExerciseResponseFormat? RequestedFormat { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? FormatReason { get; init; }
 }
 public enum ExerciseResponseFormat { ShortText, SingleChoice, MultipleChoice }
 public sealed record TransferPracticeContext(string SourceTopic, InterdisciplinaryPractice Relation);
@@ -228,7 +234,7 @@ public sealed partial class LearningService(ILessonStore store, ILessonTeacher t
                 PreviousQuestions = previousChoice is null ? null : [previousChoice],
                 PracticeEvidenceKind = previousChoice is null ? null : ExerciseEvidenceKind.Understanding
             };
-            var material = await teacher.GenerateAsync(request with { PreferredChoice = ChoiceTeaching.Prefer(request) }, token);
+            var material = await teacher.GenerateAsync(ChoiceTeaching.SelectFormat(request), token);
             token.ThrowIfCancellationRequested();
             if (previousChoice is not null &&
                 !AdaptiveTeaching.IsValidFollowUp(material, [previousChoice], ExerciseEvidenceKind.Understanding))
@@ -432,10 +438,7 @@ public sealed partial class LearningService(ILessonStore store, ILessonTeacher t
                     : kind == SkillLessonKind.Practice && needsOpenCheck ? ExerciseEvidenceKind.Understanding
                     : null
             };
-            var material = await teacher.GenerateAsync(request with
-            {
-                PreferredChoice = ChoiceTeaching.Prefer(request, status.Evidence)
-            }, token);
+            var material = await teacher.GenerateAsync(ChoiceTeaching.SelectFormat(request, status.Evidence), token);
             token.ThrowIfCancellationRequested();
             var requiredKind = needsOpenCheck && request.IsReview ? ExerciseEvidenceKind.Retrieval : request.PracticeEvidenceKind;
             if ((needsOpenCheck || answeredQuestion is not null) && requiredKind is { } required &&

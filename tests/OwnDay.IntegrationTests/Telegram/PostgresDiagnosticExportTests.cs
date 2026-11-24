@@ -1,6 +1,7 @@
 using System.IO.Compression;
 using System.Data.Common;
 using System.Text.Json;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
@@ -43,6 +44,70 @@ public sealed partial class PostgresTesterModeTests
         Assert.Empty(await db.Set<DiagnosticExportJob>().ToListAsync());
         Assert.Empty(await db.Set<DiagnosticDocument>().ToListAsync());
         Assert.Equal(2, await db.TelegramOutboxMessages.CountAsync(row => row.Text == "Export requires active Tester Mode."));
+    }
+
+    [Fact]
+    public async Task BuildAsync_FirstLessonTimesOut_ExplainsFailureAndPreservesProgramAndBudget()
+    {
+        using var factory = Host();
+        using var host = factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
+        {
+            services.AddScoped<ILessonTeacher, WaitingTeacher>();
+            services.Configure<LearningRequestProcessingOptions>(options => options.ProviderTimeoutSeconds = 1);
+        }));
+        using var client = host.CreateClient();
+        await AuthorizeAsync(client);
+        await using (var db = Open())
+        {
+            var program = LearningProgram.Create(Tester, "Understand markets", "Beginner", null, "Markets",
+                [new("orders", "Compare orders", [])], null);
+            db.AddRange(program, LearningContext.Create(program), new TelegramUserLanguage { UserId = Tester.Value, Locale = "en" });
+            await db.SaveChangesAsync();
+        }
+        await PostAsync(client, 501, "/learn_next");
+        await using var scope = host.Services.CreateAsyncScope();
+        var services = scope.ServiceProvider;
+        var lease = await services.GetRequiredService<ILearningRequestStore>().ClaimAsync(TimeSpan.FromSeconds(30), default);
+        Assert.NotNull(lease);
+        var journal = services.GetRequiredService<DiagnosticJournal>();
+        using (DiagnosticJournal.Enter(await journal.CaptureAsync(Tester, lease.RequestId, lease.RequestId, lease.Attempt, default)))
+            Assert.True(await services.GetRequiredService<LearningRequestProcessor>().ProcessAsync(lease, 3, default));
+        using var writer = ActivatorUtilities.CreateInstance<DiagnosticWriter>(services);
+        await writer.StartAsync(default);
+        await writer.StopAsync(default);
+        var export = await services.GetRequiredService<DiagnosticExportReader>().BuildAsync(Job(DiagnosticExportMode.Last), default);
+        using var json = JsonDocument.Parse(export.Bytes!);
+        var root = json.RootElement;
+        var snapshot = root.GetProperty("snapshot");
+        Assert.Equal("provider_outcome_unknown", Assert.Single(snapshot.GetProperty("requests").EnumerateArray()).GetProperty("outcome").GetString());
+        Assert.Equal(1, snapshot.GetProperty("learning").GetProperty("programs").GetArrayLength());
+        Assert.Equal(0, snapshot.GetProperty("learning").GetProperty("lessons").GetArrayLength());
+        Assert.Equal(1, snapshot.GetProperty("llmBudget").GetProperty("retainedCallsWithoutCostEstimate").GetInt64());
+        Assert.Equal(1, root.GetProperty("summary").GetProperty("selectedTimeline").GetProperty("timedOutAttempts").GetInt32());
+        var timeline = root.GetProperty("timeline").EnumerateArray().ToArray();
+        var failure = Assert.Single(timeline, row => row.GetProperty("code").GetString() == "provider_outcome_unknown");
+        var fields = failure.GetProperty("data").GetProperty("fields");
+        Assert.Equal("worker_deadline", fields.GetProperty("cancellationSource").GetString());
+        Assert.Equal(1, fields.GetProperty("deadlineSeconds").GetInt32());
+        Assert.Equal("generate", fields.GetProperty("kind").GetString());
+        Assert.Equal("initial_recognition_check", Assert.Single(timeline, row =>
+            row.GetProperty("code").GetString() == "generation_policy_prepared").GetProperty("data")
+            .GetProperty("detail").GetProperty("formatReason").GetString());
+        Assert.Contains("No new lesson was created", root.GetRawText());
+    }
+
+    private sealed class WaitingTeacher : ILessonTeacher
+    {
+        public async Task<LessonMaterial> GenerateAsync(LessonRequest request, CancellationToken token)
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, token);
+            throw new InvalidOperationException("The deadline must interrupt generation.");
+        }
+
+        public Task<LessonAssessment> AssessAsync(Lesson lesson, string answer, CancellationToken token) =>
+            throw new InvalidOperationException();
+        public Task<LessonExplanation> ExplainAsync(Lesson lesson, string request, LessonInteractionKind kind, CancellationToken token) =>
+            throw new InvalidOperationException();
     }
 
     [Fact]

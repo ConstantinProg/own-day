@@ -21,7 +21,7 @@ using OwnDay.Infrastructure.Diagnostics;
 namespace OwnDay.Infrastructure.Learning;
 
 public sealed partial class LearningRequestRunner(IServiceScopeFactory scopes, IOptions<LearningRequestProcessingOptions> options,
-    LearningProviderExecutor provider, TelegramActionKeyboard keyboard)
+    LearningProviderExecutor provider, TelegramActionKeyboard keyboard, DiagnosticJournal? journal = null)
     : ILearningRequestRunner
 {
     public async Task<bool> RunAsync(LearningRequestLease lease, int maxAttempts, CancellationToken token)
@@ -49,7 +49,19 @@ public sealed partial class LearningRequestRunner(IServiceScopeFactory scopes, I
                     return await PrepareCompletionAsync(services, db, request, execution, russian, cancellationToken);
                 }, token);
             }
-            catch (LearningProviderRequiredException required) { pending = required.Step; }
+            catch (LearningProviderRequiredException required)
+            {
+                pending = required.Step;
+                if (required.Generation is { } generation)
+                    journal?.Write("learning", "generation_policy_prepared", new(Kind: pending.Kind, Step: pending.Ordinal),
+                        detail: () => new
+                        {
+                            formatReason = generation.RequestedFormat is null ? generation.FormatReason : "user_request",
+                            proposedChoice = generation.PreferredChoice?.ToString(),
+                            startingLevel = generation.Program?.StartingLevel?.ToString(),
+                            startingLevelSource = generation.Program?.StartingLevelSource
+                        });
+            }
             catch (StaleLearningPreparationException)
             {
                 await using var scope = scopes.CreateAsyncScope();
@@ -102,13 +114,21 @@ public sealed partial class LearningRequestRunner(IServiceScopeFactory scopes, I
     {
         if (step.Kind == "generate")
         {
-            if (step.ReadInput<LessonRequest>().Program is not null) return russian
-                ? "Программа сохранена. Новый урок не создан. Откройте программу и повторите запуск урока."
-                : "Your program is saved. No new lesson was created. Open the program to start the lesson again.";
+            var input = step.ReadInput<LessonRequest>();
+            if (input is { Program: not null, IsReview: false, Teaching: null, Transfer: null,
+                ProjectPractice: null, RequestedFormat: null }) return russian
+                ? "Программа сохранена. Новый урок не создан. Проверьте выбранную программу и отправьте /learn_next, чтобы попробовать ещё раз."
+                : "Your program is saved. No new lesson was created. Check the selected program and send /learn_next to try again.";
             return russian ? "Новый урок не создан. Можно повторить команду запуска урока."
                 : "No new lesson was created. You can repeat the command to start the lesson.";
         }
-        if (step.Kind == "assess") return russian
+        if (step.Kind == "plan") return russian
+            ? "Не удалось получить учебный план. Проверьте текущую программу перед повтором запроса."
+            : "The learning plan could not be retrieved. Check your current program before retrying.";
+        if (step.Kind == "explain") return russian
+            ? "Объяснение не получено. Можно снова задать вопрос по текущему уроку."
+            : "The explanation could not be retrieved. You can ask again about the current lesson.";
+        if (step.Kind is "assess" or "interpret_choice") return russian
             ? "Ответ не оценён. Проверьте текущий урок перед повторной отправкой ответа."
             : "Your answer was not assessed. Check the current lesson before submitting your answer again.";
         return russian ? "Результат запроса неизвестен. Проверьте текущий контекст перед повтором команды."

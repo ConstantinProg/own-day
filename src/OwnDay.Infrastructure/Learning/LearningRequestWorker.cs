@@ -40,8 +40,9 @@ public sealed class LearningRequestWorker(IServiceScopeFactory scopes, IOptions<
                 var lease = await store.ClaimAsync(TimeSpan.FromSeconds(options.Value.LeaseSeconds), token);
                 if (lease is not null)
                 {
-                    using var diagnostics = DiagnosticJournal.Enter(journal is null ? null :
-                        await journal.CaptureAsync(lease.UserId, lease.RequestId, lease.RequestId, lease.Attempt, token));
+                    var capture = journal is null ? null :
+                        await journal.CaptureAsync(lease.UserId, lease.RequestId, lease.RequestId, lease.Attempt, token);
+                    using var diagnostics = DiagnosticJournal.Enter(capture is null ? null : capture with { WorkerStoppingToken = token });
                     var started = Stopwatch.GetTimestamp();
                     var waited = lease.ReceivedAt is { } received ? Math.Max(0, (long)(clock.GetUtcNow().UtcDateTime - received).TotalMilliseconds) : (long?)null;
                     journal?.Write("learning", "request_claimed", new(Status: "running", WaitMs: waited));

@@ -507,6 +507,7 @@ public sealed partial class OpenAILessonTeacherTests
         var logger = new RecordingLogger();
         var error = await Assert.ThrowsAsync<LessonProviderException>(() => Teacher(http, logger).GenerateAsync(new LessonRequest("topic"), CancellationToken.None));
         Assert.Equal(reason, error.Reason);
+        Assert.Equal(status is HttpStatusCode.RequestTimeout or HttpStatusCode.ServiceUnavailable, error.OutcomeUnknown);
         Assert.Contains(logger.Messages, m => m.Contains(((int)status).ToString(System.Globalization.CultureInfo.InvariantCulture), StringComparison.Ordinal));
         Assert.DoesNotContain(logger.Messages, m => m.Contains("private provider error", StringComparison.Ordinal));
     }
