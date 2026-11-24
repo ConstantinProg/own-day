@@ -431,6 +431,7 @@ public sealed partial class OpenAILessonTeacherTests
         var messages = body.RootElement.GetProperty("messages");
         Assert.Contains("untrusted data", messages[0].GetProperty("content").GetString());
         using var input = JsonDocument.Parse(messages[1].GetProperty("content").GetString()!);
+        Assert.Equal("Open", input.RootElement.GetProperty("EffectiveFormat").GetString());
         Assert.Equal(request, input.RootElement.Deserialize<LessonRequest>());
     }
 

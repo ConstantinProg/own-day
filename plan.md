@@ -96,13 +96,13 @@ Acceptance: fixtures demonstrate measurable goal criteria and coherent, appropri
 
 ## 7. Stage 4 --- Prompt and provider contract optimization
 
-Status: Pending. Issues: OD-005, OD-006, OD-013.
+Status: Completed. Issues: OD-005, OD-006, OD-013.
 
--   [ ] Inventory prompts, response schemas and effective model parameters by operation. Establish a baseline using offline fixtures and available recorded metrics. Do not treat character count alone as a latency diagnosis.
--   [ ] Resolve `RequestedFormat = null` semantics and ownership of exercise format selection. Test automatic and explicit formats; align prompt, schema, parser and deterministic validation.
--   [ ] Reduce redundant or contradictory instructions. Consider specialized schemas/templates for open and choice exercises without multiplying sequential provider calls unnecessarily. Preserve pedagogy, safety, localization, source honesty and assessment constraints.
--   [ ] Evaluate operation-specific output token ceilings and effective reasoning parameters. Choose limits from measured output sizes and safety margins; test truncation/invalid output handling. Preserve financial admission and checkpoint compatibility.
--   [ ] Add or update golden fixtures and compare quality, token usage and latency where evidence exists. Use fake-provider tests for contract correctness; live-provider quality and performance require authorized evaluation.
+-   [x] Inventory prompts, response schemas and effective model parameters by operation. Establish a baseline using offline fixtures and available recorded metrics. Do not treat character count alone as a latency diagnosis.
+-   [x] Resolve `RequestedFormat = null` semantics and ownership of exercise format selection. Test automatic and explicit formats; align prompt, schema, parser and deterministic validation.
+-   [x] Reduce redundant or contradictory instructions. Consider specialized schemas/templates for open and choice exercises without multiplying sequential provider calls unnecessarily. Preserve pedagogy, safety, localization, source honesty and assessment constraints.
+-   [x] Evaluate operation-specific output token ceilings and effective reasoning parameters. Choose limits from measured output sizes and safety margins; test truncation/invalid output handling. Preserve financial admission and checkpoint compatibility.
+-   [x] Add or update golden fixtures and compare quality, token usage and latency where evidence exists. Use fake-provider tests for contract correctness; live-provider quality and performance require authorized evaluation.
 
 Acceptance: unambiguous format contracts, passing regression fixtures, no loss of essential pedagogical safeguards. Any claimed latency or cost improvement must be supported by comparable measurements; otherwise label it unverified.
 
@@ -127,7 +127,7 @@ Acceptance: first lesson generation and the real learning journey are verified, 
   1       Completed   PostgreSQL slow call and recovery   Operator smoke pending
   2       Completed   See dated verification entry below
   3       Completed   See dated verification entry below
-  4       Pending   ---                     ---
+  4       Completed   See dated verification entry below
   5       Pending   ---                     Operator/test bot required
 
 For each completed stage append: date, issue IDs and disposition, changed files/migrations, test commands and results, deviations, residual risks, manual checks, recommended Conventional Commit message. Keep the original findings traceable. Do not commit the diagnostic archive or its raw contents.
@@ -151,3 +151,7 @@ Post-commit review of 9f1bc9e checked owner predicates, carryover, redaction and
 Confirmed a fixed generic criterion template. The existing planner response now accepts a bounded optional observable criterion and asks for task-sized topics and necessary prerequisites. The Application accepts it only in consultation; old proposals and invalid wording keep the consultation fallback. Exchange and geometry fixtures preserve the original goal and check concrete outcomes. Confirmed in PostgreSQL that one correct open recognition answer credited a broad topic before the fix. Newly assessed question-scoped recognition now requires deeper evidence to close that topic. Older committed credits and observations remain intact. Demonstrated mastery already requires independent evidence; no separate mastery defect reproduced. OD-014 remains a structural limit: keep the flat 12-topic introductory route; hierarchical curricula deferred.
 
 Three integration and 32 rubric, program and model cases passed in Debug. Release PostgreSQL regression also verified the migration refuses lossy downgrade. Review covered tracked and stored completion queries, follow-up selection, checkpoint stamps and old-row defaults.
+
+### 2026-11-24 — OD-005, OD-006, OD-013
+
+Post-commit review of 11a6f20 checked recognition history and model compatibility. Confirmed the null user preference could accompany a choice schema without an explicit effective format. The provider input now distinguishes automatic and explicit requests from the selected response contract, including open fallbacks. Conditional teaching, transfer, project and shared-skill instructions are omitted for absent contexts. Existing checkpoint inputs and financial admission are unaffected. The expanded fake-HTTP fixtures failed on the old contract, then all 59 adapter tests passed in Release. The inventory documents operations, schemas, output caps and reasoning defaults. Two interrupted generations without measured successful output cannot support tuning generation token caps or attributing latency to prompt length. OD-005 latency explanation unconfirmed; OD-013 lower non-intent caps deferred.

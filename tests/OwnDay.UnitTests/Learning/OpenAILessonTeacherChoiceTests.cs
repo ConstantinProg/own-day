@@ -42,6 +42,30 @@ public sealed partial class OpenAILessonTeacherTests
     }
 
     [Theory]
+    [InlineData(ExerciseResponseFormat.ShortText, false)]
+    [InlineData(ExerciseResponseFormat.SingleChoice, true)]
+    [InlineData(ExerciseResponseFormat.MultipleChoice, true)]
+    public async Task GenerateAsync_ExplicitFormat_SelectsMatchingSchema(ExerciseResponseFormat format, bool allowsChoice)
+    {
+        using var handler = new ResponseHandler(JsonSerializer.Serialize(new
+        {
+            id = "format-test", model = "test", created = 1, @object = "chat.completion",
+            choices = new[] { new { index = 0, finish_reason = "stop",
+                message = new { role = "assistant", content = Generated("Context", "Explain the relationship.") } } }
+        }));
+        using var http = new HttpClient(handler);
+        var request = new LessonRequest("Arithmetic") { RequestedFormat = format };
+        await Teacher(http, new RecordingLogger()).GenerateAsync(request, default);
+        using var body = JsonDocument.Parse(handler.RequestBody!);
+        using var input = JsonDocument.Parse(body.RootElement.GetProperty("messages")[1].GetProperty("content").GetString()!);
+        Assert.Equal(format.ToString(), input.RootElement.GetProperty("EffectiveFormat").GetString());
+        var properties = body.RootElement.GetProperty("response_format").GetProperty("json_schema")
+            .GetProperty("schema").GetProperty("properties");
+        Assert.Equal(allowsChoice, properties.TryGetProperty("Choice", out _));
+        Assert.Equal(1, handler.Requests);
+    }
+
+    [Theory]
     [InlineData("valid", true)]
     [InlineData("duplicate", false)]
     [InlineData("ambiguous", false)]
@@ -121,6 +145,8 @@ public sealed partial class OpenAILessonTeacherTests
         Assert.Contains("For Foundation, assume no prior subject vocabulary", instructions);
         Assert.Contains("Use only terms introduced in Theory or everyday words in the exercise question and all answer options", instructions);
         using var input = JsonDocument.Parse(messages[1].GetProperty("content").GetString()!);
+        Assert.Equal(JsonValueKind.Null, input.RootElement.GetProperty("RequestedFormat").ValueKind);
+        Assert.Equal("SingleChoice", input.RootElement.GetProperty("EffectiveFormat").GetString());
         var context = input.RootElement.GetProperty("Program");
         Assert.Equal("Foundation", context.GetProperty("StartingLevel").GetString());
         Assert.Equal(program.Goal, context.GetProperty("Goal").GetString());

@@ -83,3 +83,20 @@ worker, plus target changes, planner/generator separation and source retrieval f
 Completion and the exact checks performed are recorded in the implementation log.
 Crash/unknown-attempt policy and public early-ack remain separate gates; neither is
 enabled by this inventory.
+
+## Effective provider contracts (November 2026)
+
+| Durable operation | Response contract | Output and reasoning |
+| --- | --- | --- |
+| intent | Allowed intent and bounded parameters | Smaller of 512 and configured maximum. Requests no reasoning on the supported luna model. |
+| plan / teach | Curriculum, consultation or diagnostic proposal / teaching action with rationale | Configured maximum; SDK/model default reasoning |
+| generate / generate_followup | Question-scoped open rubric, or choice plus an open fallback | Configured maximum; SDK/model default reasoning |
+| assess / explain / interpret_choice | Rubric or answer assessment / explanation / selected option IDs | Configured maximum; SDK/model default reasoning |
+
+The default general ceiling is 8192 tokens including reasoning. Admission still reserves the configured
+per-call amount. Automatic generation sends a null learner request and a concrete effective format.
+Explicit requests use the matching schema; the source guard can require an open exercise. The
+application accepts an explicit format change only when the returned material meets that format
+and the original evidence requirement. A guarded fallback uses the same response.
+Offline fixtures check schemas, truncation and publication guards. The available audit had no
+successful generation lengths or comparable latency distribution to justify smaller ceilings.
