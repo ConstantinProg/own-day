@@ -37,6 +37,12 @@ Start an investigation with `/export last`. Match the receipt and current reques
 
 New provider failures during subject diagnostics are recorded as `diagnostic_provider_unavailable`. Older `diagnostic_reply` outcomes may include provider failures because those requests used the same outcome code for both results.
 
+All export modes include `snapshot.userSettings` and `snapshot.llmBudget`. A persisted interface choice takes precedence. With no choice, the language resolved for the export receipt is the available observation. Tester-only receipt events can include the Telegram language observed on that update. Committed language changes use the ordinary change journal. Detailed keyboard entries carry a display label, type, and a semantic action when the callback is recognized for this owner.
+
+The budget covers the owner's current UTC month. Charged tokens include conservative reservations and carried totals. Recorded usage and known cost estimates cover retained rows only. Missing estimates and pending reservations are counted separately. Remaining owner calls and tokens exclude competing global limits and cannot guarantee admission.
+
+`currentState` counts all current owner requests. `requestCohort` counts requests received in the selected time window (and receipt for last mode). `selectedTimeline.severityErrorEvents` counts events. Timeout, cancellation and unknown-outcome counts identify distinct physical attempts within the selected events; these categories overlap. Rejected decisions count observed rejection events. Missing events can lower every timeline count.
+
 ## Deployment and limits
 
 Apply `20261122091000_AddDiagnosticJournalAndExports` to PostgreSQL before running the compatible application. Validate in staging with an authorized tester, an unfinished Learning request, and a controlled Telegram delivery failure. The rollback migration deletes export intents and diagnostic data.

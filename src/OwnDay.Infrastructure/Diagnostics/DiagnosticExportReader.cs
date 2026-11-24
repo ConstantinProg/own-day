@@ -59,11 +59,11 @@ internal sealed partial class DiagnosticExportReader(OwnDayDbContext db, TesterM
             using var zip = new ZipArchive(cappedOutput, ZipArchiveMode.Create, leaveOpen: true);
             await using var entry = zip.CreateEntry("diagnostics.json", CompressionLevel.Fastest).Open();
             using var cappedJson = new DiagnosticLimitedStream(entry, options.Value.MaxExportBytes);
-            await WriteDocumentAsync(cappedJson, transaction, job.Mode, owner, now, cutoff, receipt, requests, events, token);
+            await WriteDocumentAsync(cappedJson, transaction, job, owner, now, cutoff, receipt, requests, events, token);
         }
         else
         {
-            await WriteDocumentAsync(cappedOutput, transaction, job.Mode, owner, now, cutoff, receipt, requests, events, token);
+            await WriteDocumentAsync(cappedOutput, transaction, job, owner, now, cutoff, receipt, requests, events, token);
         }
         await transaction.CommitAsync(token);
         return new(job.Mode == DiagnosticExportMode.Full ? "ownday-diagnostics.zip" : "ownday-diagnostics.json", output.ToArray());
@@ -87,7 +87,7 @@ internal sealed partial class DiagnosticExportReader(OwnDayDbContext db, TesterM
         return new(acceptedUpdate.Correlation, requestId);
     }
 
-    private async Task WriteDocumentAsync(Stream stream, IDbContextTransaction transaction, DiagnosticExportMode mode,
+    private async Task WriteDocumentAsync(Stream stream, IDbContextTransaction transaction, DiagnosticExportJob job,
         UserId owner, DateTime now, DateTime cutoff, ExportReceipt? receipt, IQueryable<LearningRequest> requests,
         IQueryable<DiagnosticEvent> events, CancellationToken token)
     {
@@ -97,13 +97,21 @@ internal sealed partial class DiagnosticExportReader(OwnDayDbContext db, TesterM
         writer.WriteStartObject();
         Property(writer, "metadata", new
         {
-            schemaVersion = 1, mode, snapshotAtUtc = now, historyFromUtc = cutoff,
+            schemaVersion = 1, mode = job.Mode, snapshotAtUtc = now, historyFromUtc = cutoff,
             historyToUtc = now, ownerId = owner.Value, applicationVersion = version.Version, version.CommitSha,
             requestId = receipt?.RequestId, correlationId = receipt?.CorrelationId
         });
 
         writer.WriteStartObject("snapshot");
         var requestSlice = receipt is null ? requests : requests.Where(row => row.Id == receipt.RequestId);
+        await ValueAsync(writer, transaction, completeness, "userSettings", async () =>
+        {
+            var locale = await db.TelegramUserLanguages.Where(row => row.UserId == owner.Value)
+                .Select(row => row.Locale).SingleOrDefaultAsync(token);
+            return new { persistedLanguage = locale, effectiveLanguage = locale ?? (job.InRussian ? "ru" : "en"),
+                source = locale is null ? "export_receipt" : "persisted" };
+        }, token);
+        await ValueAsync(writer, transaction, completeness, "llmBudget", () => OwnerBudgetAsync(owner, now, token), token);
         await WriteSnapshotAsync(writer, transaction, completeness, owner, requestSlice, receipt?.CorrelationId, token);
         writer.WriteEndObject();
 
@@ -176,6 +184,31 @@ internal sealed partial class DiagnosticExportReader(OwnDayDbContext db, TesterM
         });
         writer.WriteEndObject();
         await writer.FlushAsync(token);
+    }
+
+    private async Task<object> OwnerBudgetAsync(UserId owner, DateTime now, CancellationToken token)
+    {
+        var start = new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+        var end = start.AddMonths(1);
+        var carried = await db.Set<OpenAIBudgetCarryover>().AsNoTracking().SingleOrDefaultAsync(row =>
+            row.UserId == owner.Value && row.Month == DateOnly.FromDateTime(start), token);
+        var usage = await db.OpenAIRequestAttempts.Where(row => row.UserId == owner.Value &&
+            row.StartedAt >= start && row.StartedAt < end).GroupBy(row => row.UserId).Select(rows => new
+            {
+                Calls = rows.LongCount(), Charged = rows.Sum(row => row.ChargedTokens),
+                RecordedTokens = rows.Sum(row => (long)(row.InputTokens ?? 0) + (row.OutputTokens ?? 0)),
+                PendingTokens = rows.Sum(row => row.FinishedAt == null ? row.ReservedTokens : 0),
+                MissingEstimate = rows.LongCount(row => row.EstimatedUsd == null),
+                KnownEstimateUsd = rows.Sum(row => row.EstimatedUsd ?? 0)
+            }).SingleOrDefaultAsync(token);
+        var charged = (usage?.Charged ?? 0) + (carried?.ChargedTokens ?? 0);
+        var calls = (usage?.Calls ?? 0) + (carried?.CallCount ?? 0);
+        return new { periodStartUtc = start, periodEndExclusiveUtc = end, calls, chargedTokens = charged,
+            retainedRecordedTokens = usage?.RecordedTokens ?? 0, pendingReservedTokens = usage?.PendingTokens ?? 0,
+            retainedCallsWithoutCostEstimate = usage?.MissingEstimate ?? 0, knownRetainedEstimateUsd = usage?.KnownEstimateUsd ?? 0,
+            carriedCalls = carried?.CallCount ?? 0, carryoverHasUnpricedCharges = carried?.HasUnknownCost ?? false,
+            remainingOwnerTokens = Math.Max(0, budget.Value.MonthlyUserTokenLimit - charged),
+            remainingOwnerCalls = Math.Max(0, budget.Value.MonthlyUserCallLimit - calls) };
     }
 
     private sealed record ExportReceipt(Guid CorrelationId, Guid? RequestId);
@@ -261,6 +294,13 @@ internal sealed partial class DiagnosticExportReader(OwnDayDbContext db, TesterM
 
     private sealed class TimelineSummary
     {
+        private readonly HashSet<Guid> _timeouts = [];
+        private readonly HashSet<Guid> _cancellations = [];
+        private readonly HashSet<Guid> _unknown = [];
+        public int TimedOutAttempts => _timeouts.Count;
+        public int CancelledAttempts => _cancellations.Count;
+        public int UnknownOutcomeAttempts => _unknown.Count;
+        public int SeverityErrorEvents => Errors;
         public int Events { get; private set; }
         public int Errors { get; private set; }
         public int Warnings { get; private set; }
@@ -273,6 +313,22 @@ internal sealed partial class DiagnosticExportReader(OwnDayDbContext db, TesterM
         internal void Count(DiagnosticEvent row)
         {
             Events++;
+            if (row.Category == "llm" && row.EntityId is { } attempt &&
+                row.Code is "provider_outcome_unknown" or "provider_attempt_finished" or "llm_call_failed")
+            {
+                using var data = JsonDocument.Parse(row.Data);
+                if (data.RootElement.TryGetProperty("fields", out var fields) && fields.ValueKind == JsonValueKind.Object)
+                {
+                    string? Field(string name) => fields.TryGetProperty(name, out var value) &&
+                        value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+                    if (Field("error") == "Timeout" || Field("cancellationSource") is "worker_deadline" or "caller_and_worker_deadline")
+                        _timeouts.Add(attempt);
+                    if (Field("status") == "cancelled" || Field("cancellationSource") is not null)
+                        _cancellations.Add(attempt);
+                    if (row.Code == "provider_outcome_unknown" || Field("status") is "cancelled" or "outcome_unknown")
+                        _unknown.Add(attempt);
+                }
+            }
             if (row.Severity == "error") Errors++;
             if (row.Severity == "warning") Warnings++;
             if (row.Code is "request_reclaimed" or "provider_retry_scheduled" or "telegram_retry_scheduled") Retries++;

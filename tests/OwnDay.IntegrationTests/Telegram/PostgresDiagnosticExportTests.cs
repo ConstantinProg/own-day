@@ -69,8 +69,26 @@ public sealed partial class PostgresTesterModeTests
         {
             SeedLearning(db, Tester, "My private goal");
             SeedLearning(db, Other, "Someone else's private goal");
+            db.TelegramUserLanguages.Add(new() { UserId = Other.Value, Locale = "ru" });
+            var attempt = new LearningProviderAttempt { RequestId = completed.Id, Ordinal = 0,
+                Number = 1, LeaseToken = Guid.NewGuid(), StartedAt = now };
+            db.Add(new LearningProviderStep { RequestId = completed.Id, Ordinal = 0,
+                Kind = "generate", Input = "{}", Fingerprint = "fixture", TargetStamp = "fixture" });
+            db.Add(attempt);
+            db.OpenAIRequestAttempts.Add(new() { Id = Guid.NewGuid(), UserId = Tester.Value, Model = "fixture",
+                LearningProviderAttemptId = attempt.Id, StartedAt = now, ReservedTokens = 100, ChargedTokens = 100 });
+            db.Add(new OpenAIBudgetCarryover { UserId = Other.Value, Month = DateOnly.FromDateTime(now),
+                CallCount = 3, ChargedTokens = 999 });
             db.AddRange(latest, completed);
-            db.AddRange(ids.Select(id => Event(id, Tester.Value, now.AddMinutes(-1), latest.Id)));
+            db.AddRange(ids.Select((id, index) =>
+            {
+                var row = Event(id, Tester.Value, now.AddMinutes(-1), latest.Id);
+                return index < 101 ? row : row with
+                {
+                    Category = "llm", EntityId = attempt.Id, Code = "provider_outcome_unknown", Severity = "warning",
+                    Data = """{"fields":{"status":"unknown","cancellationSource":"worker_deadline"}}"""
+                };
+            }));
             db.AddRange(Event(Guid.NewGuid(), Tester.Value, now.AddHours(-25), latest.Id),
                 Event(Guid.NewGuid(), Tester.Value, now.AddDays(-31), latest.Id),
                 Event(Guid.NewGuid(), Other.Value, now.AddMinutes(-1), latest.Id, "other_owner_secret"));
@@ -83,6 +101,15 @@ public sealed partial class PostgresTesterModeTests
         using (var json = JsonDocument.Parse(recent.Bytes!))
         {
             var rows = json.RootElement.GetProperty("timeline").EnumerateArray().ToArray();
+            var timeline = json.RootElement.GetProperty("summary").GetProperty("selectedTimeline");
+            Assert.Equal(1, timeline.GetProperty("timedOutAttempts").GetInt32());
+            Assert.Equal(1, timeline.GetProperty("unknownOutcomeAttempts").GetInt32());
+            var snapshot = json.RootElement.GetProperty("snapshot");
+            Assert.Equal("export_receipt", snapshot.GetProperty("userSettings").GetProperty("source").GetString());
+            var budget = snapshot.GetProperty("llmBudget");
+            Assert.Equal(1, budget.GetProperty("calls").GetInt64());
+            Assert.Equal(100, budget.GetProperty("pendingReservedTokens").GetInt64());
+            Assert.Equal(1, budget.GetProperty("retainedCallsWithoutCostEstimate").GetInt64());
             Assert.Equal(100, rows.Length);
             Assert.Equal(ids.Skip(3), rows.Select(row => row.GetProperty("id").GetGuid()));
             var counts = json.RootElement.GetProperty("summary").GetProperty("currentState").GetProperty("requests");

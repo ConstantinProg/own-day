@@ -354,6 +354,11 @@ public sealed partial class LearningRequestRunner(IServiceScopeFactory scopes, I
                 {
                     decision.Context.Phase, decision.Context.ExpectedResponse, decision.Context.Revision, decision.Context.PromptId,
                     originalRequestId = decision.Audit?.OriginalRequestId,
+                    consultation = decision.Creation is { } draft ? new
+                    {
+                        goal = filter?.Filter(draft.Goal), practicalUse = filter?.Filter(draft.PracticalUse),
+                        criterion = filter?.Filter(draft.GoalCriterion), source = "consultation_user_input"
+                    } : null,
                     arguments = filter?.Filter(decision.Arguments), audit = filter?.Json(audit)
                 };
             });

@@ -15,6 +15,7 @@ internal static class DiagnosticStateChanges
 {
     private static readonly Dictionary<Type, (string Category, string[] Fields)> Tracked = new()
     {
+        [typeof(TelegramUserLanguage)] = ("settings", [nameof(TelegramUserLanguage.Locale)]),
         [typeof(DialogueContext)] = ("dialogue", [nameof(DialogueContext.Phase), nameof(DialogueContext.Revision),
             nameof(DialogueContext.ExpectedResponse), nameof(DialogueContext.PromptId),
             nameof(DialogueContext.TargetLessonId),

@@ -226,8 +226,13 @@ public sealed class TelegramUpdateHandler : ITelegramUpdateHandler
     private async Task HandleUserUpdateAsync(Update update, TelegramUpdateRouteResult route, UserId user, Guid correlation, DateTime now,
         long started, IDbContextTransaction transaction, CancellationToken cancellationToken)
     {
-        var (locale, isExplicit) = await _languageFlow.ResolveAsync(user,
-            update.Message?.From?.LanguageCode ?? update.CallbackQuery?.From.LanguageCode, cancellationToken);
+        var clientLanguage = update.Message?.From?.LanguageCode ?? update.CallbackQuery?.From.LanguageCode;
+        var (locale, isExplicit) = await _languageFlow.ResolveAsync(user, clientLanguage, cancellationToken);
+        _journal?.Write("settings", "reply_language_resolved", detail: () => new
+        {
+            locale, source = isExplicit ? "persisted" : clientLanguage is null ? "default" : "telegram_update",
+            telegramLanguage = _diagnosticText?.Filter(clientLanguage)
+        });
         if (route is TelegramUpdateRouteResult.Dispatch { Command.Name: "settings" or "language" } settings)
         {
             var command = settings.Command;

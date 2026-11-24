@@ -74,6 +74,18 @@ public sealed class DiagnosticJournalTests
     }
 
     [Fact]
+    public void Keyboard_RenderedNavigation_ExportsDisplayLabelAndSafeAction()
+    {
+        var text = new DiagnosticText(Options.Create(new TelegramOptions()), Options.Create(new OpenAIInboxAnalysisOptions()));
+        var markup = OwnDay.Infrastructure.Telegram.Handling.TelegramNavigation.Keyboard("start", "en");
+        var button = JsonSerializer.SerializeToElement(text.Keyboard(markup))[0][0];
+        Assert.False(string.IsNullOrWhiteSpace(button.GetProperty("text").GetString()));
+        Assert.Equal("callback", button.GetProperty("kind").GetString());
+        Assert.Equal("list", button.GetProperty("action").GetString());
+        Assert.DoesNotContain("nav:", button.GetRawText());
+    }
+
+    [Fact]
     public async Task WriteAsync_ExceedsLimit_RejectsWithoutWritingPastLimit()
     {
         using var destination = new MemoryStream();

@@ -124,6 +124,16 @@ public sealed partial class OpenAILessonTeacher(Func<ChatClient> createClient, I
             "Use a fresh hypothetical scenario about the underlying market concept. Do not assert current market rules, codes, prices or dates, cite an unverified source, or recommend a personal transaction. ";
         var targetKind = EvidenceKind(request);
         var preferredChoice = fact == MarketFactRequest.None && source is null ? request.PreferredChoice : null;
+        journal?.Write("learning", "generation_policy_selected", new(Kind: "generate"),
+            entity: DiagnosticJournal.Active?.Invocation, detail: () => new
+            {
+                requestedFormat = request.RequestedFormat?.ToString(), applicationChoice = request.PreferredChoice?.ToString(),
+                responseSchema = preferredChoice is null ? "open" : "choice",
+                formatSource = request.RequestedFormat is null ? "automatic" : "user_request",
+                sourceRequiresOpen = fact != MarketFactRequest.None || source is not null,
+                startingLevel = request.Program?.StartingLevel?.ToString(), teachingAction = request.Teaching?.Action.ToString(),
+                teachingReason = diagnosticText?.Filter(request.Teaching?.Reason), evidenceKind = targetKind.ToString()
+            });
         var lessonInstructions = request.IsReview
             ? "Check the existing skill in a new application scenario with one fresh retrieval question. Keep Theory to brief context without revealing the answer or reteaching the skill. "
             : "For Foundation, assume no prior subject vocabulary for a new topic. Introduce the concept and each essential term in Theory with an everyday definition before relying on it. " +

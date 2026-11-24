@@ -69,15 +69,15 @@ Acceptance: a fake generation exceeding 15 s but within the effective budget suc
 
 ## 5. Stage 2 --- Diagnostic completeness
 
-Status: Pending. Depends on stage 1. Issues: OD-007, OD-009, OD-010, OD-011, OD-012.
+Status: Completed. Depends on stage 1. Issues: OD-007, OD-009, OD-010, OD-011, OD-012.
 
--   [ ] Reproduce missing inline button labels; export actual display labels, type, semantic action and safe context reference where available. Exclude raw signed callbacks, credentials and signing material. Verify normal mode remains metadata-only.
--   [ ] Instrument actual Application decision reasons for goal/strategy, diagnostic selection, level, exercise format and relevant guards. Record only reasons genuinely used; distinguish deterministic rules, user input and LLM proposals. Do not capture hidden reasoning or fabricate rationale.
--   [ ] Add `userSettings` snapshot: persisted language, effective language and source, Telegram language only when actually available with provenance. Capture safe language-change events; do not reconstruct unavailable historical settings.
--   [ ] Add owner-scoped `llmBudget` snapshot from existing ledger: period, recorded usage, reservations, unknown-cost calls and remaining allowance when computable. Distinguish global limits from owner usage; do not disclose other owners' data. Unknown cost must not become zero cost.
--   [ ] Clarify summary counters: severity errors, failed requests, timeouts, cancellations, unknown outcomes and rejected decisions. Define denominator and scope for current state, request cohort and selected timeline; do not double-count correlated events as operations.
--   [ ] Review export schema compatibility; use additive fields or an explicit version change as appropriate. Update documentation and all three export modes. Preserve snapshot consistency, best-effort journal disclosure, retention, resource limits, authorization and reset fencing.
--   [ ] Add tests for detailed/normal capture, redaction, owner isolation, partial sections, budget unknowns, summary counting, language changes and export schema.
+-   [x] Reproduce missing inline button labels; export actual display labels, type, semantic action and safe context reference where available. Exclude raw signed callbacks, credentials and signing material. Verify normal mode remains metadata-only.
+-   [x] Instrument actual Application decision reasons for goal/strategy, diagnostic selection, level, exercise format and relevant guards. Record only reasons genuinely used; distinguish deterministic rules, user input and LLM proposals. Do not capture hidden reasoning or fabricate rationale.
+-   [x] Add `userSettings` snapshot: persisted language, effective language and source, Telegram language only when actually available with provenance. Capture safe language-change events; do not reconstruct unavailable historical settings.
+-   [x] Add owner-scoped `llmBudget` snapshot from existing ledger: period, recorded usage, reservations, unknown-cost calls and remaining allowance when computable. Distinguish global limits from owner usage; do not disclose other owners' data. Unknown cost must not become zero cost.
+-   [x] Clarify summary counters: severity errors, failed requests, timeouts, cancellations, unknown outcomes and rejected decisions. Define denominator and scope for current state, request cohort and selected timeline; do not double-count correlated events as operations.
+-   [x] Review export schema compatibility; use additive fields or an explicit version change as appropriate. Update documentation and all three export modes. Preserve snapshot consistency, best-effort journal disclosure, retention, resource limits, authorization and reset fencing.
+-   [x] Add tests for detailed/normal capture, redaction, owner isolation, partial sections, budget unknowns, summary counting, language changes and export schema.
 
 Acceptance: a synthetic failed-generation journey can be investigated from export alone without guessing the cancellation source; labels, settings, actual decision reasons and budget state are available where supported. No sensitive payload leakage or cross-owner disclosure.
 
@@ -125,7 +125,7 @@ Acceptance: first lesson generation and the real learning journey are verified, 
   Stage   Status    Verification evidence   Remaining blockers
   ------- --------- ----------------------- ----------------------------
   1       Completed   PostgreSQL slow call and recovery   Operator smoke pending
-  2       Pending   ---                     ---
+  2       Completed   See dated verification entry below
   3       Pending   ---                     ---
   4       Pending   ---                     ---
   5       Pending   ---                     Operator/test bot required
@@ -137,3 +137,9 @@ For each completed stage append: date, issue IDs and disposition, changed files/
 Confirmed the 15 s outer cap, 30 s lease and generic assessment reply on generation failure. The historical cancellation source remains unknown. Default worker budget is now 75 s including admission and source I/O; the adapter retains 60 s. Attempt admission extends the fenced lease for the call plus the ordinary lease period. Timeout, caller cancellation, transport ambiguity and a stale lease have separate evidence; a lost lease is discovered at a DB fence. Reclaim does not replay a recorded ambiguous attempt. No migration. An explicit new command uses ordinary owner and freshness checks.
 
 Release build passed with zero warnings. Seven focused PostgreSQL cases passed, including a 16 s generation with a competing claim, a non-cooperative adapter, uncertain/retryable failures and lease loss. The original sandboxed red run failed to produce a test result; baseline limits were verified in source. Review found the recovery admission path could retry recorded cancellations and the adapter could retry an ambiguous transport failure; both corrected. Production smoke requires the operator.
+
+### 2026-11-24 — OD-007, OD-009–012
+
+Post-commit review of b83b9ab checked fenced admission, reconciliation and failure paths. OD-007 reproduced before the fix with TelegramNavigation's actual serialized markup. Button field casing differs from raw Bot API JSON. Detailed capture now accepts both shapes and exports verified action metadata. Settings resolution, committed language changes, consultation inputs and the effective generation policy are observable; historical Telegram language and hidden model reasons are unavailable. Schema 1 additions use the existing read-only snapshot, redaction and owner fence. Monthly quota uses both retained attempts and carryover. Selected timeline attempt counts deduplicate by physical ID.
+
+Seven diagnostic unit tests passed in Release. All 15 PostgreSQL tester/export tests passed in Debug, including a synthetic worker deadline, both owners and all three modes. Review caught a missing financial source FK in the fixture; the corrected fixture uses a real provider attempt. No migration. Full real-provider diagnostic acceptance is pending.
