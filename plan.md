@@ -1,6 +1,6 @@
 # OwnDay --- Post-audit implementation plan
 
-Status: In Progress\
+Status: Blocked (operator acceptance)\
 Baseline: OwnDay 0.4.0, commit `0939d147fb04e6591fd0192721f912ab7caa4567`\
 Evidence: `ownday-diagnostics.zip`, snapshot 2026-11-23 14:54:45 UTC, schema 1.
 
@@ -108,10 +108,10 @@ Acceptance: unambiguous format contracts, passing regression fixtures, no loss o
 
 ## 8. Stage 5 --- End-to-end acceptance and second audit
 
-Status: Pending; external operator gate. Depends on stages 1--4.
+Status: Blocked; automated gates passed. A test bot, operator session and private exports are required. Depends on stages 1--4.
 
--   [ ] Run full build and test suite, including PostgreSQL integration tests per repository instructions. Record skipped tests and reasons.
--   [ ] Review architecture, migration compatibility, deployment and rollback procedure, pending provider checkpoints and queue drain requirements. Prepare deployment instructions; do not deploy automatically.
+-   [x] Run full build and test suite, including PostgreSQL integration tests per repository instructions. Record skipped tests and reasons.
+-   [x] Review architecture, migration compatibility, deployment and rollback procedure, pending provider checkpoints and queue drain requirements. Prepare deployment instructions; do not deploy automatically.
 -   [ ] Operator: deploy to a test bot, enable Tester Mode, create a new program and successfully generate its first lesson.
 -   [ ] Operator: complete 10--20 exercises with correct, partially correct and incorrect answers; request explanations/hints, pause/resume, change topic, inspect reviews and switch language. Include keyboard/NVDA checks and restart recovery where feasible.
 -   [ ] Operator: obtain `/export`, `/export recent`, `/export last`; provide archives for follow-up analysis. Keep diagnostic files private and outside version control.
@@ -122,13 +122,13 @@ Acceptance: first lesson generation and the real learning journey are verified, 
 
 ## 9. Progress ledger
 
-  Stage   Status    Verification evidence   Remaining blockers
-  ------- --------- ----------------------- ----------------------------
-  1       Completed   PostgreSQL slow call and recovery   Operator smoke pending
-  2       Completed   See dated verification entry below
-  3       Completed   See dated verification entry below
-  4       Completed   See dated verification entry below
-  5       Pending   ---                     Operator/test bot required
+| Stage | Status | Implementation commits | Remaining gate |
+| --- | --- | --- | --- |
+| 1 | Completed | `b83b9ab`, `1e7e73a` | Real-provider first lesson |
+| 2 | Completed | `9f1bc9e`, `1e7e73a` | Inspect private operator exports |
+| 3 | Completed | `11a6f20` | Live pedagogical quality |
+| 4 | Completed | `3c28315` | Comparable production-like usage and timing |
+| 5 | Blocked | See local verification and operator procedure below | Test bot and operator journey |
 
 For each completed stage append: date, issue IDs and disposition, changed files/migrations, test commands and results, deviations, residual risks, manual checks, recommended Conventional Commit message. Keep the original findings traceable. Do not commit the diagnostic archive or its raw contents.
 
@@ -136,7 +136,7 @@ For each completed stage append: date, issue IDs and disposition, changed files/
 
 Confirmed the 15 s outer cap, 30 s lease and generic assessment reply on generation failure. The historical cancellation source remains unknown. Default worker budget is now 75 s including admission and source I/O; the adapter retains 60 s. Attempt admission extends the fenced lease for the call plus the ordinary lease period. Timeout, caller cancellation, transport ambiguity and a stale lease have separate evidence; a lost lease is discovered at a DB fence. Reclaim does not replay a recorded ambiguous attempt. No migration. An explicit new command uses ordinary owner and freshness checks.
 
-Release build passed with zero warnings. Seven focused PostgreSQL cases passed, including a 16 s generation with a competing claim, a non-cooperative adapter, uncertain/retryable failures and lease loss. The original sandboxed red run failed to produce a test result; baseline limits were verified in source. Review found the recovery admission path could retry recorded cancellations and the adapter could retry an ambiguous transport failure; both corrected. Production smoke requires the operator.
+Release build passed with zero warnings. Seven focused PostgreSQL cases passed, including a 16 s generation with a competing claim, a non-cooperative adapter, uncertain/retryable failures and lease loss. The initial sandboxed red run produced no result. A later isolated checkout of 0939d14 reproduced the failure: with the original 30 s lease and a 16 s fake call there were zero lessons. The candidate commits one lesson even with a 10 s ordinary lease. Review found the recovery admission path could retry recorded cancellations and the adapter could retry an ambiguous transport failure; both corrected. Production smoke requires the operator.
 
 ### 2026-11-24 — OD-007, OD-009–012
 
@@ -161,3 +161,35 @@ Post-commit review of 11a6f20 checked recognition history and model compatibilit
 Review of 3c28315 and of the aggregate change found two Major issues. The original semaphore shutdown check could race with slot acquisition or final release, and the prepared Application selection reasons were lost before provider execution. The admission gate now serializes shutdown with acquisition and release. Preparation reports the actual format branch and starting-level source separately from adapter schema selection; these fields do not affect persisted fingerprints or provider input. Additional corrections distinguish the hosted stopping token from another caller and an observed deadline from a transport cancellation. The budget now includes pending known USD reservations and the number lacking a price.
 
 A synthetic private Telegram first-lesson request traversed durable ingress, real PostgreSQL admission, a deadline-aware fake provider, guarded completion, journal flush and last-receipt export. The resulting export identified the worker deadline, format reason and unknown cost. It contained one saved program, no lesson and the contextual retry instruction. The final focused Release run passed 4 PostgreSQL and 65 unit cases. Release solution build passed with zero warnings and zero errors.
+
+### Operator procedure for the test bot
+
+1. Record the current image, effective worker and adapter limits, queue age and a restorable database backup. Stop new Learning receipts and allow the current compatible worker to finish. Check ready/running counts, outstanding physical attempts, financial reservations and pending outbox intents. An uncertain provider outcome must remain attributable to its original attempt. Retain the deduplication and applied-operation records.
+2. On the test bot, apply `20261124140000_RecordRecognitionOnlyLessons` before starting the new worker. Check for an explicit `Learning:Processing:ProviderTimeoutSeconds=15` override: installing the binary does not change explicit settings. The tested defaults are 75 seconds for the full call and 60 seconds for OpenAI. Keep a single active delivery topology. Reopen ingress after startup and readiness checks pass.
+3. Authorize Tester Mode in a private chat. Create the exchange/beginner program and generate its first lesson. Confirm one lesson, one request completion, usable buttons and a visible criterion matching the practical goal. Complete the exercise, language, accessibility and restart journey listed above. Record observed output quality and turnaround per operation, including failures.
+4. Collect the last, recent and full exports privately. Compare owner, request, invocation, outbox, interval and event completeness before interpreting differences. Match evidence and topic progress to specific answers and help received. Compare reserved and observed usage separately. Record the model, effective ceilings and sample sizes alongside timings.
+5. For rollback, pause ingress and drain using a compatible consumer. Existing step inputs and old nullable consultation proposals are readable. Once any recognition-only assessment exists, an older reader can grant incorrect credit and the down migration refuses to discard the marker. Use a compatible forward fix or a separately rehearsed backup restore with explicit reconciliation of post-backup requests and deliveries.
+
+The operator procedure has not been executed here. The original private archive is described by the input plan; no private archive was checked into Git.
+
+### Comparable offline generation fixture
+
+Measured the actual outgoing fake-HTTP request for the same valid single-choice foundation arithmetic case in isolated source copies of `0939d14` and `1e7e73a`. The scripted response and runtime were the same. All eight choice validation cases passed on each revision.
+
+| Metric | Baseline | Candidate |
+| --- | ---: | ---: |
+| System prompt UTF-8 bytes | 7,941 | 6,460 |
+| Serialized user input UTF-8 bytes | 1,033 | 1,066 |
+| Complete HTTP JSON body UTF-8 bytes | 10,937 | 9,493 |
+| Physical calls | 1 | 1 |
+| Published format | SingleChoice | SingleChoice |
+
+The extra user-input field carries the effective format. These measurements concern serialized bytes and publication guards. They provide no measured real-provider latency, token consumption, cost or pedagogical-quality delta.
+
+### 2026-11-24 — final local verification and external blockers
+
+- Baseline `0939d14`; implementation commits are listed in the ledger. `git show --check` was run at each commit. The cumulative diff was checked against the baseline and reviewed across the durable queue, fiscal ledger, migrations, Domain transitions, language handling and export paths. Changed file lists are available with `git show --stat <commit>`.
+- `dotnet restore OwnDay.slnx` succeeded. Final `dotnet build OwnDay.slnx -c Release --no-restore -m:1 -p:BaseOutputPath=bin/audit/` succeeded with zero warnings and errors. A separate ignored output folder allowed the reviewed Release assemblies to be tested independently of an earlier test process.
+- With an isolated PostgreSQL 18 database and fake provider/Telegram services, `dotnet test OwnDay.slnx -c Release --no-build -m:1 -p:BaseOutputPath=bin/audit/` passed **566 integration and 899 unit tests**, with **zero failures**. Two paid OpenAI smoke tests and the opt-in live MOEX source check were skipped. The MOEX fixture tests ran offline. Superseded runs during iteration are not included in the final counts.
+- Architecture review verified Host → Application/Infrastructure, Infrastructure → Application and Application → Domain project references. The financial and request checkpoints keep their own transactions; domain mutation and outbound intent stay behind guarded apply. No unresolved Critical or Major findings from local review. The new migration preserves existing credits and refuses lossy downgrade after the marker is used.
+- External gate: real Telegram/provider delivery of the first lesson, 10–20 exercises, hints, pause/resume, review, language, keyboard/NVDA and restart recovery. The follow-up audit and any resulting defect register require the three private exports from that run. The deployment and rollback procedure above is prepared for the operator. No push, merge, release, deployment or paid provider invocation occurred.
